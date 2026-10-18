@@ -38,7 +38,7 @@ test('importar a fatura: criar em lote, confirmar o total da parcela 1/2 e bater
   await expect(page.getByText('Nubank Import').first()).toBeVisible();
 
   await page.getByRole('link', { name: 'Importar fatura (OFX)' }).click();
-  await page.getByLabel('Arquivo OFX da fatura').setInputFiles({
+  await page.getByLabel('Arquivo da fatura (OFX ou CSV)').setInputFiles({
     name: 'Nubank_fatura.ofx',
     mimeType: 'application/x-ofx',
     buffer: shiftedFixture(),
@@ -62,7 +62,7 @@ test('importar a fatura: criar em lote, confirmar o total da parcela 1/2 e bater
 
   // reimportar o mesmo arquivo é bloqueado
   await page.getByRole('link', { name: 'Importações' }).click();
-  await page.getByLabel('Arquivo OFX da fatura').setInputFiles({
+  await page.getByLabel('Arquivo da fatura (OFX ou CSV)').setInputFiles({
     name: 'Nubank_fatura.ofx',
     mimeType: 'application/x-ofx',
     buffer: shiftedFixture(),

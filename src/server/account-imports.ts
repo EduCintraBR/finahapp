@@ -5,14 +5,26 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import type { AnyDB } from '@/db/client';
-import { categories, creditCards, importBatches, importLines, transactions, users } from '@/db/schema';
-import { checkNotBeforeOpening } from '@/domain/account/rules';
+import {
+  bankAccounts,
+  categories,
+  creditCards,
+  importBatches,
+  importLines,
+  transactions,
+  users,
+} from '@/db/schema';
+import { backfillBlockMessage, type BackfillPlan, planBackfill } from '@/domain/account/backfill';
+import { formatDateBR, type ISODate } from '@/domain/dates';
+import type { Cents } from '@/domain/money';
 import { assignMatches, type MatchCandidate } from '@/domain/reconciliation/matching';
 import { classifyAccountLine, type AccountLine, type AccountLineKind } from '@/importers/nubank-account';
 import { suggestCategory } from '@/importers/nubank-card';
-import { decodeOfx, OfxError, parseOfx } from '@/importers/ofx';
+import { OfxError } from '@/importers/ofx';
+import { readStatement } from '@/importers/statement';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
+import { updateOpeningBalance } from './account-settings';
 import { confirmPayment, createEntry, getPrimaryAccount } from './entries';
 import { closeIfDone } from './imports';
 import { payInvoice } from './invoice-ops';
@@ -34,37 +46,111 @@ const OUT_KINDS = [
 ] as const;
 const IN_KINDS = ['INCOME', 'TRANSFER_IN', 'ADJUSTMENT_IN'] as const;
 
-export async function importAccountStatement(
-  ctx: ServiceCtx,
-  input: { fileName: string; bytes: Uint8Array },
-): Promise<{ batchId: string; inserted: number; skipped: number }> {
-  if (input.bytes.byteLength === 0) throw new UserError('O arquivo está vazio.');
-  if (input.bytes.byteLength > 900_000) throw new UserError('Arquivo grande demais (máx. 900 KB).');
-  const sha = createHash('sha256').update(input.bytes).digest('hex');
+function readAccountFile(bytes: Uint8Array) {
+  if (bytes.byteLength === 0) throw new UserError('O arquivo está vazio.');
+  if (bytes.byteLength > 900_000) throw new UserError('Arquivo grande demais (máx. 900 KB).');
   let statement;
   try {
-    statement = parseOfx(decodeOfx(input.bytes));
+    statement = readStatement(bytes, 'BANK');
   } catch (err) {
     if (err instanceof OfxError) throw new UserError(err.message);
     throw err;
   }
   if (statement.account !== 'BANK')
-    throw new UserError('Este OFX é de cartão de crédito: importe pela tela do cartão.');
+    throw new UserError('Este arquivo é de cartão de crédito: importe pela tela do cartão.');
+  return statement;
+}
+
+type Anchor = { id: string; openingBalanceDate: ISODate; openingBalanceCents: Cents };
+
+/** O saldo inicial atual da conta principal (a âncora do saldo, D44). */
+async function loadAnchor(db: AnyDB | Tx): Promise<Anchor> {
+  const [a] = await (db as AnyDB)
+    .select({
+      id: bankAccounts.id,
+      openingBalanceDate: bankAccounts.openingBalanceDate,
+      openingBalanceCents: bankAccounts.openingBalanceCents,
+    })
+    .from(bankAccounts)
+    .where(and(eq(bankAccounts.isPrimary, true), isNull(bankAccounts.archivedAt)));
+  if (!a) throw new UserError('A conta principal ainda não foi configurada (rode o seed).');
+  return a;
+}
+
+const planOf = (statement: ReturnType<typeof readAccountFile>, anchor: Anchor) =>
+  planBackfill({
+    openingDate: anchor.openingBalanceDate,
+    openingCents: anchor.openingBalanceCents,
+    fileStart: statement.periodStart,
+    fileEnd: statement.periodEnd,
+    ledgerCents: statement.ledgerBalanceCents,
+    lines: statement.transactions.map((t) => ({ date: t.date, signedCents: t.amountCents })),
+  });
+
+export type AccountBackfillPreview = {
+  plan: BackfillPlan;
+  oldDate: ISODate;
+  oldOpeningCents: Cents;
+  fileStart: ISODate | null;
+  fileEnd: ISODate | null;
+  ledgerCents: Cents | null;
+};
+
+/**
+ * D50: o arquivo tem lançamentos anteriores ao início do controle? Devolve o plano de recuo (data e saldo
+ * inicial novos, calculados do próprio arquivo, e a conferência com o saldo atual). Não grava nada.
+ */
+export async function previewAccountBackfill(
+  ctx: ServiceCtx,
+  input: { bytes: Uint8Array },
+): Promise<AccountBackfillPreview | null> {
+  const statement = readAccountFile(input.bytes);
+  const anchor = await loadAnchor(ctx.db);
+  const plan = planOf(statement, anchor);
+  if (!plan) return null;
+  return {
+    plan,
+    oldDate: anchor.openingBalanceDate,
+    oldOpeningCents: anchor.openingBalanceCents,
+    fileStart: statement.periodStart,
+    fileEnd: statement.periodEnd,
+    ledgerCents: statement.ledgerBalanceCents,
+  };
+}
+
+export async function importAccountStatement(
+  ctx: ServiceCtx,
+  input: {
+    fileName: string;
+    bytes: Uint8Array;
+    /** confirmou recuar o início do controle (D50) */ backfill?: boolean;
+  },
+): Promise<{ batchId: string; inserted: number; skipped: number }> {
+  const statement = readAccountFile(input.bytes);
+  const sha = createHash('sha256').update(input.bytes).digest('hex');
 
   return ctx.db.transaction(async (tx) => {
-    const account = await getPrimaryAccount(tx);
+    let account = await loadAnchor(tx);
     const [dup] = await tx
       .select({ id: importBatches.id })
       .from(importBatches)
       .where(eq(importBatches.fileSha256, sha));
     if (dup) throw new UserError('Este arquivo já foi importado.');
-    const early = statement.transactions.find((t) =>
-      checkNotBeforeOpening(t.date, account.openingBalanceDate),
-    );
-    if (early) {
-      throw new UserError(
-        `${checkNotBeforeOpening(early.date, account.openingBalanceDate)} O arquivo tem lançamentos de ${early.date.split('-').reverse().join('/')}. Exporte a partir do início do controle.`,
+    // D50: lançamentos anteriores ao início do controle só entram recuando a âncora do saldo, com confirmação
+    const plan = planOf(statement, account);
+    if (plan) {
+      if (!input.backfill) {
+        throw new UserError(
+          `Este arquivo tem lançamentos anteriores ao início do controle (${formatDateBR(account.openingBalanceDate)}). Confirme o recuo do início para importar.`,
+        );
+      }
+      const blocked = backfillBlockMessage(plan, account.openingBalanceDate);
+      if (blocked) throw new UserError(blocked);
+      await updateOpeningBalance(
+        { ...ctx, db: asTx(tx) },
+        { amount: plan.newOpeningCents, date: plan.newDate, reason: 'D50' },
       );
+      account = { ...account, openingBalanceDate: plan.newDate, openingBalanceCents: plan.newOpeningCents };
     }
 
     const owners = (await tx.select({ name: users.name }).from(users)).map(
@@ -85,7 +171,7 @@ export async function importAccountStatement(
       .insert(importBatches)
       .values({
         kind: 'BANK_STATEMENT',
-        format: 'OFX',
+        format: statement.format,
         fileName: input.fileName.slice(0, 255),
         fileSha256: sha,
         bankAccountId: account.id,
@@ -126,7 +212,13 @@ export async function importAccountStatement(
       entity: 'import_batches',
       entityId: batch!.id,
       action: 'CREATE',
-      after: { fileName: input.fileName, sha, inserted, skipped: statement.transactions.length - inserted },
+      after: {
+        fileName: input.fileName,
+        sha,
+        inserted,
+        skipped: statement.transactions.length - inserted,
+        ...(plan ? { backfill: { newDate: plan.newDate, newOpeningCents: plan.newOpeningCents } } : {}),
+      },
     });
     await closeIfDone(tx, batch!.id);
     return { batchId: batch!.id, inserted, skipped: statement.transactions.length - inserted };
@@ -334,6 +426,16 @@ export async function createFromAccountLine(ctx: ServiceCtx, lineId: string, inp
       after: { transactionId, kind: input.kind },
     });
     await closeIfDone(tx, line.batchId);
+  });
+}
+
+/** Recalcula as sugestões das linhas pendentes (ex.: depois de importar a fatura que o pagamento quitou). */
+export async function refreshAccountSuggestions(ctx: ServiceCtx, batchId: string) {
+  await ctx.db.transaction(async (tx) => {
+    const [b] = await tx.select().from(importBatches).where(eq(importBatches.id, batchId)).for('update');
+    if (!b || b.kind !== 'BANK_STATEMENT' || !b.bankAccountId)
+      throw new UserError('Importação não encontrada.');
+    await suggestAccountMatches(tx, batchId, b.bankAccountId);
   });
 }
 

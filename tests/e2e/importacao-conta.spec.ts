@@ -32,7 +32,7 @@ test('importar o extrato da conta: criar em lote, pagamento de fatura e transfer
 
   await page.goto('/lancamentos');
   await page.getByRole('link', { name: 'Importar extrato (OFX)' }).click();
-  await page.getByLabel('Arquivo OFX do extrato').setInputFiles({
+  await page.getByLabel('Arquivo do extrato (OFX ou CSV)').setInputFiles({
     name: 'NU_conta.ofx',
     mimeType: 'application/x-ofx',
     buffer: shiftedFixture(),
@@ -76,7 +76,7 @@ test('importar o extrato da conta: criar em lote, pagamento de fatura e transfer
 
   // mesmo arquivo de novo: bloqueado
   await page.goto('/lancamentos/importar');
-  await page.getByLabel('Arquivo OFX do extrato').setInputFiles({
+  await page.getByLabel('Arquivo do extrato (OFX ou CSV)').setInputFiles({
     name: 'NU_conta.ofx',
     mimeType: 'application/x-ofx',
     buffer: shiftedFixture(),

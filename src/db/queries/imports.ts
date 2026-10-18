@@ -100,6 +100,7 @@ export async function getImportReview(db: AnyDB, batchId: string) {
     payload: r.rawPayload as LinePayload & { ledgerBalanceCents: number | null },
     score: r.matchScore,
     suggestion: describe(r.suggestedInvoiceItemId, r.suggestedTransactionId),
+    suggestionId: r.suggestedInvoiceItemId ?? r.suggestedTransactionId,
     result: describe(r.matchedInvoiceItemId, r.matchedTransactionId),
   }));
 
@@ -190,6 +191,7 @@ export async function getAccountImportReview(db: AnyDB, batchId: string) {
     memo: r.rawDescription,
     payload: r.rawPayload as import('@/server/account-imports').AccountLinePayload,
     suggestion: describeTx(r.suggestedTransactionId),
+    suggestionId: r.suggestedTransactionId,
     result: describeTx(r.matchedTransactionId),
   }));
   const ledger = lines[0]?.payload.ledgerBalanceCents ?? null;
@@ -219,4 +221,142 @@ export async function getAccountImportReview(db: AnyDB, batchId: string) {
     remainingCents: Math.max(0, centsFromDb(i.total) - centsFromDb(i.paid)),
   }));
   return { batch, lines, appBalanceCents: appBalance, fileBalanceCents: ledger, invoiceOptions };
+}
+
+// ─────────── "trocar match": outros lançamentos que podem ser o par de uma linha ───────────
+
+export type LineCandidate = { id: string; label: string; date: string; detail: string };
+
+const CAND_LIMIT = 6;
+const WINDOW_DAYS = 15;
+
+const OUT_KINDS = ['EXPENSE', 'INVOICE_PAYMENT', 'ANTICIPATION_PAYMENT', 'TRANSFER_OUT', 'ADJUSTMENT_OUT'];
+const IN_KINDS = ['INCOME', 'TRANSFER_IN', 'ADJUSTMENT_IN'];
+const STATUS_PT: Record<string, string> = { POSTED: 'pago', PENDING: 'pendente' };
+
+async function rawRows<T>(db: AnyDB, q: ReturnType<typeof sql>): Promise<T[]> {
+  const r = (await db.execute(q)) as unknown;
+  return (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[];
+}
+
+const amountList = (xs: number[]) =>
+  sql.join(
+    xs.map((x) => sql`${x}`),
+    sql`, `,
+  );
+
+/**
+ * Para cada linha pendente do lote: os lançamentos já existentes de MESMO VALOR que ainda não foram conciliados
+ * com outra linha (mesma regra do aceitar), do mais próximo ao mais distante. O usuário escolhe um deles quando
+ * a sugestão automática não é a certa. Sem subconsulta correlacionada do Drizzle: SQL com aliases explícitos.
+ */
+export async function getBatchCandidates(
+  db: AnyDB,
+  batchId: string,
+): Promise<Record<string, LineCandidate[]>> {
+  const [batch] = await db.select().from(importBatches).where(eq(importBatches.id, batchId));
+  if (!batch) return {};
+  const pending = await db
+    .select()
+    .from(importLines)
+    .where(and(eq(importLines.batchId, batchId), eq(importLines.status, 'PENDING_REVIEW')));
+  if (pending.length === 0) return {};
+  const amounts = [...new Set(pending.map((l) => Math.abs(l.amountCents)))];
+  const out: Record<string, LineCandidate[]> = {};
+  const near = (a: string, b: string) =>
+    Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+
+  if (batch.kind === 'BANK_STATEMENT' && batch.bankAccountId) {
+    const txs = await rawRows<{
+      id: string;
+      kind: string;
+      status: string;
+      description: string;
+      amount: string;
+      d: string;
+    }>(
+      db,
+      sql`select t.id, t.kind::text as kind, t.status::text as status, t.description, t.amount_cents::text as amount,
+                 coalesce(t.posted_date, t.due_date, t.transaction_date)::text as d
+          from transactions t
+          where t.bank_account_id = ${batch.bankAccountId} and t.deleted_at is null
+            and t.status in ('POSTED', 'PENDING') and t.amount_cents in (${amountList(amounts)})
+            and not exists (select 1 from import_lines il where il.matched_transaction_id = t.id and il.bank_account_id is not null)`,
+    );
+    for (const l of pending) {
+      const payload = l.rawPayload as { direction: 'IN' | 'OUT'; amountCents: number };
+      const kinds = payload.direction === 'OUT' ? OUT_KINDS : IN_KINDS;
+      out[l.id] = txs
+        .filter(
+          (t) =>
+            kinds.includes(t.kind) &&
+            Number(t.amount) === payload.amountCents &&
+            near(t.d, l.lineDate) <= WINDOW_DAYS,
+        )
+        .sort((a, b) => near(a.d, l.lineDate) - near(b.d, l.lineDate))
+        .slice(0, CAND_LIMIT)
+        .map((t) => ({ id: t.id, label: t.description, date: t.d, detail: STATUS_PT[t.status] ?? t.status }));
+    }
+    return out;
+  }
+
+  if (batch.kind === 'CARD_STATEMENT' && batch.creditCardId) {
+    const [items, pays] = await Promise.all([
+      rawRows<{
+        id: string;
+        amount: string;
+        description: string;
+        pdate: string;
+        k: string;
+        n: string;
+        ref: string;
+      }>(
+        db,
+        sql`select ii.id, ii.amount_cents::text as amount, t.description, ip.purchase_date::text as pdate,
+                   ii.installment_number::text as k, ip.installment_count::text as n, v.reference_month::text as ref
+            from invoice_items ii
+            join installment_plans ip on ip.id = ii.installment_plan_id
+            join transactions t on t.id = ip.transaction_id
+            join invoices v on v.id = ii.invoice_id
+            where ii.credit_card_id = ${batch.creditCardId} and ii.status = 'ACTIVE' and ii.kind = 'INSTALLMENT'
+              and t.deleted_at is null and ii.amount_cents in (${amountList(amounts)})
+              and not exists (select 1 from import_lines il where il.matched_invoice_item_id = ii.id)`,
+      ),
+      rawRows<{ id: string; amount: string; description: string; d: string }>(
+        db,
+        sql`select t.id, t.amount_cents::text as amount, t.description, t.posted_date::text as d
+            from transactions t join invoices v on v.id = t.paid_invoice_id
+            where v.credit_card_id = ${batch.creditCardId} and t.kind = 'INVOICE_PAYMENT' and t.deleted_at is null
+              and t.amount_cents in (${amountList(amounts)})
+              and not exists (select 1 from import_lines il where il.matched_transaction_id = t.id and il.credit_card_id is not null)`,
+      ),
+    ]);
+    for (const l of pending) {
+      const payload = l.rawPayload as {
+        kind: string;
+        amountCents: number;
+        installment: { k: number; n: number } | null;
+      };
+      if (payload.kind === 'PAYMENT') {
+        out[l.id] = pays
+          .filter((p) => Number(p.amount) === payload.amountCents)
+          .sort((a, b) => near(a.d, l.lineDate) - near(b.d, l.lineDate))
+          .slice(0, CAND_LIMIT)
+          .map((p) => ({ id: p.id, label: p.description, date: p.d, detail: 'pagamento' }));
+      } else if (payload.kind === 'PURCHASE' || payload.kind === 'INSTALLMENT') {
+        const n = payload.installment?.n ?? 1;
+        out[l.id] = items
+          .filter((i) => Number(i.amount) === payload.amountCents && Number(i.n) === n)
+          .sort((a, b) => near(a.pdate, l.lineDate) - near(b.pdate, l.lineDate))
+          .slice(0, CAND_LIMIT)
+          .map((i) => ({
+            id: i.id,
+            label: Number(i.n) > 1 ? `${i.description} (${i.k}/${i.n})` : i.description,
+            date: i.pdate,
+            detail: `fatura ${i.ref.slice(0, 7)}`,
+          }));
+      }
+    }
+  }
+  return out;
 }

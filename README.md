@@ -53,10 +53,12 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 
 ### Importação do extrato e da fatura (OFX)
 
-- Importe o **OFX do Nubank** (conta e cartão): cada linha é comparada com o que já está lançado.
+- Importe o **OFX ou o CSV do Nubank** (conta e cartão): cada linha é comparada com o que já está lançado.
 - Sugestões de conciliação por valor e data, **sem nunca duplicar**; contas pendentes recebem a baixa automaticamente.
 - RDB e Pix entre as contas do casal viram **transferência** (mexem no saldo, mas não são gasto nem receita).
 - Conferência no final: o saldo do app tem que bater com o do arquivo.
+- **Meses anteriores ao início do controle**: o app recua o saldo inicial calculando-o do próprio arquivo, e só segue se ele bater com o saldo atual.
+- Na revisão: troque o match por outro lançamento, ignore linhas em lote (útil na fatura do cartão adicional) e atualize as sugestões.
 
 ### Relatórios e projeção
 
@@ -71,7 +73,7 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 ### Bot do Telegram
 
 - Mande `mercado 180 no pix` ou `tênis 600 no nubank em 3x`: o bot entende (via Claude), lança e mostra o saldo.
-- Quando não tem certeza, mostra o que entendeu e pede confirmação. `/desfazer` volta atrás.
+- Quando não tem certeza, mostra o que entendeu e pede confirmação. `/desfazer` volta atrás, e **✏️ Corrigir** troca a categoria ou de quem é o gasto, antes ou depois de lançar.
 - `/saldo`, `/fatura` e `/pendentes` respondem na hora; todo dia às 9h chega o lembrete do que vence.
 - Só responde aos dois usuários cadastrados; o contexto enviado ao modelo nunca inclui saldos.
 

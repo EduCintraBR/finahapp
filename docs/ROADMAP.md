@@ -87,16 +87,18 @@ Primeiro `src/domain/card/` com testes; só depois os serviços e a UI.
 
 ## Fase 5 — Importação e conciliação
 
-- [ ] Parser OFX genérico; adapter CSV da fatura Nubank; adapter CSV da conta principal (banco a confirmar)
-- [ ] Upload com hash de arquivo; preview das linhas
-- [ ] Motor de matching (score + atribuição 1:1) em `src/domain/reconciliation/`, com testes de ambiguidade (ex.: dois iFoods de mesmo valor na mesma semana)
-- [ ] Tela de revisão: aceitar, trocar match, criar lançamento, ignorar; ações em lote
-- [ ] Cartão adicional: linhas de terceiros → ignorar em lote
-- [ ] Bot completo: correção de lançamento, escolha de beneficiário, modo `polling` (preparação para o NAS)
+- [x] Parser OFX genérico; adapter CSV da fatura Nubank; adapter CSV da conta principal (banco a confirmar)
+- [x] Upload com hash de arquivo; preview das linhas
+- [x] Motor de matching (score + atribuição 1:1) em `src/domain/reconciliation/`, com testes de ambiguidade (ex.: dois iFoods de mesmo valor na mesma semana)
+- [x] Tela de revisão: aceitar, trocar match, criar lançamento, ignorar; ações em lote
+- [x] Cartão adicional: linhas de terceiros → ignorar em lote
+- [x] Bot completo: correção de lançamento, escolha de beneficiário, modo `polling` (preparação para o NAS)
 
 > Adiantado em 17/10/2026, a pedido: **importação da fatura do cartão por OFX** (Nubank) com revisão. Prontos: parser OFX genérico (`src/importers/ofx.ts`, SGML e XML), classificação das linhas do Nubank, motor de matching 1:1 em `src/domain/reconciliation/` (com o teste dos "dois iFoods"), upload com hash, dedup por FITID, tela de revisão (aceitar, criar, ignorar, aceitar todas, criar todas) e conferência "a pagar no app × no arquivo". Decisões D34–D37. Faltam: CSV (fatura Nubank e conta), "trocar match" por outro candidato, ignorar em lote as linhas de terceiros do adicional, e o bot completo.
 
 > 18/10/2026: **importação do extrato da conta por OFX** (Nubank). Linhas classificadas como despesa, receita, transferência (RDB, caixinha, Pix entre contas próprias) ou pagamento de fatura (inclusive Pix à titular do adicional); matching 1:1 contra os lançamentos da conta, incluindo pendentes (aceitar dá a baixa); conferência "saldo do app × saldo do arquivo" na data final; correção do saldo inicial em Ajustes (com audit_log). Decisões D44–D47.
+
+> ✅ 18/10/2026: **Fase 5 concluída.** CSV do Nubank (conta e fatura, D51); **importar meses anteriores ao início do controle** recuando o saldo inicial com conferência (D50); trocar match, ignorar em lote (inclusive "todas menos as marcadas" no cartão adicional) e atualizar sugestões (D52); bot com ✏️ Corrigir de categoria e de quem é, antes e depois de lançar (D53). O modo polling do bot já existia. Os CSVs foram validados só com arquivos sintéticos (D51).
 
 **Pronto quando:** importar o mesmo extrato duas vezes não muda nada, e um mês inteiro de extrato concilia sem duplicar nenhum lançamento.
 

@@ -31,7 +31,7 @@ export default async function ImportPage({ params }: PageProps<'/cartoes/[id]/im
       </Button>
       <Card>
         <CardHeader>
-          <CardTitle>Importar fatura (OFX)</CardTitle>
+          <CardTitle>Importar fatura (OFX ou CSV)</CardTitle>
           <CardDescription>
             O app compara cada linha com o que já está lançado e mostra tudo para você revisar. Nada entra sem
             a sua confirmação. Pode importar a mesma fatura de novo mais tarde: só as linhas novas entram.

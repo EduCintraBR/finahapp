@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useActionState, useRef, useState } from 'react';
 import {
   acceptAccountLineAction,
   acceptAllAccountAction,
@@ -12,33 +12,127 @@ import {
 import { Field, FormError, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import type { LineCandidate } from '@/db/queries/imports';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
-import { formatMonthLabel } from '@/domain/dates';
+import { CandidatePicker } from './batch-tools';
+import type { AccountBackfillPreview } from '@/server/account-imports';
+import { formatDateBR, formatMonthLabel } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import type { AccountLineKind } from '@/importers/nubank-account';
 
 export function UploadAccountStatementForm() {
-  const [state, action, pending] = useActionState(uploadAccountStatementAction, null);
+  // O React limpa o campo de arquivo quando a ação termina; guardamos o arquivo para reenviar ao confirmar o recuo.
+  const fileRef = useRef<File | null>(null);
+  const [dismissed, setDismissed] = useState<unknown>(null);
+  const [state, action, pending] = useActionState(
+    async (prev: Parameters<typeof uploadAccountStatementAction>[0], fd: FormData) => {
+      const current = fd.get('file');
+      if (fileRef.current && (!(current instanceof File) || current.size === 0)) {
+        fd.set('file', fileRef.current);
+      }
+      return uploadAccountStatementAction(prev, fd);
+    },
+    null,
+  );
+  const preview = state?.ok && state.data && state.data !== dismissed ? state.data.backfill : null;
+
   return (
     <form action={action} className="space-y-3">
       <Field
-        label="Arquivo OFX do extrato"
+        label="Arquivo do extrato (OFX ou CSV)"
         htmlFor="ofx-account-file"
-        hint="No app do Nubank: Conta → Extrato → Exportar → período → OFX."
+        hint="No app do Nubank: Conta → Extrato → Exportar → período → OFX (ou CSV; o CSV não traz o saldo, então não dá para conferir)."
       >
         <Input
           id="ofx-account-file"
           name="file"
           type="file"
-          accept=".ofx,application/x-ofx,text/plain"
+          accept=".ofx,.csv,text/csv,application/x-ofx,text/plain"
           required
+          onChange={(e) => {
+            fileRef.current = e.target.files?.[0] ?? null;
+            setDismissed(state?.ok ? state.data : null);
+          }}
         />
       </Field>
+      {preview && (
+        <BackfillConfirm
+          preview={preview}
+          pending={pending}
+          onCancel={() => setDismissed(state?.ok ? state.data : null)}
+        />
+      )}
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Lendo o arquivo…' : 'Importar e revisar'}
-      </Button>
+      {!preview && (
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
+          {pending ? 'Lendo o arquivo…' : 'Importar e revisar'}
+        </Button>
+      )}
     </form>
+  );
+}
+
+/** D50: o arquivo é de antes do início do controle. Mostra o que vai mudar e a conferência, e pede confirmação. */
+function BackfillConfirm({
+  preview,
+  pending,
+  onCancel,
+}: {
+  preview: AccountBackfillPreview;
+  pending: boolean;
+  onCancel: () => void;
+}) {
+  const { plan } = preview;
+  const c = plan.check;
+  return (
+    <div className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+      <p className="font-medium">Este extrato é de antes do início do controle</p>
+      <p>
+        {plan.earlyLines} {plan.earlyLines === 1 ? 'lançamento é' : 'lançamentos são'} anteriores a{' '}
+        {formatDateBR(preview.oldDate)}. Para importar, o início do controle recua de{' '}
+        <b>{formatDateBR(preview.oldDate)}</b> para <b>{formatDateBR(plan.newDate)}</b>, e o saldo inicial
+        nessa data passa de {formatBRL(preview.oldOpeningCents)} para <b>{formatBRL(plan.newOpeningCents)}</b>
+        {plan.method === 'LEDGER'
+          ? ` (o saldo final do arquivo, ${formatBRL(preview.ledgerCents ?? 0)}, menos o movimento do período).`
+          : ' (o saldo inicial atual menos o movimento do arquivo).'}
+      </p>
+      {c.status === 'OK' && (
+        <p className="text-income">
+          ✓ Confere: o saldo do arquivo na virada para {formatDateBR(preview.oldDate)} bate com o saldo
+          inicial atual.
+        </p>
+      )}
+      {c.status === 'GAP' && (
+        <p>
+          ⚠ O arquivo termina em {preview.fileEnd ? formatDateBR(preview.fileEnd) : '—'}: faltam os
+          lançamentos de {formatDateBR(c.from)} a {formatDateBR(c.to)}. O saldo do app só fecha depois de
+          importar esse período.
+        </p>
+      )}
+      {c.status === 'UNVERIFIABLE' && (
+        <p>
+          ⚠ Este arquivo não traz o saldo do banco, então não dá para conferir. Confira o saldo na revisão.
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        A mudança fica registrada no histórico. Você pode ajustar o saldo inicial depois em Ajustes.
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button
+          type="submit"
+          name="backfill"
+          value="1"
+          className="h-11 flex-1"
+          disabled={pending}
+          formNoValidate
+        >
+          {pending ? 'Importando…' : 'Recuar o início e importar'}
+        </Button>
+        <Button type="button" variant="outline" className="h-11" onClick={onCancel} disabled={pending}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -49,6 +143,7 @@ export type AccountLineView = {
   suggestedKind: AccountLineKind;
   suggestedCategoryId: string | null;
   suggestion: { label: string; pending: boolean } | null;
+  candidates: LineCandidate[];
 };
 
 export type InvoiceOption = { id: string; cardName: string; referenceMonth: string; remainingCents: number };
@@ -113,6 +208,8 @@ export function AccountLineActions({
           )}
         </div>
       )}
+
+      <CandidatePicker lineId={line.id} candidates={line.candidates} bank hasSuggestion={!!line.suggestion} />
 
       {showCreate && (
         <form action={create} className="grid grid-cols-2 gap-3 rounded-md border p-3">

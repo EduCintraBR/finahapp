@@ -17,10 +17,17 @@ export function botConfig(env: Record<string, string | undefined> = process.env)
   };
 }
 
-const keyboard = (reply: BotReply) =>
-  reply.buttons?.length
-    ? { reply_markup: reply.buttons.reduce((kb, b) => kb.text(b.text, b.data), new InlineKeyboard()) }
-    : {};
+/** Botões em linhas de `columns` (padrão 3), na ordem recebida. */
+const keyboard = (reply: BotReply) => {
+  if (!reply.buttons?.length) return {};
+  const per = reply.columns ?? 3;
+  const kb = new InlineKeyboard();
+  reply.buttons.forEach((b, i) => {
+    if (i > 0 && i % per === 0) kb.row();
+    kb.text(b.text, b.data);
+  });
+  return { reply_markup: kb };
+};
 
 export function createBot(token: string, deps: BotDeps, opts: { botInfo?: UserFromGetMe } = {}) {
   const bot = new Bot(token, opts.botInfo ? { botInfo: opts.botInfo } : undefined);

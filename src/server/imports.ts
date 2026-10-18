@@ -5,7 +5,7 @@
  *  - um lançamento só concilia com uma linha (índices únicos em import_lines).
  */
 import { createHash } from 'node:crypto';
-import { and, asc, eq, isNull, notExists, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
 import {
   categories,
   creditCards,
@@ -26,7 +26,8 @@ import {
   suggestCategory,
   type CardLine,
 } from '@/importers/nubank-card';
-import { decodeOfx, OfxError, parseOfx } from '@/importers/ofx';
+import { OfxError } from '@/importers/ofx';
+import { readStatement } from '@/importers/statement';
 import type { AnyDB } from '@/db/client';
 import { audit } from './audit';
 import { createCardPurchase, createOnboardingPlan } from './card-purchases';
@@ -47,7 +48,13 @@ const asTx = (tx: Tx) => tx as unknown as AnyDB;
 
 export async function importCardStatement(
   ctx: ServiceCtx,
-  input: { cardId: string; fileName: string; bytes: Uint8Array },
+  input: {
+    cardId: string;
+    fileName: string;
+    bytes: Uint8Array;
+    /** só para CSV (que não traz o período): o mês da fatura, 'AAAA-MM-01' */
+    referenceMonth?: ISODate;
+  },
 ): Promise<{ batchId: string; inserted: number; skipped: number }> {
   if (input.bytes.byteLength === 0) throw new UserError('O arquivo está vazio.');
   if (input.bytes.byteLength > 900_000) throw new UserError('Arquivo grande demais (máx. 900 KB).');
@@ -55,14 +62,18 @@ export async function importCardStatement(
 
   let statement;
   try {
-    statement = parseOfx(decodeOfx(input.bytes));
+    statement = readStatement(input.bytes, 'CREDIT_CARD');
   } catch (err) {
     if (err instanceof OfxError) throw new UserError(err.message);
     throw err;
   }
   if (statement.account !== 'CREDIT_CARD')
-    throw new UserError('Este OFX é de conta corrente, não de cartão de crédito.');
-  if (!statement.periodEnd) throw new UserError('O OFX não informa o período da fatura (DTEND).');
+    throw new UserError('Este arquivo é de conta corrente, não de cartão de crédito.');
+  const isCsv = statement.format === 'CSV';
+  if (isCsv && !input.referenceMonth) {
+    throw new UserError('O CSV não traz o período da fatura: escolha o mês da fatura (o mês do vencimento).');
+  }
+  if (!isCsv && !statement.periodEnd) throw new UserError('O OFX não informa o período da fatura (DTEND).');
 
   return ctx.db.transaction(async (tx) => {
     const card = await loadCard(tx, input.cardId);
@@ -72,7 +83,9 @@ export async function importCardStatement(
       .where(eq(importBatches.fileSha256, sha));
     if (dup) throw new UserError('Este arquivo já foi importado.');
 
-    const invoice = await invoiceOfPeriod(tx, card, statement.periodEnd!);
+    const invoice = isCsv
+      ? await ensureInvoice(tx, card, monthStart(input.referenceMonth!))
+      : await invoiceOfPeriod(tx, card, statement.periodEnd!);
     const lines = statement.transactions.map(classifyCardLine);
     const ofThis = paymentsOfThisInvoice(lines, statement.ledgerBalanceCents);
     const cats = await tx
@@ -84,14 +97,14 @@ export async function importCardStatement(
       .insert(importBatches)
       .values({
         kind: 'CARD_STATEMENT',
-        format: 'OFX',
+        format: statement.format,
         fileName: input.fileName.slice(0, 255),
         fileSha256: sha,
         creditCardId: card.id,
         invoiceId: invoice.id,
         status: 'IN_REVIEW',
         periodStart: statement.periodStart,
-        periodEnd: statement.periodEnd,
+        periodEnd: isCsv ? invoice.closingDate : statement.periodEnd,
         uploadedByUserId: ctx.userId,
       })
       .returning();
@@ -277,6 +290,15 @@ async function suggestMatches(tx: Tx, batchId: string) {
   }
 }
 
+/** Recalcula as sugestões das linhas ainda pendentes (ex.: depois de importar o outro lado do mesmo pagamento). */
+export async function refreshSuggestions(ctx: ServiceCtx, batchId: string) {
+  await ctx.db.transaction(async (tx) => {
+    const [b] = await tx.select().from(importBatches).where(eq(importBatches.id, batchId)).for('update');
+    if (!b || b.kind !== 'CARD_STATEMENT') throw new UserError('Importação não encontrada.');
+    await suggestMatches(tx, batchId);
+  });
+}
+
 export async function closeIfDone(tx: Tx, batchId: string) {
   const [left] = await tx
     .select({ n: sql<number>`count(*)::int` })
@@ -367,6 +389,48 @@ export async function ignoreLine(ctx: ServiceCtx, lineId: string) {
   });
 }
 
+/**
+ * Ignora várias linhas de uma vez (qualquer tipo de lote). SELECTED: as marcadas. EXCEPT: todas as pendentes
+ * menos as marcadas (cartão adicional: a fatura é do titular e quase tudo nela não é do casal).
+ */
+export async function ignoreLines(
+  ctx: ServiceCtx,
+  batchId: string,
+  input: { mode: 'SELECTED' | 'EXCEPT'; lineIds: string[] },
+): Promise<number> {
+  return ctx.db.transaction(async (tx) => {
+    const [batch] = await tx.select().from(importBatches).where(eq(importBatches.id, batchId)).for('update');
+    if (!batch) throw new UserError('Importação não encontrada.');
+    const chosen = new Set(input.lineIds);
+    if (input.mode === 'SELECTED' && chosen.size === 0)
+      throw new UserError('Marque as linhas que quer ignorar.');
+    const pending = await tx
+      .select({ id: importLines.id })
+      .from(importLines)
+      .where(and(eq(importLines.batchId, batchId), eq(importLines.status, 'PENDING_REVIEW')));
+    const targets = pending.filter((l) => (input.mode === 'SELECTED' ? chosen.has(l.id) : !chosen.has(l.id)));
+    if (targets.length === 0) throw new UserError('Nenhuma linha pendente para ignorar.');
+    await tx
+      .update(importLines)
+      .set({ status: 'IGNORED', ...reviewed(ctx) })
+      .where(
+        inArray(
+          importLines.id,
+          targets.map((t) => t.id),
+        ),
+      );
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'import_batches',
+      entityId: batchId,
+      action: 'UPDATE',
+      after: { ignoredLines: targets.length, mode: input.mode },
+    });
+    await closeIfDone(tx, batchId);
+    return targets.length;
+  });
+}
+
 export type CreateFromLineInput = {
   description: string;
   categoryId: string;
@@ -380,7 +444,28 @@ export type CreateFromLineInput = {
 const PREVIOUS_BALANCE = 'Saldo da fatura anterior ao controle';
 
 /** Cria o lançamento a partir da linha (D34–D37). */
+/** D18 com o caminho para resolver: período anterior ao início do controle (D50). */
+export function withBackfillHint(err: unknown): unknown {
+  if (
+    err instanceof UserError &&
+    err.message.startsWith('A data não pode ser anterior ao início do controle')
+  ) {
+    return new UserError(
+      `${err.message} Para lançar este período, importe antes o extrato da conta dele (o app recua o início do controle sozinho) ou ajuste o saldo inicial em Ajustes.`,
+    );
+  }
+  return err;
+}
+
 export async function createFromLine(ctx: ServiceCtx, lineId: string, input: CreateFromLineInput) {
+  try {
+    return await createFromLineTx(ctx, lineId, input);
+  } catch (err) {
+    throw withBackfillHint(err);
+  }
+}
+
+async function createFromLineTx(ctx: ServiceCtx, lineId: string, input: CreateFromLineInput) {
   return ctx.db.transaction(async (tx) => {
     const { line, batch, payload } = await loadPendingLine(tx, lineId);
     const sub: ServiceCtx = { ...ctx, db: asTx(tx) };

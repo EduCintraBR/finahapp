@@ -4,7 +4,8 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { z } from 'zod';
 import { type ActionResult, fail, ok } from '@/lib/action-result';
-import { runAction } from '@/server/context';
+import { backfillBlockMessage } from '@/domain/account/backfill';
+import { runAction, UserError } from '@/server/context';
 import {
   acceptAllSuggestions,
   acceptMatch,
@@ -12,7 +13,9 @@ import {
   createAllNew,
   createFromLine,
   ignoreLine,
+  ignoreLines,
   importCardStatement,
+  refreshSuggestions,
 } from '@/server/imports';
 import { firstIssue, money } from '@/server/schemas';
 import {
@@ -21,20 +24,33 @@ import {
   acceptAllAccountSuggestions,
   createAllNewAccountLines,
   createFromAccountLine,
+  type AccountBackfillPreview,
   importAccountStatement,
+  previewAccountBackfill,
+  refreshAccountSuggestions,
 } from '@/server/account-imports';
 import { getServiceCtx } from '@/server/session';
 
 type Prev<T = null> = ActionResult<T> | null;
 const refresh = () => revalidatePath('/', 'layout');
 const id = (fd: FormData, key = 'id') => String(fd.get(key) ?? '');
+/** "Trocar match": o lançamento escolhido no lugar do sugerido (vazio = o sugerido). */
+const candidate = (fd: FormData) => String(fd.get('candidateId') ?? '') || undefined;
 
 export async function uploadStatementAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const file = fd.get('file');
-  if (!(file instanceof File) || file.size === 0) return fail('Escolha o arquivo OFX da fatura.');
+  if (!(file instanceof File) || file.size === 0) return fail('Escolha o arquivo da fatura (OFX ou CSV).');
   const bytes = new Uint8Array(await file.arrayBuffer());
+  // CSV não traz o período: o mês da fatura vem do formulário ('AAAA-MM')
+  const month = String(fd.get('referenceMonth') ?? '');
+  const referenceMonth = /^d{4}-(0[1-9]|1[0-2])$/.test(month) ? `${month}-01` : undefined;
   const r = await runAction(async () =>
-    importCardStatement(await getServiceCtx(), { cardId: id(fd, 'cardId'), fileName: file.name, bytes }),
+    importCardStatement(await getServiceCtx(), {
+      cardId: id(fd, 'cardId'),
+      fileName: file.name,
+      bytes,
+      referenceMonth,
+    }),
   );
   if (!r.ok) return r;
   refresh();
@@ -42,7 +58,7 @@ export async function uploadStatementAction(_p: Prev, fd: FormData): Promise<Act
 }
 
 export async function acceptLineAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
-  const r = await runAction(async () => acceptMatch(await getServiceCtx(), id(fd)));
+  const r = await runAction(async () => acceptMatch(await getServiceCtx(), id(fd), candidate(fd)));
   if (r.ok) refresh();
   return r.ok ? ok(null) : r;
 }
@@ -89,20 +105,37 @@ export async function createAllAction(
 
 // ─────────── extrato da conta (D44–D47) ───────────
 
-export async function uploadAccountStatementAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
+/** O arquivo tem lançamentos antes do início do controle: a tela mostra o plano e pede confirmação (D50). */
+export type AccountUploadOutcome = { backfill: AccountBackfillPreview };
+
+export async function uploadAccountStatementAction(
+  _p: ActionResult<AccountUploadOutcome | null> | null,
+  fd: FormData,
+): Promise<ActionResult<AccountUploadOutcome | null>> {
   const file = fd.get('file');
-  if (!(file instanceof File) || file.size === 0) return fail('Escolha o arquivo OFX do extrato.');
+  if (!(file instanceof File) || file.size === 0) return fail('Escolha o arquivo do extrato (OFX ou CSV).');
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const r = await runAction(async () =>
-    importAccountStatement(await getServiceCtx(), { fileName: file.name, bytes }),
-  );
+  const confirmed = fd.get('backfill') === '1';
+  const r = await runAction(async () => {
+    const ctx = await getServiceCtx();
+    if (!confirmed) {
+      const preview = await previewAccountBackfill(ctx, { bytes });
+      if (preview) {
+        const blocked = backfillBlockMessage(preview.plan, preview.oldDate);
+        if (blocked) throw new UserError(blocked);
+        return { backfill: preview } satisfies AccountUploadOutcome;
+      }
+    }
+    return importAccountStatement(ctx, { fileName: file.name, bytes, backfill: confirmed });
+  });
   if (!r.ok) return r;
+  if ('backfill' in r.data) return ok(r.data);
   refresh();
   redirect(`/importacoes/${r.data.batchId}`);
 }
 
 export async function acceptAccountLineAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
-  const r = await runAction(async () => acceptAccountMatch(await getServiceCtx(), id(fd)));
+  const r = await runAction(async () => acceptAccountMatch(await getServiceCtx(), id(fd), candidate(fd)));
   if (r.ok) refresh();
   return r.ok ? ok(null) : r;
 }
@@ -143,4 +176,29 @@ export async function createAllAccountAction(
   const r = await runAction(async () => createAllNewAccountLines(await getServiceCtx(), id(fd, 'batchId')));
   if (r.ok) refresh();
   return r;
+}
+
+// ─────────── lote ───────────
+
+export async function ignoreSelectedAction(_p: Prev<number>, fd: FormData): Promise<ActionResult<number>> {
+  const mode = fd.get('mode') === 'EXCEPT' ? 'EXCEPT' : 'SELECTED';
+  const lineIds = fd.getAll('lineId').map(String);
+  const r = await runAction(async () =>
+    ignoreLines(await getServiceCtx(), id(fd, 'batchId'), { mode, lineIds }),
+  );
+  if (r.ok) refresh();
+  return r;
+}
+
+/** Recalcula as sugestões das linhas pendentes (ex.: depois de importar o outro lado do mesmo pagamento). */
+export async function refreshSuggestionsAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
+  const bank = fd.get('kind') === 'BANK_STATEMENT';
+  const r = await runAction(async () => {
+    const ctx = await getServiceCtx();
+    return bank
+      ? refreshAccountSuggestions(ctx, id(fd, 'batchId'))
+      : refreshSuggestions(ctx, id(fd, 'batchId'));
+  });
+  if (r.ok) refresh();
+  return r.ok ? ok(null) : r;
 }

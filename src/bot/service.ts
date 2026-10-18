@@ -7,7 +7,7 @@
  * - Idempotente: update_id único em bot_messages (o Telegram reenvia updates).
  * - Confiança alta → salva e oferece ↩️ Desfazer. Baixa → ✅ Confirmar / ❌ Cancelar, nada salvo antes.
  */
-import { and, desc, eq, gte, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AnyDB } from '@/db/client';
 import { getPrimaryAccount } from '@/db/queries/accounts';
@@ -26,16 +26,20 @@ import {
 import { formatDateBR, formatMonthLabel, type ISODate } from '@/domain/dates';
 import { formatBRL, splitInstallments } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
-import { createCardPurchase, deleteCardPurchase } from '@/server/card-purchases';
+import { createCardPurchase, deleteCardPurchase, updateCardPurchase } from '@/server/card-purchases';
 import { type ServiceCtx, UserError } from '@/server/context';
-import { createEntry, removeEntry } from '@/server/entries';
+import { createEntry, removeEntry, updateEntry } from '@/server/entries';
 import type { CardPurchaseInput, EntryInput } from '@/server/schemas';
 import { balanceText, invoicesText, pendingText } from './reports';
 import { ParserUnavailableError, type EntryParser, type ParseContext } from './parser';
 
 export type BotDeps = { db: AnyDB; parser: EntryParser; today: () => ISODate; now: () => Date };
 export type BotButton = { text: string; data: string };
-export type BotReply = { text: string; buttons?: BotButton[] };
+export type BotReply = {
+  text: string;
+  buttons?: BotButton[];
+  /** botões por linha (padrão 3) */ columns?: number;
+};
 
 /** Acima disso (e com categoria e meio/cartão identificados) o bot salva direto (D23). */
 export const CONFIDENCE_THRESHOLD = 80;
@@ -54,6 +58,8 @@ const HELP = [
   '/fatura — faturas e limite dos cartões',
   '/pendentes — contas a pagar e a receber do mês',
   '/desfazer — desfaz seu último lançamento (até 24h)',
+  '',
+  'Errou a categoria ou de quem é? Toque em ✏️ Corrigir na resposta (vale até 24h depois de lançar).',
   '',
   'Receitas: pelo app.',
 ].join('\n');
@@ -295,10 +301,7 @@ export async function handleText(
     });
     return {
       text: `Confere?\n\n${summary}`,
-      buttons: [
-        { text: '✅ Confirmar', data: `c:${msg.id}` },
-        { text: '❌ Cancelar', data: `x:${msg.id}` },
-      ],
+      buttons: confirmButtons(msg.id),
     };
   }
   return saveDraft(deps, msg.id, sender.id, draft, summary, parsed.confidence);
@@ -345,7 +348,7 @@ async function saveDraft(
     });
     return {
       text: `✅ Lançado\n\n${summary}\n\n${footer}`,
-      buttons: [{ text: '↩️ Desfazer', data: `u:${botMessageId}` }],
+      buttons: savedButtons(botMessageId),
     };
   } catch (err) {
     if (err instanceof UserError) {
@@ -354,6 +357,184 @@ async function saveDraft(
     }
     throw err;
   }
+}
+
+const confirmButtons = (id: string): BotButton[] => [
+  { text: '✅ Confirmar', data: `c:${id}` },
+  { text: '✏️ Corrigir', data: `e:${id}` },
+  { text: '❌ Cancelar', data: `x:${id}` },
+];
+
+const savedButtons = (id: string): BotButton[] => [
+  { text: '↩️ Desfazer', data: `u:${id}` },
+  { text: '✏️ Corrigir', data: `e:${id}` },
+];
+
+/** O lançamento que a mensagem gerou (ou o rascunho que espera confirmação), se ainda pode ser corrigido. */
+async function loadCorrectable(deps: BotDeps, botMessageId: string, userId: string) {
+  const [m] = await deps.db
+    .select({
+      status: botMessages.status,
+      payload: botMessages.parsedPayload,
+      userId: botMessages.userId,
+      transactionId: botMessages.transactionId,
+    })
+    .from(botMessages)
+    .where(eq(botMessages.id, botMessageId));
+  if (!m || m.userId !== userId)
+    return { ok: false, error: 'Só quem enviou a mensagem pode corrigir.' } as const;
+  if (m.status !== 'AWAITING_CONFIRMATION' && m.status !== 'CREATED') {
+    return { ok: false, error: 'Esse pedido já foi encerrado.' } as const;
+  }
+  const draft = pendingPayload.safeParse(m.payload);
+  if (!draft.success)
+    return { ok: false, error: 'Não consegui recuperar os dados. Mande a mensagem de novo.' } as const;
+  return { ok: true, m, draft: draft.data } as const;
+}
+
+/** ✏️ Corrigir: o que dá para mudar por botão. Valor, data e meio de pagamento: cancelar/desfazer e mandar de novo. */
+async function correctionMenu(
+  deps: BotDeps,
+  action: 'e' | 'kc' | 'kb',
+  botMessageId: string,
+  userId: string,
+): Promise<BotReply> {
+  const c = await loadCorrectable(deps, botMessageId, userId);
+  if (!c.ok) return { text: c.error };
+  if (action === 'e') {
+    const summary = await describe(deps.db, c.draft, deps.today());
+    return {
+      text: `O que corrigir?\n\n${summary}\n\nPara mudar valor, data ou forma de pagamento, ${c.m.status === 'CREATED' ? 'desfaça' : 'cancele'} e mande de novo.`,
+      buttons: [
+        { text: '🏷️ Categoria', data: `kc:${botMessageId}` },
+        { text: '👥 De quem é', data: `kb:${botMessageId}` },
+      ],
+      columns: 2,
+    };
+  }
+  if (action === 'kc') {
+    const cats = await deps.db
+      .select({ id: categories.id, name: categories.name })
+      .from(categories)
+      .where(and(eq(categories.kind, 'EXPENSE'), isNull(categories.archivedAt)))
+      .orderBy(asc(categories.name));
+    return {
+      text: 'Qual é a categoria?',
+      buttons: cats.map((k) => ({ text: k.name, data: `k:${botMessageId}:${k.id.slice(0, 8)}` })),
+      columns: 2,
+    };
+  }
+  const people = await deps.db
+    .select({ id: users.id, name: users.name })
+    .from(users)
+    .orderBy(asc(users.name));
+  return {
+    text: 'De quem é o gasto?',
+    buttons: [
+      { text: '👫 Casal', data: `b:${botMessageId}:c` },
+      ...people.map((p) => ({ text: p.name.split(' ')[0]!, data: `b:${botMessageId}:${p.id.slice(0, 8)}` })),
+    ],
+    columns: 3,
+  };
+}
+
+/**
+ * Aplica a categoria ou o beneficiário escolhido. Rascunho: atualiza e pede a confirmação de novo.
+ * Já lançado (até 24h): edita o lançamento (mesmas regras do app) e mostra o resultado.
+ */
+async function applyCorrection(
+  deps: BotDeps,
+  action: 'k' | 'b',
+  botMessageId: string,
+  arg: string,
+  userId: string,
+): Promise<BotReply> {
+  if (!/^(c|[0-9a-f]{8})$/i.test(arg)) return { text: 'Opção inválida.' };
+  return deps.db.transaction(async (tx) => {
+    const db = tx as unknown as AnyDB;
+    const tdeps = { ...deps, db };
+    // trava a linha: dois toques seguidos não podem aplicar duas vezes
+    await db
+      .select({ id: botMessages.id })
+      .from(botMessages)
+      .where(eq(botMessages.id, botMessageId))
+      .for('update');
+    const c = await loadCorrectable(tdeps, botMessageId, userId);
+    if (!c.ok) return { text: c.error };
+
+    const draft: Draft = structuredClone(c.draft);
+    if (action === 'k') {
+      const found = await db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(
+          and(
+            eq(categories.kind, 'EXPENSE'),
+            isNull(categories.archivedAt),
+            sql`${categories.id}::text like ${arg.toLowerCase() + '%'}`,
+          ),
+        );
+      if (found.length !== 1) return { text: 'Categoria não encontrada. Toque em ✏️ Corrigir de novo.' };
+      draft.input.categoryId = found[0]!.id;
+    } else if (arg === 'c') {
+      draft.input.beneficiaryUserId = null;
+    } else {
+      const found = await db
+        .select({ id: users.id })
+        .from(users)
+        .where(sql`${users.id}::text like ${arg.toLowerCase() + '%'}`);
+      if (found.length !== 1) return { text: 'Pessoa não encontrada. Toque em ✏️ Corrigir de novo.' };
+      draft.input.beneficiaryUserId = found[0]!.id;
+    }
+
+    const today = deps.today();
+    if (c.m.status === 'AWAITING_CONFIRMATION') {
+      await setStatus(db, botMessageId, { parsedPayload: draft });
+      return {
+        text: `Confere?\n\n${await describe(db, draft, today)}`,
+        buttons: confirmButtons(botMessageId),
+      };
+    }
+
+    // já lançado: edita o lançamento
+    if (!c.m.transactionId) return { text: 'Não há lançamento para corrigir aqui.' };
+    const [t] = await db
+      .select({
+        version: transactions.version,
+        createdAt: transactions.createdAt,
+        deletedAt: transactions.deletedAt,
+        creditCardId: transactions.creditCardId,
+      })
+      .from(transactions)
+      .where(eq(transactions.id, c.m.transactionId));
+    if (!t || t.deletedAt) return { text: 'Esse lançamento já não existe mais.' };
+    if (deps.now().getTime() - t.createdAt.getTime() > UNDO_WINDOW_MS) {
+      return { text: 'Passou de 24h: corrija pelo app.' };
+    }
+    const ctx: ServiceCtx = { db, userId, today };
+    try {
+      if (draft.type === 'CARD') {
+        const planId = await planIdOfTransaction(db, c.m.transactionId);
+        if (!planId) return { text: 'Compra não encontrada.' };
+        await updateCardPurchase(ctx, planId, {
+          description: draft.input.description,
+          categoryId: draft.input.categoryId,
+          beneficiaryUserId: draft.input.beneficiaryUserId,
+          notes: null,
+        });
+      } else {
+        await updateEntry(ctx, c.m.transactionId, t.version, draft.input);
+      }
+    } catch (err) {
+      if (err instanceof UserError) return { text: `Não corrigi: ${err.message}` };
+      throw err;
+    }
+    await setStatus(db, botMessageId, { parsedPayload: draft });
+    return {
+      text: `✏️ Corrigido\n\n${await describe(db, draft, today)}`,
+      buttons: savedButtons(botMessageId),
+    };
+  });
 }
 
 async function undo(deps: BotDeps, botMessageId: string, userId: string): Promise<BotReply> {
@@ -419,7 +600,11 @@ async function undoLast(deps: BotDeps, userId: string): Promise<BotReply> {
   return undo(deps, last.id, userId);
 }
 
-/** Botões: c:<id> confirmar · x:<id> cancelar · u:<id> desfazer. */
+/**
+ * Botões: c:<id> confirmar · x:<id> cancelar · u:<id> desfazer · e:<id> corrigir (menu) ·
+ * kc:<id> escolher categoria · kb:<id> escolher de quem é · k:<id>:<8 hex> aplica a categoria ·
+ * b:<id>:<c|8 hex> aplica o beneficiário (c = casal).
+ */
 export async function handleCallback(
   deps: BotDeps,
   u: { telegramUserId: number; data: string },
@@ -427,10 +612,13 @@ export async function handleCallback(
   const { db } = deps;
   const sender = await senderOf(db, u.telegramUserId);
   if (!sender) return null;
-  const [action, id] = u.data.split(':');
+  const [action, id, arg] = u.data.split(':');
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return null;
 
   if (action === 'u') return undo(deps, id, sender.id);
+  if (action === 'e' || action === 'kc' || action === 'kb')
+    return correctionMenu(deps, action, id, sender.id);
+  if (action === 'k' || action === 'b') return applyCorrection(deps, action, id, arg ?? '', sender.id);
 
   // Trava a linha: dois toques rápidos em "Confirmar" não podem lançar duas vezes.
   return db.transaction(async (tx) => {
