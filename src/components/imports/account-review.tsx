@@ -6,7 +6,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { getAccountImportReview } from '@/db/queries/imports';
+import type { LineCandidate } from '@/db/queries/imports';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
+import { BulkIgnoreBar, LineCheckbox, RefreshSuggestionsButton } from '@/components/imports/batch-tools';
 import { formatDateBR } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 
@@ -26,10 +28,12 @@ export function AccountReview({
   r,
   categories,
   users,
+  candidates,
 }: {
   r: Review;
   categories: CategoryOption[];
   users: UserOption[];
+  candidates: Record<string, LineCandidate[]>;
 }) {
   const pending = r.lines.filter((l) => l.status === 'PENDING_REVIEW');
   const done = r.lines.filter((l) => l.status !== 'PENDING_REVIEW');
@@ -82,6 +86,10 @@ export function AccountReview({
           {pending.length > 0 && (
             <AccountBatchActions batchId={r.batch.id} suggested={suggested} fresh={fresh} />
           )}
+          {pending.length > 0 && (
+            <BulkIgnoreBar batchId={r.batch.id} pending={pending.length} additionalCard={false} />
+          )}
+          {pending.length > 0 && <RefreshSuggestionsButton batchId={r.batch.id} kind="BANK_STATEMENT" />}
           <Link href="/lancamentos" className="inline-block text-sm text-primary hover:underline">
             Ver os lançamentos →
           </Link>
@@ -93,23 +101,27 @@ export function AccountReview({
           <h2 className="px-1 text-sm font-medium text-muted-foreground">A revisar</h2>
           {pending.map((l) => (
             <Card key={l.id} className="gap-3 py-4" data-testid="account-line">
-              <CardContent className="space-y-3 px-4">
-                <LineHeader l={l} />
-                <AccountLineActions
-                  line={{
-                    id: l.id,
-                    direction: l.payload.direction,
-                    description: l.payload.description,
-                    suggestedKind: l.payload.suggestedKind,
-                    suggestedCategoryId: l.payload.suggestedCategoryId,
-                    suggestion: l.suggestion
-                      ? { label: l.suggestion.label, pending: l.suggestion.pending }
-                      : null,
-                  }}
-                  categories={categories}
-                  users={users}
-                  invoices={r.invoiceOptions}
-                />
+              <CardContent className="flex gap-3 px-4">
+                <LineCheckbox lineId={l.id} />
+                <div className="min-w-0 flex-1 space-y-3">
+                  <LineHeader l={l} />
+                  <AccountLineActions
+                    line={{
+                      id: l.id,
+                      direction: l.payload.direction,
+                      description: l.payload.description,
+                      suggestedKind: l.payload.suggestedKind,
+                      suggestedCategoryId: l.payload.suggestedCategoryId,
+                      suggestion: l.suggestion
+                        ? { label: l.suggestion.label, pending: l.suggestion.pending }
+                        : null,
+                      candidates: (candidates[l.id] ?? []).filter((c) => c.id !== l.suggestionId),
+                    }}
+                    categories={categories}
+                    users={users}
+                    invoices={r.invoiceOptions}
+                  />
+                </div>
               </CardContent>
             </Card>
           ))}

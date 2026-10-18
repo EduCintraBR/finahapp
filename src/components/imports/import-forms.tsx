@@ -12,7 +12,10 @@ import {
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import type { LineCandidate } from '@/db/queries/imports';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
+import { CandidatePicker } from './batch-tools';
+import { formatDateBR } from '@/domain/dates';
 import { formatDecimalBR } from '@/domain/money';
 import { cn } from '@/lib/utils';
 
@@ -22,11 +25,24 @@ export function UploadStatementForm({ cardId }: { cardId: string }) {
     <form action={action} className="space-y-3">
       <input type="hidden" name="cardId" value={cardId} />
       <Field
-        label="Arquivo OFX da fatura"
+        label="Arquivo da fatura (OFX ou CSV)"
         htmlFor="ofx-file"
-        hint="No app do Nubank: fatura → ⋯ → Exportar fatura → OFX."
+        hint="No app do Nubank: fatura → ⋯ → Exportar fatura → OFX (ou CSV)."
       >
-        <Input id="ofx-file" name="file" type="file" accept=".ofx,application/x-ofx,text/plain" required />
+        <Input
+          id="ofx-file"
+          name="file"
+          type="file"
+          accept=".ofx,.csv,text/csv,application/x-ofx,text/plain"
+          required
+        />
+      </Field>
+      <Field
+        label="Mês da fatura (só para CSV)"
+        htmlFor="ref-month"
+        hint="O CSV não informa o período. Use o mês do vencimento: a fatura que vence em 16/11 é a de novembro. No OFX isso é ignorado."
+      >
+        <Input id="ref-month" name="referenceMonth" type="month" />
       </Field>
       <FormError message={state && !state.ok ? state.error : null} />
       <Button type="submit" className="h-11 w-full" disabled={pending}>
@@ -45,6 +61,10 @@ export type LineView = {
   suggestedCategoryId: string | null;
   paysThisInvoice: boolean | null;
   suggestion: { label: string; date: string | null } | null;
+  /** outros lançamentos de mesmo valor que ainda não têm par (trocar match) */
+  candidates: LineCandidate[];
+  /** compra de antes do início do controle: não dá para criar (D18), só conciliar ou ignorar. ISO do início. */
+  blockedBefore: string | null;
 };
 
 /** Ações de uma linha pendente: aceitar a sugestão, criar o lançamento ou ignorar. */
@@ -90,7 +110,22 @@ export function PendingLineActions({
         </div>
       )}
 
-      {showCreate && line.kind !== 'CREDIT' && (
+      <CandidatePicker
+        lineId={line.id}
+        candidates={line.candidates}
+        bank={false}
+        hasSuggestion={!!line.suggestion}
+      />
+
+      {line.blockedBefore && line.kind !== 'CREDIT' && line.kind !== 'PAYMENT' && (
+        <p className="rounded-md bg-amber-500/10 px-3 py-2 text-sm">
+          Compra de antes do início do controle ({formatDateBR(line.blockedBefore)}). Para lançá-la, importe
+          antes o extrato da conta desse período (o app recua o início do controle sozinho) e volte aqui; ou
+          ignore a linha.
+        </p>
+      )}
+
+      {showCreate && line.kind !== 'CREDIT' && !(line.blockedBefore && line.kind !== 'PAYMENT') && (
         <form action={create} className="grid grid-cols-2 gap-3 rounded-md border p-3">
           <input type="hidden" name="id" value={line.id} />
           {line.kind === 'PAYMENT' ? (

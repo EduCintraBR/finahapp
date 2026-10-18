@@ -182,7 +182,7 @@ describe('bot do Telegram', () => {
     nextParse = parsed({ confidence: 40 });
     const cs = await sendText(EDUARDO_TG, 'mercado 180');
     expect(lastText(cs)).toContain('Confere?');
-    const [confirm, cancel] = buttons(cs);
+    const [confirm, , cancel] = buttons(cs);
     expect(confirm).toMatch(/^c:/);
     expect(cancel).toMatch(/^x:/);
     expect(await txCount()).toBe(0);
@@ -195,7 +195,7 @@ describe('bot do Telegram', () => {
 
   it('cancelar não lança nada', async () => {
     nextParse = parsed({ paymentMethod: null });
-    const [, cancel] = buttons(await sendText(EDUARDO_TG, 'mercado 180'));
+    const [, , cancel] = buttons(await sendText(EDUARDO_TG, 'mercado 180'));
     expect(lastText(await tap(EDUARDO_TG, cancel!))).toContain('Cancelado');
     expect(await txCount()).toBe(0);
   });
@@ -292,6 +292,122 @@ describe('bot do Telegram', () => {
     nextParse = parsed({ amountCents: null, amountError: 'Valor inválido. Use o formato 1.234,56.' });
     expect(lastText(await sendText(EDUARDO_TG, 'mercado 12,345'))).toContain('Valor inválido');
     expect(await txCount()).toBe(0);
+  });
+});
+
+describe('corrigir (Fase 5)', () => {
+  const labeled = (cs: typeof calls) =>
+    (
+      (
+        sent(cs).at(-1)?.payload.reply_markup as {
+          inline_keyboard?: { text: string; callback_data: string }[][];
+        }
+      )?.inline_keyboard ?? []
+    )
+      .flat()
+      .map((b) => ({ text: b.text, data: b.callback_data }));
+  const pick = (cs: typeof calls, text: string) => labeled(cs).find((b) => b.text === text)!.data;
+  const byPrefix = (cs: typeof calls, prefix: string) => buttons(cs).find((d) => d.startsWith(prefix))!;
+  const lastTx = async () =>
+    (
+      await q<{ category: string; beneficiary: string | null; version: number }>(
+        `select c.name category, u.name beneficiary, t.version
+         from transactions t join categories c on c.id = t.category_id left join users u on u.id = t.beneficiary_user_id
+         where t.source = 'BOT' and t.deleted_at is null order by t.created_at desc limit 1`,
+      )
+    )[0]!;
+
+  it('o resumo de confirmação tem Confirmar, Corrigir e Cancelar', async () => {
+    nextParse = parsed({ confidence: 40 });
+    const cs = await sendText(EDUARDO_TG, 'mercado 180');
+    expect(buttons(cs).map((d) => d.split(':')[0])).toEqual(['c', 'e', 'x']);
+    expect(lastText(await tap(EDUARDO_TG, byPrefix(cs, 'e:')))).toContain('O que corrigir?');
+  });
+
+  it('antes de confirmar: troca a categoria e de quem é; nada é salvo até Confirmar', async () => {
+    nextParse = parsed({ confidence: 40 });
+    const cs = await sendText(EDUARDO_TG, 'mercado 180');
+    const menu = await tap(EDUARDO_TG, byPrefix(cs, 'e:'));
+    expect(labeled(menu).map((b) => b.text)).toEqual(['🏷️ Categoria', '👥 De quem é']);
+
+    const cats = await tap(EDUARDO_TG, pick(menu, '🏷️ Categoria'));
+    expect(labeled(cats).map((b) => b.text)).toContain('Lazer');
+    expect(labeled(cats).map((b) => b.text)).not.toContain('Salário CLT'); // só categorias de despesa
+    const afterCat = await tap(EDUARDO_TG, pick(cats, 'Lazer'));
+    expect(lastText(afterCat)).toContain('Confere?');
+    expect(lastText(afterCat)).toContain('Lazer');
+    expect(buttons(afterCat).map((d) => d.split(':')[0])).toEqual(['c', 'e', 'x']);
+
+    const people = await tap(
+      EDUARDO_TG,
+      pick(await tap(EDUARDO_TG, byPrefix(afterCat, 'e:')), '👥 De quem é'),
+    );
+    expect(labeled(people).map((b) => b.text)).toEqual(['👫 Casal', 'Eduardo', 'Viviane']);
+    const afterBen = await tap(EDUARDO_TG, pick(people, 'Viviane'));
+    expect(lastText(afterBen)).toContain('De quem: Viviane');
+    expect(await txCount()).toBe(0);
+
+    expect(lastText(await tap(EDUARDO_TG, byPrefix(afterBen, 'c:')))).toContain('✅ Lançado');
+    expect(await lastTx()).toMatchObject({ category: 'Lazer', beneficiary: 'Viviane' });
+  });
+
+  it('depois de lançado: corrige a categoria e o beneficiário do lançamento (edita, com versão e auditoria)', async () => {
+    const cs = await sendText(EDUARDO_TG, 'mercado 180 no pix');
+    expect(buttons(cs).map((d) => d.split(':')[0])).toEqual(['u', 'e']);
+    expect(await lastTx()).toMatchObject({ category: 'Mercado', beneficiary: null, version: 1 });
+
+    const cats = await tap(EDUARDO_TG, pick(await tap(EDUARDO_TG, byPrefix(cs, 'e:')), '🏷️ Categoria'));
+    const fixed = await tap(EDUARDO_TG, pick(cats, 'Alimentação fora'));
+    expect(lastText(fixed)).toContain('✏️ Corrigido');
+    expect(lastText(fixed)).toContain('Alimentação fora');
+    expect(buttons(fixed).map((d) => d.split(':')[0])).toEqual(['u', 'e']); // continua dando para desfazer/corrigir
+
+    const people = await tap(EDUARDO_TG, pick(await tap(EDUARDO_TG, byPrefix(fixed, 'e:')), '👥 De quem é'));
+    await tap(EDUARDO_TG, pick(people, 'Eduardo'));
+    expect(await lastTx()).toMatchObject({
+      category: 'Alimentação fora',
+      beneficiary: 'Eduardo',
+      version: 3,
+    });
+    expect(await txCount()).toBe(1); // editou, não criou outro
+    expect(
+      (await q(`select 1 from audit_log where entity = 'transactions' and action = 'UPDATE'`)).length,
+    ).toBe(2);
+
+    // voltar para casal
+    const people2 = await tap(EDUARDO_TG, pick(await tap(EDUARDO_TG, byPrefix(fixed, 'e:')), '👥 De quem é'));
+    const back = await tap(EDUARDO_TG, pick(people2, '👫 Casal'));
+    expect(lastText(back)).toContain('De quem: casal');
+    expect((await lastTx()).beneficiary).toBeNull();
+  });
+
+  it('compra no cartão: corrige a categoria da compra', async () => {
+    nextParse = parsed({ paymentMethod: 'CREDIT_CARD', cardId: nubank, confidence: 95 });
+    const cs = await sendText(EDUARDO_TG, 'mercado 180 nubank');
+    const cats = await tap(EDUARDO_TG, pick(await tap(EDUARDO_TG, byPrefix(cs, 'e:')), '🏷️ Categoria'));
+    expect(lastText(await tap(EDUARDO_TG, pick(cats, 'Lazer')))).toContain('✏️ Corrigido');
+    expect((await lastTx()).category).toBe('Lazer');
+  });
+
+  it('só quem lançou corrige, e depois de 24h só pelo app', async () => {
+    const cs = await sendText(EDUARDO_TG, 'mercado 180 no pix');
+    expect(lastText(await tap(VIVIANE_TG, byPrefix(cs, 'e:')))).toContain('Só quem enviou');
+    const cats = await tap(EDUARDO_TG, pick(await tap(EDUARDO_TG, byPrefix(cs, 'e:')), '🏷️ Categoria'));
+    const lazer = pick(cats, 'Lazer');
+    expect(lastText(await tap(VIVIANE_TG, lazer))).toContain('Só quem enviou');
+    expect((await lastTx()).category).toBe('Mercado');
+
+    await q("update transactions set created_at = created_at - interval '25 hours'");
+    expect(lastText(await tap(EDUARDO_TG, lazer))).toContain('Passou de 24h');
+    expect((await lastTx()).category).toBe('Mercado');
+  });
+
+  it('desfeito ou cancelado não dá mais para corrigir; opção inválida é recusada', async () => {
+    const cs = await sendText(EDUARDO_TG, 'mercado 180 no pix');
+    await tap(EDUARDO_TG, byPrefix(cs, 'u:'));
+    expect(lastText(await tap(EDUARDO_TG, byPrefix(cs, 'e:')))).toContain('já foi encerrado');
+    const id = byPrefix(cs, 'e:').slice(2);
+    expect(lastText(await tap(EDUARDO_TG, `k:${id}:zzzzzzzz`))).toContain('Opção inválida');
   });
 });
 

@@ -23,7 +23,7 @@ export default async function ImportAccountPage() {
       </Button>
       <Card>
         <CardHeader>
-          <CardTitle>Importar extrato da conta (OFX)</CardTitle>
+          <CardTitle>Importar extrato da conta (OFX ou CSV)</CardTitle>
           <CardDescription>
             O app compara cada linha com o que já está lançado (inclusive contas pendentes, que recebem a
             baixa) e mostra tudo para você revisar. Nada entra sem a sua confirmação.

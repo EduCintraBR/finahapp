@@ -11,7 +11,10 @@ import { audit } from './audit';
 import { type ServiceCtx, UserError } from './context';
 import { getPrimaryAccount } from './entries';
 
-export async function updateOpeningBalance(ctx: ServiceCtx, input: { amount: Cents; date: ISODate }) {
+export async function updateOpeningBalance(
+  ctx: ServiceCtx,
+  input: { amount: Cents; date: ISODate; reason?: string },
+) {
   return ctx.db.transaction(async (tx) => {
     const account = await getPrimaryAccount(tx);
     const [before] = await tx
@@ -55,7 +58,7 @@ export async function updateOpeningBalance(ctx: ServiceCtx, input: { amount: Cen
       after: {
         openingBalanceCents: after!.openingBalanceCents,
         openingBalanceDate: after!.openingBalanceDate,
-        reason: 'D44',
+        reason: input.reason ?? 'D44',
       },
     });
   });

@@ -9,7 +9,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
-import { batchKind, getAccountImportReview, getImportReview } from '@/db/queries/imports';
+import { getPrimaryAccount } from '@/db/queries/accounts';
+import { batchKind, getAccountImportReview, getBatchCandidates, getImportReview } from '@/db/queries/imports';
+import { BulkIgnoreBar, LineCheckbox, RefreshSuggestionsButton } from '@/components/imports/batch-tools';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { addMonths, formatDateBR, formatMonthLabel } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
@@ -35,14 +37,24 @@ export default async function ImportReviewPage({ params }: PageProps<'/importaco
       listUsers(db),
     ]);
     if (!ar) notFound();
-    return <AccountReview r={ar} categories={cats} users={people} />;
+    return (
+      <AccountReview
+        r={ar}
+        categories={cats}
+        users={people}
+        candidates={await getBatchCandidates(db, batchId)}
+      />
+    );
   }
-  const [r, categories, users] = await Promise.all([
+  const [r, categories, users, candidates, account] = await Promise.all([
     getImportReview(db, batchId),
     listCategories(db),
     listUsers(db),
+    getBatchCandidates(db, batchId),
+    getPrimaryAccount(db),
   ]);
   if (!r) notFound();
+  const opening = account?.openingBalanceDate ?? null;
 
   const fallback = categories.find((c) => c.name === 'A classificar' && c.kind === 'EXPENSE')!;
   const pending = r.lines.filter((l) => l.status === 'PENDING_REVIEW');
@@ -91,6 +103,10 @@ export default async function ImportReviewPage({ params }: PageProps<'/importaco
             </div>
           )}
           {pending.length > 0 && <BatchActions batchId={batchId} suggested={suggested} fresh={fresh} />}
+          {pending.length > 0 && (
+            <BulkIgnoreBar batchId={batchId} pending={pending.length} additionalCard={r.card.isAdditional} />
+          )}
+          {pending.length > 0 && <RefreshSuggestionsButton batchId={batchId} kind="CARD_STATEMENT" />}
           <Link
             href={`/cartoes/faturas/${r.invoice.id}`}
             className="inline-block text-sm text-primary hover:underline"
@@ -105,27 +121,40 @@ export default async function ImportReviewPage({ params }: PageProps<'/importaco
           <h2 className="px-1 text-sm font-medium text-muted-foreground">A revisar</h2>
           {pending.map((l) => (
             <Card key={l.id} className="gap-3 py-4">
-              <CardContent className="space-y-3 px-4">
-                <LineHeader l={l} />
-                <PendingLineActions
-                  line={{
-                    id: l.id,
-                    kind: l.payload.kind,
-                    description: l.payload.description,
-                    amountCents: l.payload.amountCents,
-                    installment: l.payload.installment,
-                    suggestedCategoryId: l.payload.suggestedCategoryId,
-                    paysThisInvoice: l.payload.paysThisInvoice,
-                    suggestion: l.suggestion ? { label: l.suggestion.label, date: l.suggestion.date } : null,
-                  }}
-                  categories={categories}
-                  users={users}
-                  fallbackCategoryId={fallback.id}
-                  invoiceLabels={{
-                    this: `Fatura de ${monthLabel}`,
-                    previous: `Fatura de ${formatMonthLabel(addMonths(r.invoice.referenceMonth, -1))}`,
-                  }}
-                />
+              <CardContent className="flex gap-3 px-4">
+                <LineCheckbox lineId={l.id} />
+                <div className="min-w-0 flex-1 space-y-3">
+                  <LineHeader l={l} />
+                  <PendingLineActions
+                    line={{
+                      id: l.id,
+                      kind: l.payload.kind,
+                      description: l.payload.description,
+                      amountCents: l.payload.amountCents,
+                      installment: l.payload.installment,
+                      suggestedCategoryId: l.payload.suggestedCategoryId,
+                      paysThisInvoice: l.payload.paysThisInvoice,
+                      suggestion: l.suggestion
+                        ? { label: l.suggestion.label, date: l.suggestion.date }
+                        : null,
+                      candidates: (candidates[l.id] ?? []).filter((c) => c.id !== l.suggestionId),
+                      blockedBefore:
+                        opening &&
+                        l.date < opening &&
+                        (l.payload.kind === 'PURCHASE' ||
+                          (l.payload.kind === 'INSTALLMENT' && l.payload.installment?.k === 1))
+                          ? opening
+                          : null,
+                    }}
+                    categories={categories}
+                    users={users}
+                    fallbackCategoryId={fallback.id}
+                    invoiceLabels={{
+                      this: `Fatura de ${monthLabel}`,
+                      previous: `Fatura de ${formatMonthLabel(addMonths(r.invoice.referenceMonth, -1))}`,
+                    }}
+                  />
+                </div>
               </CardContent>
             </Card>
           ))}
