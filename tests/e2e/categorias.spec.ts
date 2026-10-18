@@ -97,5 +97,8 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await page.getByRole('link', { name: /Ração do Thor/ }).click();
   await page.getByRole('button', { name: 'Excluir', exact: true }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();
+  // espera a exclusão terminar (volta para a lista) ANTES de conferir: na tela de detalhe o link
+  // já não existe, então só checar o link passaria na hora e o próximo teste veria o saldo velho
+  await page.waitForURL(/\/lancamentos(\?[^/]*)?$/);
   await expect(page.getByRole('link', { name: /Ração do Thor/ })).toHaveCount(0);
 });
