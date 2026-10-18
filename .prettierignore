@@ -1,0 +1,13 @@
+.next
+dist
+node_modules
+pnpm-lock.yaml
+drizzle
+# Arquivos entregues no handoff mantêm a formatação original
+src/db/schema.ts
+src/db/seed-data.ts
+tests/acceptance/card-ledger.test.ts
+test-results
+playwright-report
+.next-e2e
+tmp

@@ -1,0 +1,35 @@
+# dependências
+/node_modules
+
+# testes
+/coverage
+
+# next.js
+/.next/
+/out/
+/dist/
+
+# misc
+.DS_Store
+*.pem
+*.tsbuildinfo
+next-env.d.ts
+
+# debug
+npm-debug.log*
+.pnpm-debug.log*
+
+# env (só o exemplo é versionado)
+.env*
+!.env.example
+
+# backups locais
+/backups/
+
+# playwright
+/test-results/
+/playwright-report/
+/.next-e2e/
+
+# arquivos reais de extrato/fatura (dados pessoais)
+/tmp/

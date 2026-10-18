@@ -1,0 +1,110 @@
+# Finah — stack completa. Uso:
+#   cp .env.example .env   (preencha)
+#   docker compose up -d --build                  # app, db, worker, backup (+ migrate one-shot)
+#   docker compose --profile vps up -d --build    # + caddy com HTTPS (VPS com domínio)
+#   docker compose run --rm app node dist/seed.mjs
+name: finah
+
+x-app: &app
+  image: ${FINAH_IMAGE:-finah:local}
+  build: .
+  restart: unless-stopped
+  env_file:
+    - path: .env
+      required: false
+  # Dentro do Compose o banco é sempre o serviço `db` (sobrepõe o DATABASE_URL de dev do .env)
+  environment:
+    DATABASE_URL: postgres://${POSTGRES_USER:-finah}:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}@db:5432/${POSTGRES_DB:-finah}
+    TZ: America/Sao_Paulo
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finah}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:-finah}
+      TZ: America/Sao_Paulo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Só localhost: para `pnpm dev` / `pnpm db:migrate` na própria máquina.
+    ports:
+      - 127.0.0.1:${DB_PORT:-5432}:5432
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Aplica as migrações de drizzle/ e sai. app e worker só sobem depois dele.
+  migrate:
+    <<: *app
+    restart: 'no'
+    command: [node, dist/migrate.mjs]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  app:
+    <<: *app
+    ports:
+      # Na VPS o Caddy publica 80/443; a porta 3000 fica só em localhost.
+      # Em rede local / Tailscale (NAS), use APP_BIND=0.0.0.0.
+      - ${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000
+
+  worker:
+    <<: *app
+    command: [node, dist/worker.mjs]
+    healthcheck:
+      disable: true
+
+  backup:
+    build: docker/backup
+    image: finah-backup:local
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER:-finah}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      PGDATABASE: ${POSTGRES_DB:-finah}
+      BACKUP_CRON: ${BACKUP_CRON:-0 3 * * *}
+      BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-14}
+      BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-8}
+      RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      # Gravável: o rclone renova o token de acesso (Google Drive) e grava de volta no rclone.conf.
+      - ${RCLONE_CONFIG_DIR:-./docker/backup/rclone}:/config/rclone
+    depends_on:
+      db:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: [vps]
+    restart: unless-stopped
+    environment:
+      # Obrigatório só no perfil vps; vazio não impede `docker compose up` sem o Caddy.
+      DOMAIN: ${DOMAIN:-}
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

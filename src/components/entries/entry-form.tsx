@@ -1,0 +1,245 @@
+'use client';
+
+import { useActionState, useState } from 'react';
+import { cardPurchaseAction } from '@/app/(app)/cartoes/actions';
+import { saveEntryAction } from '@/app/(app)/lancamentos/actions';
+import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import type { CategoryOption, UserOption } from '@/db/queries/lookups';
+import { formatBRL, splitInstallments, tryParseBRL } from '@/domain/money';
+import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
+import { cn } from '@/lib/utils';
+
+export type EntryFormDefaults = {
+  id: string;
+  version: number;
+  kind: 'INCOME' | 'EXPENSE';
+  amountText: string;
+  description: string;
+  categoryId: string;
+  paymentMethod: string;
+  date: string;
+  beneficiaryUserId: string | null;
+  notes: string | null;
+  pending: boolean;
+};
+
+type Mode = 'EXPENSE' | 'INCOME' | 'CARD';
+export type CardOption = { id: string; name: string };
+
+/** Prévia das parcelas com a mesma regra do servidor (resto na 1ª). Só exibição. */
+function installmentPreview(amountText: string, count: number): string | null {
+  const r = tryParseBRL(amountText);
+  if (!r.ok || r.value <= 0 || !Number.isInteger(count) || count < 2 || count > 72 || r.value < count)
+    return null;
+  const [first, ...rest] = splitInstallments(r.value, count);
+  return first === rest[0]
+    ? `${count}× de ${formatBRL(first!)}`
+    : `1ª de ${formatBRL(first!)} + ${count - 1}× de ${formatBRL(rest[0]!)}`;
+}
+
+export function EntryForm({
+  categories,
+  users,
+  today,
+  defaults,
+  returnTo,
+  cards = [],
+  initialMode,
+}: {
+  categories: CategoryOption[];
+  users: UserOption[];
+  today: string;
+  defaults?: EntryFormDefaults;
+  returnTo: string;
+  cards?: CardOption[];
+  initialMode?: Mode;
+}) {
+  const [entryState, entryAction, entryPending] = useActionState(saveEntryAction, null);
+  const [cardState, cardAction, cardPending] = useActionState(cardPurchaseAction, null);
+  const [mode, setMode] = useState<Mode>(
+    defaults?.kind ?? (initialMode === 'CARD' && cards.length ? 'CARD' : 'EXPENSE'),
+  );
+  const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
+  const [amountText, setAmountText] = useState(defaults?.amountText ?? '');
+  const [installments, setInstallments] = useState('1');
+  const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
+  const options = categories.filter((c) => c.kind === categoryKind);
+  const isCard = mode === 'CARD';
+  const state = isCard ? cardState : entryState;
+  const pending = isCard ? cardPending : entryPending;
+  const modes: Mode[] = defaults
+    ? [defaults.kind]
+    : cards.length
+      ? ['EXPENSE', 'INCOME', 'CARD']
+      : ['EXPENSE', 'INCOME'];
+
+  const pick = (m: Mode) => {
+    setMode(m);
+    const kind = m === 'INCOME' ? 'INCOME' : 'EXPENSE';
+    if (!categories.some((c) => c.id === categoryId && c.kind === kind)) setCategoryId('');
+  };
+  const preview = isCard ? installmentPreview(amountText, Number(installments)) : null;
+
+  return (
+    <form action={isCard ? cardAction : entryAction} className="space-y-4">
+      {defaults && (
+        <>
+          <input type="hidden" name="id" value={defaults.id} />
+          <input type="hidden" name="version" value={defaults.version} />
+        </>
+      )}
+      <input type="hidden" name="returnTo" value={returnTo} />
+      {!isCard && <input type="hidden" name="kind" value={mode} />}
+
+      {modes.length > 1 && (
+        <div
+          role="radiogroup"
+          aria-label="Tipo"
+          className={cn(
+            'grid gap-1 rounded-lg bg-muted p-1',
+            modes.length === 3 ? 'grid-cols-3' : 'grid-cols-2',
+          )}
+        >
+          {modes.map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => pick(m)}
+              className={cn(
+                'h-9 rounded-md text-sm font-medium transition-colors',
+                mode === m ? 'bg-background shadow-sm' : 'text-muted-foreground',
+                mode === m &&
+                  (m === 'INCOME' ? 'text-income' : m === 'EXPENSE' ? 'text-expense' : 'text-primary'),
+              )}
+            >
+              {m === 'EXPENSE' ? 'Despesa' : m === 'INCOME' ? 'Receita' : 'Cartão'}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <Field label={isCard ? 'Valor total da compra' : 'Valor'} htmlFor="amount">
+        <MoneyInput
+          id="amount"
+          name="amount"
+          required
+          autoFocus={!defaults}
+          value={amountText}
+          onChange={(e) => setAmountText(e.target.value)}
+          className="h-12 text-xl"
+        />
+      </Field>
+
+      {isCard && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Cartão" htmlFor="cardId">
+            <NativeSelect id="cardId" name="cardId" required defaultValue={cards[0]?.id}>
+              {cards.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+          <Field label="Parcelas" htmlFor="installments" hint={preview ?? 'À vista = 1'}>
+            <Input
+              id="installments"
+              name="installments"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={72}
+              required
+              value={installments}
+              onChange={(e) => setInstallments(e.target.value)}
+            />
+          </Field>
+        </div>
+      )}
+
+      <Field label="Descrição" htmlFor="description">
+        <Input
+          id="description"
+          name="description"
+          required
+          maxLength={180}
+          defaultValue={defaults?.description}
+        />
+      </Field>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Categoria" htmlFor="categoryId">
+          <NativeSelect
+            id="categoryId"
+            name="categoryId"
+            required
+            value={categoryId}
+            onChange={(e) => setCategoryId(e.target.value)}
+          >
+            <option value="" disabled>
+              Escolha…
+            </option>
+            {options.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+        {!isCard && (
+          <Field label="Meio" htmlFor="paymentMethod">
+            <NativeSelect
+              id="paymentMethod"
+              name="paymentMethod"
+              defaultValue={defaults?.paymentMethod ?? 'PIX'}
+            >
+              {ACCOUNT_PAYMENT_METHODS.map((m) => (
+                <option key={m} value={m}>
+                  {PAYMENT_METHOD_LABEL[m]}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
+        )}
+        {isCard && <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={defaults?.pending ? 'Vencimento' : isCard ? 'Data da compra' : 'Data'} htmlFor="date">
+          <Input id="date" name="date" type="date" required defaultValue={defaults?.date ?? today} />
+        </Field>
+        {!isCard && <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />}
+      </div>
+
+      <Field label="Observações" htmlFor="notes">
+        <Textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={defaults?.notes ?? ''} />
+      </Field>
+
+      <FormError message={state && !state.ok ? state.error : null} />
+
+      <Button type="submit" className="h-11 w-full" disabled={pending}>
+        {pending ? 'Salvando…' : defaults ? 'Salvar alterações' : 'Lançar'}
+      </Button>
+    </form>
+  );
+}
+
+function BeneficiaryField({ users, defaultValue }: { users: UserOption[]; defaultValue: string }) {
+  return (
+    <Field label="De quem é" htmlFor="beneficiaryUserId">
+      <NativeSelect id="beneficiaryUserId" name="beneficiaryUserId" defaultValue={defaultValue}>
+        <option value="">Casal</option>
+        {users.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.name}
+          </option>
+        ))}
+      </NativeSelect>
+    </Field>
+  );
+}

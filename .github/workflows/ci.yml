@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    # na main o CI roda dentro do Deploy (deploy.yml), uma vez só e antes de publicar
+    branches: [dev]
+  pull_request:
+  # Reaproveitado pelo deploy: nada vai para produção sem passar por aqui.
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck · lint · test · acceptance · build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4 # versão vem de package.json#packageManager
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm test
+      - run: pnpm test:acceptance
+      - run: pnpm build
+
+  e2e:
+    name: e2e (Playwright, Chromium 375px)
+    needs: check
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: finah
+          POSTGRES_PASSWORD: finah
+          POSTGRES_DB: finah
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U finah" --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgres://finah:finah@localhost:5432/finah
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-traces
+          path: test-results/
+
+  compose:
+    name: docker compose do zero + backup/restore
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: .env de teste
+        run: |
+          cp .env.example .env
+          sed -i \
+            -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=ci$(openssl rand -hex 12)|" \
+            -e "s|^AUTH_SECRET=.*|AUTH_SECRET=$(openssl rand -base64 33)|" \
+            -e "s|^SEED_USER1_EMAIL=.*|SEED_USER1_EMAIL=eduardo@example.com|" \
+            -e "s|^SEED_USER1_PASSWORD=.*|SEED_USER1_PASSWORD=senha-ci-eduardo|" \
+            -e "s|^SEED_USER2_NAME=.*|SEED_USER2_NAME=Esposa|" \
+            -e "s|^SEED_USER2_EMAIL=.*|SEED_USER2_EMAIL=esposa@example.com|" \
+            -e "s|^SEED_USER2_PASSWORD=.*|SEED_USER2_PASSWORD=senha-ci-esposa|" \
+            -e "s|^SEED_OPENING_BALANCE=.*|SEED_OPENING_BALANCE=1.234,56|" \
+            .env
+      - run: bash scripts/compose-smoke.sh

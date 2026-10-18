@@ -1,0 +1,140 @@
+# Finah — guia de uso e operação
+
+Controle financeiro do casal: conta principal compartilhada, cartões de crédito, PWA e bot do Telegram.
+Regras de negócio em [docs/SPEC.md](SPEC.md), fases em [docs/ROADMAP.md](ROADMAP.md), convenções de código em [CLAUDE.md](../CLAUDE.md).
+
+## Desenvolvimento
+
+Requisitos: Node 24+, pnpm (via `corepack enable`) e Docker (para o Postgres).
+
+```bash
+cp .env.example .env          # preencha POSTGRES_PASSWORD, DATABASE_URL, AUTH_SECRET e os SEED_*
+docker compose up -d db       # só o Postgres, em 127.0.0.1:5432
+pnpm install
+pnpm db:migrate
+pnpm db:seed
+pnpm dev                      # http://localhost:3000
+```
+
+Armadilhas comuns no `.env` (o seed e o login falham sem uma mensagem clara):
+
+- **`$` em valores**: o Docker Compose e o Next apagam o trecho `$ALGO`. Senhas de login com `$` vão entre aspas simples (`'...'`); a senha do Postgres deve ter só letras e números.
+- **`SEED_USER*_TELEGRAM_ID`** é o ID numérico (pegue com o @userinfobot), não o `@usuario`. Pode ficar vazio.
+- **`AUTH_URL`** precisa de `https://` e só é usado na VPS; em dev, deixe comentado.
+- Mudou `POSTGRES_PASSWORD` depois do primeiro `docker compose up`? O Postgres guarda a senha antiga no volume. Troque com `ALTER USER` ou, se o banco estiver vazio, recrie o volume (`docker compose down` + `docker volume rm finah_pgdata`).
+
+Antes de considerar uma tarefa pronta: `pnpm typecheck && pnpm lint && pnpm test && pnpm test:acceptance`.
+
+Testes de navegador (Playwright, tela de celular): `docker compose up -d db` e depois `pnpm test:e2e`. Eles usam um banco à parte (`finah_e2e`), recriado a cada execução, e nunca tocam nos seus dados. Na primeira vez: `pnpm exec playwright install chromium`.
+
+## Usando o app
+
+- **Lançar** (botão **+**): despesa ou receita à vista na conta, com categoria, meio de pagamento e de quem é (casal ou uma pessoa). Datas anteriores ao início do controle são recusadas.
+- **Lançamentos**: extrato do mês com entradas, saídas, a pagar e a receber, e filtros por tipo, situação, categoria, meio, quem lançou e de quem é. Toque num lançamento para editar ou excluir. Nada é apagado de verdade: fica no histórico de auditoria.
+- **Fixos e recorrentes** (atalho em Lançamentos): contas que se repetem todo mês, como aluguel (fixo) ou luz (recorrente, valor estimado), e receitas previstas, como o salário. O app cria cada mês como **pendente** no dia do vencimento (o dia 31 vira o último dia do mês). "Alterar a partir de" serve para reajustes; "Encerrar" para quando a conta acaba.
+- **Categorias** (Ajustes → Categorias): crie categorias novas (despesa ou receita), renomeie, ajuste os **apelidos** que o bot e a importação usam para reconhecer a categoria (ex.: "luz, energia, água") e arquive as que não usa mais. Arquivar não apaga nada: a categoria some das listas de escolha, mas os lançamentos antigos e os relatórios continuam com ela, e você pode restaurá-la quando quiser. A tela mostra quantos lançamentos usam cada categoria. "A classificar" e "Outras receitas" não podem ser renomeadas nem arquivadas, porque o bot e as importações usam como reserva.
+- **Home**: saldo atual; **caixa do mês** (o que entrou, saiu, falta receber e falta pagar, e o saldo previsto para o fim do mês); pendentes; **gasto do mês** em Mensal (o que sai da conta no mês, com as faturas que vencem nele) e Bruto (o que foi comprado no mês), com a economia das antecipações; cartões; últimos lançamentos. Os números são os mesmos dos relatórios.
+- **Relatórios**: gasto por categoria em **Mensal** ou **Bruto** (alterne no topo), com filtros de de quem é, quem lançou, cartão e meio de pagamento, e a evolução dos últimos 12 meses (Mensal × Bruto, com tabela). **Projeção** (atalho em Relatórios): resultado e saldo estimado dos próximos meses, com receitas e contas cadastradas, faturas já agendadas e assinaturas; avance de 3 em 3 meses (até 3 anos).
+- **Dar baixa**: na Home, em "Pendentes", toque em **Paguei** ou **Recebi** e confirme a data e o valor real (2 toques). Errou? Abra o lançamento e use **Estornar baixa**: ele volta a pendente com o valor estimado.
+- **Conferir saldo** (Home → Conferir): informe o saldo que o banco mostra numa data. Se não bater, o app mostra a diferença e, se você quiser, lança um ajuste exato.
+- **Importar o extrato da conta (OFX)** (Lançamentos → ícone de importar): no app do Nubank, Conta → Extrato → Exportar → período → OFX. Na revisão, cada linha aparece como **Despesa**, **Receita**, **Transferência** (aplicação/resgate RDB, caixinha e Pix entre as contas do casal: mexem no saldo, mas não contam como gasto nem receita) ou **Pagamento de fatura** (escolha a fatura; serve também para o Pix à titular do adicional). O que já está no app é sugerido com **É esse**; se for uma conta pendente (ex.: aluguel), ela recebe a baixa com a data e o valor do extrato. No alto, o app compara o saldo do app com o do arquivo na data final.
+- **Saldo inicial** (Ajustes → Conta principal): corrige o saldo de abertura e a data de início do controle, se o valor do começo estiver errado. Fica registrado no histórico; a data não pode passar de um lançamento já existente.
+
+### Cartões
+
+- **Cadastrar** (Cartões → **+ Cartão**): informe o dia de vencimento; o fechamento é sugerido como 7 dias antes (padrão do Nubank) e pode ser ajustado. Para o adicional da sua mãe, marque **Cartão adicional**, informe a titular e deixe o limite em branco (o app mostra só o comprometido). Os apelidos servem para o bot reconhecer o cartão ("nubank", "roxinho").
+- **Compra no cartão**: botão **+** → aba **Cartão** → valor total e número de parcelas (a prévia mostra as parcelas; o resto dos centavos vai na 1ª). A compra cai na fatura certa pela data (comprou no dia do fechamento ou depois → próxima fatura) e compromete o limite inteiro na hora.
+- **Fatura**: no cartão, toque na fatura para ver os itens, **Pagar fatura** (sugere o que falta; pode pagar só uma parte, e o resto fica na fatura) e desfazer um pagamento. Se o banco mudar o fechamento, edite as datas: as compras afetadas mudam de fatura sozinhas e o app avisa quais foram.
+- **Antecipar parcelas** (na tela da compra): escolha as parcelas (padrão: a última), informe quanto o banco cobrou (o desconto aparece como economia) e se entrou **na fatura** ou foi **pago avulso** pela conta.
+- **Estorno**: **crédito, parcelas continuam** (estorno parcial) ou **cancelar a compra toda** (as parcelas que ainda não vieram somem; o que já foi cobrado volta como um crédito). O Gasto Bruto abate o estorno no mês em que ele aconteceu.
+- **Excluir compra**: só enquanto nada foi cobrado (nenhuma fatura fechou, sem antecipação nem estorno); depois disso, use o estorno.
+- **Parcelamento em andamento** (na tela do cartão): para compras parceladas de antes de usar o Finah. Informe o total, a parcela atual (ex.: 9 de 10) e a fatura em que ela cai; só as restantes entram no limite.
+- **Importar a fatura (OFX)** (no cartão → **Importar fatura (OFX)**): no app do Nubank, exporte a fatura em OFX e envie o arquivo. O Finah compara cada linha com o que já está lançado e abre a revisão: **É esse** para conciliar, **Criar lançamento** para o que é novo, **Ignorar** para o resto, ou os botões **Aceitar as sugestões** e **Criar as novas** de uma vez. Parcelas de compras antigas viram parcelamento em andamento; a "Parcela 1/N" pede o total da compra (confira no app do banco). Os pagamentos saem da conta principal. No alto, o app mostra "a pagar no app × no arquivo" para conferir centavo a centavo. Pode reimportar a fatura aberta durante o mês: só as linhas novas entram, e o mesmo arquivo não entra duas vezes.
+- **Assinaturas no cartão**: em Fixos, escolha **Cartão de crédito** como meio. No dia da cobrança vira uma compra à vista na fatura certa.
+
+- Destaques: **Atrasado**, **Vence hoje**, **Vence em até 3 dias**.
+
+## Bot do Telegram
+
+Pronto e testado, mas desligado por padrão (`BOT_MODE=off`). Para ligar:
+
+1. No Telegram, crie o bot com o **@BotFather** e copie o token para `TELEGRAM_BOT_TOKEN`.
+2. Descubra o **ID numérico** de cada um com o **@userinfobot** e coloque em `SEED_USER1_TELEGRAM_ID` e `SEED_USER2_TELEGRAM_ID`. Depois rode o seed de novo. O bot ignora qualquer outra pessoa.
+3. Coloque sua chave da Anthropic em `ANTHROPIC_API_KEY`. `LLM_MODEL` é opcional: o padrão é `claude-opus-5-5`, e `claude-haiku-5-5` sai mais barato.
+4. Escolha o modo:
+   - **VPS (webhook)**: `BOT_MODE=webhook`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`) e `AUTH_URL=https://seu-dominio`. Suba a stack e rode `pnpm bot:webhook` uma vez.
+   - **Local ou NAS (polling)**: `BOT_MODE=polling` e reinicie o `worker`. Não precisa de domínio nem de porta aberta.
+
+Como usar: mande, por exemplo, `mercado 180 no pix`, `uber 23,50 débito`, `farmácia 42,90 dinheiro ontem` ou `tênis 600 no nubank em 3x`. Se o bot tiver certeza, ele lança na hora e mostra o saldo (ou, no cartão, a fatura e o limite disponível), com o botão **↩️ Desfazer**. Se não, mostra o que entendeu e pede **✅ Confirmar / ❌ Cancelar**. `/desfazer` desfaz o seu último lançamento (até 24h). Por enquanto o bot não lança receitas: use o app.
+
+Consultas: `/saldo` (saldo atual e previsto para o fim do mês), `/fatura` (fatura aberta, faturas fechadas a pagar e limite de cada cartão) e `/pendentes` (contas do mês, com atrasados). Todo dia às 9h, com o bot ligado, os dois recebem um lembrete das contas que vencem no dia e das faturas que vencem em 2 dias com valor a pagar. Sem nada a lembrar, não chega mensagem.
+
+## Produção (VPS)
+
+1. DNS do domínio apontando para a VPS; portas 80 e 443 liberadas.
+2. `cp .env.example .env` e preencha **tudo**, incluindo `DOMAIN`, `AUTH_SECRET` (`openssl rand -base64 33`) e uma senha forte só com letras e números em `POSTGRES_PASSWORD`.
+3. Suba a stack:
+   ```bash
+   docker compose --profile vps up -d --build
+   docker compose run --rm app node dist/seed.mjs
+   ```
+4. Acesse `https://<DOMAIN>` e entre com cada um dos dois usuários.
+
+O serviço `migrate` aplica as migrações a cada `up`, antes de `app` e `worker` subirem.
+Para conferir tudo de uma vez numa máquina com Docker: `bash scripts/compose-smoke.sh` (sobe do zero, faz seed, testa os dois logins, o PWA, o worker e um backup/restore, e derruba tudo no final; **use um `.env` de teste**, porque o script apaga os volumes).
+
+### Produção atual: finahapp.com (Ubuntu 24.04 + nginx)
+
+Em produção usamos **nginx no host** com Let's Encrypt (Certbot), e não o Caddy do perfil `vps`:
+
+- Código em `/opt/finah` (enviado por `tar` via SSH; não há git na VPS) e `.env` só da VPS (segredos próprios, `chmod 600`, `AUTH_URL=https://finahapp.com`, `BOT_MODE=off`).
+- `docker compose up -d --build` (sem o perfil `vps`): o app fica só em `127.0.0.1:3000` e o Postgres só em `127.0.0.1:5432`.
+- nginx: `/etc/nginx/sites-available/finah` faz proxy de `finahapp.com` e `www.finahapp.com` para `127.0.0.1:3000` (`client_max_body_size 2m`). O HTTPS e o redirecionamento 80→443 vêm do `certbot --nginx`, e a renovação é automática (`certbot.timer`).
+- Firewall (ufw): só 22, 80 e 443.
+
+**Atualizar a produção** (na sua máquina, na raiz do projeto):
+
+```bash
+tar --exclude=./node_modules --exclude=./.next --exclude=./.next-e2e --exclude=./dist \
+    --exclude=./test-results --exclude=./tmp --exclude=./backups --exclude=./.env \
+    --exclude=./.env.bak --exclude=./docker/backup/rclone \
+    -czf - . | ssh deploy@<ip-da-vps> 'tar -xzf - -C /opt/finah'
+ssh deploy@<ip-da-vps> 'cd /opt/finah && docker compose up -d --build'
+```
+
+**Copiar os dados do banco local para a VPS** (uma vez, ou para refazer a produção a partir do local): `VPS=deploy@<ip-da-vps> bash scripts/sync-db-to-vps.sh`. Só funciona com o Docker local ligado. O script faz um backup de segurança da VPS, substitui o banco da VPS pelo local e confere as contagens. Ele recusa se a VPS já tiver lançamentos (use `--force` só se for isso mesmo que você quer). Depois que a produção passa a ser a fonte dos dados, **não rode mais**: ele apagaria o que foi lançado só na VPS.
+
+### Instalar no celular
+
+Abra o endereço no Chrome (Android) ou Safari (iOS) → menu → **Adicionar à tela inicial**. Precisa de HTTPS (Caddy ou nginx + Certbot, conforme acima).
+
+### NAS (futuro)
+
+Mesmo Compose, sem o perfil `vps`: `APP_BIND=0.0.0.0` no `.env` e acesso pela rede local ou Tailscale.
+Para usar a imagem publicada pelo workflow `Imagem` (amd64 + arm64): `FINAH_IMAGE=ghcr.io/<dono>/<repo>:<tag>` e `docker compose up -d --no-build`.
+
+## Backup
+
+O serviço `backup` roda `pg_dump` todo dia às 03:00 (America/Sao_Paulo) em `./backups/daily`, copia o de domingo para `./backups/weekly` e mantém 14 diários + 8 semanais (ajustável no `.env`).
+Cópia off-site opcional: coloque um `rclone.conf` em `docker/backup/rclone/` e defina `RCLONE_REMOTE` (ex.: `b2:finah-backups`). A cópia é um `rclone copy`: um disco local vazio nunca apaga o que já está na nuvem.
+
+**Produção (Google Drive):** `RCLONE_REMOTE=gdrive:finah-backups`, com escopo `drive.file` (o backup só enxerga os arquivos que ele mesmo criou, nunca o resto do Drive). Para refazer a autorização (token revogado ou conta trocada), na sua máquina com o rclone, rode `rclone authorize drive --drive-scope drive.file` e cole o JSON do token em `/opt/finah/docker/backup/rclone/rclone.conf` na VPS, na seção `[gdrive]` (`type = drive`, `scope = drive.file`, `token = {...}`). O Drive **não apaga** backups antigos sozinho: de vez em quando, limpe a pasta `finah-backups`.
+
+```bash
+docker compose exec backup backup.sh                 # backup agora
+docker compose exec backup restore.sh latest         # restaura o último num banco NOVO (finah_restore) e compara as contagens
+docker compose exec backup restore.sh /backups/daily/finah-AAAAMMDD-HHMMSS.dump outro_nome
+```
+
+O `restore.sh` nunca toca no banco em uso. **Restaurar de verdade** (desastre):
+
+```bash
+docker compose stop app worker
+docker compose exec backup psql -d postgres -c 'drop database finah' -c 'create database finah'
+docker compose exec backup pg_restore --no-owner --no-privileges --exit-on-error -d finah /backups/daily/<arquivo>.dump
+docker compose up -d
+```
+
+## Estrutura
+
+Veja a seção "Estrutura" do [CLAUDE.md](../CLAUDE.md). Pontos de entrada fora do Next (`src/worker`, `src/db/migrate.ts`, `src/db/seed.ts`) são empacotados com esbuild em `dist/*.mjs` e rodam na mesma imagem do app.

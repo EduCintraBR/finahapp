@@ -1,0 +1,102 @@
+# CD: todo push na `main` (merge de PR) roda o CI completo e, se passar, publica em produção (finahapp.com).
+# Fluxo: dev → PR → main. Nada vai para a VPS sem passar typecheck, lint, testes, E2E e o compose do zero.
+#
+# Segredos do repositório (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST         IP ou host da VPS
+#   DEPLOY_USER         usuário de deploy (não é o root)
+#   DEPLOY_SSH_KEY      chave privada SSH dedicada ao deploy
+#   DEPLOY_KNOWN_HOSTS  linha(s) do known_hosts da VPS (ssh-keyscan -t ed25519 <host>): fixa a identidade do servidor
+# Variável do repositório (opcional): DEPLOY_URL (padrão https://finahapp.com)
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # redeploy manual da main (ex.: depois de corrigir a VPS)
+
+# Um deploy por vez e nunca cancelado no meio: cancelar um `docker compose up` pela metade é pior que esperar.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Publicar em produção
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL || 'https://finahapp.com' }}
+    env:
+      APP_DIR: /opt/finah
+      HEALTH_URL: ${{ vars.DEPLOY_URL || 'https://finahapp.com' }}/api/health
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host vps\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' \
+            "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Backup do banco antes de mexer
+        run: ssh vps "cd $APP_DIR && docker compose exec -T backup backup.sh | tail -2"
+
+      - name: Guarda a imagem atual (para voltar atrás)
+        run: ssh vps "docker image inspect finah:local >/dev/null 2>&1 && docker tag finah:local finah:previous || echo 'sem imagem anterior'"
+
+      - name: Envia o código
+        # --delete tira da VPS o que saiu do repositório; .env, backups e a config do rclone são só da VPS.
+        run: |
+          rsync -az --delete \
+            --include '.env.example' --exclude '.git/' --exclude '.github/' --exclude 'node_modules/' \
+            --exclude '.next/' --exclude '.env' --exclude '.env.*' \
+            --exclude '/backups/' --exclude '/docker/backup/rclone/' \
+            ./ vps:$APP_DIR/
+
+      - name: Build e restart (as migrações rodam antes do app)
+        run: ssh vps "cd $APP_DIR && docker compose up -d --build --remove-orphans"
+
+      - name: Espera o app responder
+        run: |
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || true)
+            echo "tentativa $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 5
+          done
+          echo "O app não ficou saudável a tempo."
+          exit 1
+
+      - name: Conferência final (login no ar, containers saudáveis)
+        run: |
+          curl -fsS --max-time 15 "${HEALTH_URL%/api/health}/login" | grep -q "Finah"
+          ssh vps "cd $APP_DIR && docker compose ps --format '{{.Name}} {{.Status}}'"
+
+      - name: Volta para a versão anterior se algo falhou
+        if: failure()
+        run: |
+          echo "::error::Deploy falhou: voltando para a imagem anterior."
+          ssh vps "cd $APP_DIR && docker compose logs --tail=60 app migrate || true"
+          ssh vps "docker image inspect finah:previous >/dev/null 2>&1 \
+            && docker tag finah:previous finah:local \
+            && cd $APP_DIR && docker compose up -d --no-build \
+            || echo 'sem imagem anterior para restaurar'"
+          echo "::warning::As migrações do banco só andam para frente: se a nova versão tinha uma, o banco já está nela."

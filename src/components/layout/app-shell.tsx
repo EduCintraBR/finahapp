@@ -1,0 +1,51 @@
+import Link from 'next/link';
+import { Suspense } from 'react';
+import type { ISODate } from '@/domain/dates';
+import { BottomNav } from './bottom-nav';
+import { Logo } from './logo';
+import { MonthSelector } from './month-selector';
+import { NAV_ITEMS } from './nav-items';
+import { Sidebar } from './sidebar';
+
+export function AppShell({
+  user,
+  currentMonth,
+  children,
+}: {
+  user: { name: string };
+  currentMonth: ISODate;
+  children: React.ReactNode;
+}) {
+  const initial = user.name.trim().charAt(0).toUpperCase() || '?';
+  return (
+    <div className="flex min-h-dvh">
+      <Suspense>
+        <Sidebar />
+      </Suspense>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur">
+          <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4">
+            <div className="md:hidden">
+              <Logo />
+            </div>
+            <Suspense fallback={<div className="h-9" />}>
+              <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
+            </Suspense>
+            <Link
+              href={NAV_ITEMS.settings.href}
+              aria-label={`${user.name} — ajustes`}
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground"
+            >
+              {initial}
+            </Link>
+          </div>
+        </header>
+        {/* pb-24: espaço para a navegação inferior no celular */}
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-24 md:pb-8">{children}</main>
+      </div>
+      <Suspense>
+        <BottomNav />
+      </Suspense>
+    </div>
+  );
+}

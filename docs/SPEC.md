@@ -1,0 +1,359 @@
+# Finah — Especificação Funcional
+
+> Fonte da verdade para regras de negócio. Consolida a spec original (`docs/original-prompt.md`) com a revisão de arquitetura e as decisões tomadas em 16/10/2026. Em conflito, **este documento vence**.
+
+## 1. Contexto
+
+- **Usuários:** exatamente 2 (Eduardo e esposa), pré-cadastrados via seed. Os dois veem tudo.
+- **Caixa Único:** uma conta bancária principal compartilhada reflete o dinheiro real disponível.
+- **Rastreio por pessoa:** cada lançamento guarda quem lançou (`createdByUserId`) e, opcionalmente, de quem é o gasto (`beneficiaryUserId`; vazio = casal).
+- **Hospedagem:** VPS Linux própria agora; NAS caseiro no futuro. Tudo em Docker Compose, portável entre os dois (imagens multi-arch: amd64 e arm64).
+
+## 2. Contas e receitas
+
+- **Conta principal:** única conta rastreada. Saldo inicial + data de início definidos no onboarding.
+- **Salários:** ambos caem na conta principal.
+  - Salário CLT do Eduardo: receita direta.
+  - Renda PJ: chega por Pix da conta PJ (não rastreada) para a principal → lançada como **receita** (`INCOME`, categoria "Renda PJ"), **não** como transferência.
+- **Sem poupança/investimentos/outras contas na v1.** A tabela `bank_accounts` permanece genérica para o futuro.
+- **Dinheiro em espécie:** gastos em espécie abatem da conta principal; **não** registrar o saque (evita saída dupla).
+- **Conferência de saldo:** o usuário informa o saldo que o banco mostra; o app compara com o calculado e, se divergir, oferece um lançamento de ajuste (`ADJUSTMENT_IN/OUT`) registrado em `balance_checkpoints`.
+
+## 3. Cartões de crédito
+
+### 3.1 Cartões do casal
+
+Ambos **Nubank**:
+
+| Cartão           | Titular            | Limite no app                                                  | Observação                                    |
+| ---------------- | ------------------ | -------------------------------------------------------------- | --------------------------------------------- |
+| Nubank Eduardo   | Eduardo            | rastreado (`limit_total_cents`)                                | cartão principal                              |
+| Nubank adicional | **mãe do Eduardo** | **não rastreado** (`NULL`) ou sub-limite definido pela titular | `is_additional = true`, `holder_name = 'Mãe'` |
+
+- **Cartões virtuais** não são cadastrados: lançamentos neles apontam para o cartão físico (mesmo limite, mesma fatura).
+- **Cartão adicional de terceiro:**
+  - A fatura real do banco é da titular e contém gastos dela. No app, a fatura desse cartão contém **apenas os lançamentos do casal**.
+  - O limite real é compartilhado com a titular e não é calculável pelo app. Por isso a UI mostra o "Comprometido" e omite a barra de limite. Se a titular definir um sub-limite para o adicional, cadastrá-lo em `limit_total_cents`.
+  - Pagamento da fatura = o que o casal efetivamente paga, registrado como `INVOICE_PAYMENT` (ex.: Pix para a titular). **[premissa a confirmar — ver §11]**
+  - No import da fatura desse cartão, linhas que não são do casal são marcadas `IGNORED`.
+- **Defaults Nubank:** o fechamento costuma ser 7 dias antes do vencimento. O formulário do cartão sugere `closingDay = dueDay − 7`, editável.
+
+### 3.2 Faturas
+
+- Fatura identificada pelo **mês de vencimento** (`reference_month` = 1º dia do mês do `due_date`).
+- Datas reais (`closing_date`, `due_date`) ficam materializadas e são **editáveis**, porque o banco pode mover o fechamento.
+- Geração automática a partir de `closingDay/dueDay`. Dia inexistente no mês → último dia do mês.
+- **Alocação:** a compra vai para a fatura com a menor `closing_date` **maior que** a data da compra. Comprar no dia do fechamento ou depois → próxima fatura.
+- Status:
+  - `OPEN`: hoje < closing_date.
+  - `CLOSED`: fechada, não paga.
+  - `PAID`: paga.
+  - "Atrasada" é derivado: `CLOSED` e hoje > due_date.
+- **Pagamento:** "Pagar fatura" sugere o valor total. Pagamento parcial e rotativo **não são fluxo comum**: o schema suporta, mas a UI não destaca. Juros, IOF ou multa entram como lançamento manual (categoria "Tarifas e juros").
+
+### 3.3 Limite
+
+`Limite disponível = Limite total − Σ itens ACTIVE de todas as faturas + Σ pagamentos de fatura`
+
+- A compra compromete o **valor total** imediatamente, mesmo parcelada.
+- Pagar a fatura libera o valor pago.
+- Antecipar libera o valor **bruto** das parcelas antecipadas.
+- Estorno com crédito reduz o comprometido. O disponível pode ficar **acima** do limite total (saldo credor, como no banco). A UI mostra isso como "crédito na fatura".
+
+### 3.4 Parcelamento
+
+- Toda compra no cartão gera: 1 transaction `EXPENSE` + 1 `installment_plan` + N `invoice_items`. Compra à vista = 1 parcela.
+- Parcelas iguais. O **resto de centavos vai na 1ª parcela** (R$ 100 em 3x = 33,34 + 33,33 + 33,33).
+- Parcela _k_ vai na fatura seguinte à da parcela _k−1_.
+- **Parcelamentos já em andamento (onboarding):** cadastro manual informando:
+  - descrição, valor total, nº de parcelas e data original da compra;
+  - **parcela atual**;
+  - fatura em que a parcela atual cai.
+
+  O app cria só as parcelas restantes (`first_tracked_installment`), com `source = ONBOARDING`. Esses lançamentos **não entram no Gasto Bruto** de meses anteriores ao início do uso.
+
+### 3.5 Antecipação de parcelas
+
+**Entrada do usuário:**
+
+- data;
+- quais parcelas (padrão: as últimas _n_);
+- valor bruto (pré-preenchido com a soma);
+- desconto;
+- valor pago. Regra: bruto − desconto = pago.
+
+**Liquidação (escolha do usuário):**
+
+- **Na fatura** (`ON_INVOICE`): o líquido vira um item `ANTICIPATION` na fatura escolhida (padrão: a aberta).
+- **Pago avulso** (`DIRECT_PAYMENT`): cria uma transaction `ANTICIPATION_PAYMENT` na conta. Nada entra na fatura.
+
+**Efeito:**
+
+- As parcelas escolhidas ficam `ANTICIPATED` e liberam o limite bruto.
+- Se todas as parcelas restantes forem antecipadas, o plano fica `FULLY_ANTICIPATED`.
+
+**Relatórios:**
+
+- O Gasto Bruto **não muda**: o valor original fica.
+- O desconto aparece como **"Economia com antecipação"** (Σ `discount_cents` do mês) no dashboard e nos relatórios.
+
+### 3.6 Estornos e reembolsos
+
+**Entrada do usuário:**
+
+- data do estorno;
+- valor;
+- fatura onde o crédito caiu;
+- modo.
+
+**Modo A — Crédito mantendo parcelas:**
+
+- Item `REFUND_CREDIT` (negativo) na fatura escolhida.
+- As parcelas seguem normalmente.
+
+**Modo B — Cancelamento da compra:**
+
+- Parcelas em faturas `OPEN` ou futuras → `CANCELLED`, liberando o limite.
+- Parcelas em faturas `CLOSED/PAID` → um único `REFUND_CREDIT` com a soma delas, na fatura escolhida.
+- Plano → `CANCELLED`.
+- Use só para cancelamento total. Estorno parcial = Modo A.
+
+**Efeito no Gasto Bruto:** o estorno **reduz o mês do estorno** (pela `refund_date`). O mês da compra original **mantém o valor cheio como histórico**. Um mês pode ter bruto negativo numa categoria; isso é esperado.
+
+## 4. Gastos fixos, recorrentes e receitas previstas
+
+- **Template** (`recurring_templates`):
+  - tipo `FIXED` (valor exato) ou `RECURRING_VARIABLE` (valor estimado);
+  - direção: despesa ou receita;
+  - dia;
+  - meio de pagamento;
+  - categoria;
+  - mês inicial e final opcional.
+- **Receitas recorrentes:** salário CLT (`FIXED`) e renda PJ (`RECURRING_VARIABLE`) entram como templates `INCOME`, alimentando a projeção.
+- **Geração:**
+  - No início de cada mês, o worker materializa ocorrências do mês como transactions `PENDING`, com `due_date` = dia do template.
+  - A geração é idempotente: a unicidade é por (template, mês).
+  - A geração também é disparada ao abrir o mês no app, caso o worker não tenha rodado.
+- **Baixa ("Confirmar pagamento"):**
+  - O usuário informa a data real e o valor real (pré-preenchido com o estimado).
+  - A transaction vira `POSTED` e o estimado fica guardado em `estimated_amount_cents` para análise de desvio.
+- **Assinaturas no cartão** (template com `payment_method = CREDIT_CARD`):
+  - No dia da cobrança, vira automaticamente uma compra no cartão (plano de 1 parcela) na fatura correta.
+  - **Não** passa por baixa manual, porque é paga via fatura.
+- **Alteração de valor "a partir de":** encerra o template atual (`end_month`) e cria um novo. Ocorrências passadas não mudam.
+- **Destaques visuais:**
+  - "Vence hoje".
+  - "Vence em até 3 dias".
+  - "Atrasado": pendente e `due_date` < hoje.
+
+## 5. Relatórios
+
+### 5.1 Gasto Bruto (competência — "o que compramos")
+
+- Σ despesas pela **data da compra**, com valor cheio dos parcelamentos.
+- − estornos pela data do estorno.
+- Exclui lançamentos `ONBOARDING`.
+- Exemplo: R$ 1.200 em 12x em outubro → R$ 1.200 em outubro, R$ 0 nos meses seguintes.
+
+### 5.2 Gasto Mensal (caixa — "o que pagamos este mês")
+
+É a soma de:
+
+- despesas da conta com vencimento/pagamento no mês (Pix, débito, dinheiro, boleto, fixos e recorrentes);
+- itens das faturas que **vencem** no mês (parcelas, antecipações na fatura, créditos);
+- antecipações pagas avulsas no mês.
+
+`INVOICE_PAYMENT` **nunca** entra (seria contagem dupla).
+
+Exemplo: R$ 1.200 em 12x → R$ 100 em cada um dos 12 meses.
+
+### 5.3 Projeção de meses futuros
+
+- Navegação livre para qualquer mês futuro.
+- `Receitas previstas − (Fixos + Estimativas de recorrentes + Parcelas já agendadas nas faturas que vencem no mês)`
+- Calculada em memória a partir dos templates. **Nunca** persistir ocorrências futuras.
+
+### 5.4 Filtros
+
+Disponíveis em todos os relatórios:
+
+- pessoa (quem lançou / de quem é);
+- categoria;
+- cartão;
+- meio de pagamento.
+
+## 6. Dashboard (Home)
+
+Seletor de mês no topo, com o padrão no mês atual.
+
+1. **Saldo e balanço**
+   - Saldo atual da conta.
+   - Receitas do mês.
+   - Saídas pagas + pendentes.
+   - Saldo projetado no fim do mês.
+2. **Gasto do mês, lado a lado:** Mensal (a pagar) vs Bruto (comprado). Abaixo, a linha "Economia com antecipação", se houver.
+3. **Cartões** — um card por cartão, com:
+   - valor e status da fatura atual;
+   - barra de limite (total / comprometido / disponível). No adicional, só o comprometido;
+   - nº de parcelamentos ativos e mês da última parcela.
+4. **Abaixo da dobra**
+   - Pendentes do mês com botão de baixa rápida.
+   - Últimos lançamentos com badge de quem lançou, categoria e meio de pagamento.
+
+## 7. Bot do Telegram
+
+**Acesso e segurança**
+
+- Responde só aos `telegram_user_id` dos 2 usuários. Outros remetentes são ignorados, sem resposta.
+- Idempotência: `update_id` único em `bot_messages`, porque o Telegram reenvia updates.
+- **Modo configurável** (`BOT_MODE`):
+  - `webhook` na VPS: rota `/api/webhooks/bot` com validação do header `X-Telegram-Bot-Api-Secret-Token`;
+  - `polling` no NAS: o worker faz long polling e não precisa expor porta.
+
+**Parsing**
+
+- LLM via API (Anthropic, modelo configurável em `LLM_MODEL`), com saída estruturada validada por Zod.
+- Campos extraídos:
+  - valor;
+  - descrição;
+  - categoria (via `botAliases`);
+  - meio de pagamento;
+  - cartão (via `botAliases`);
+  - nº de parcelas;
+  - data (padrão: hoje);
+  - beneficiário.
+- O contexto enviado ao LLM é a lista de categorias e cartões com aliases, mais a mensagem. Nunca enviar saldos ou histórico.
+
+**Fluxo**
+
+- Confiança alta → salva e responde com um resumo, o novo saldo (se conta) ou o limite disponível (se cartão), e o botão **↩️ Desfazer**.
+- Confiança baixa, ou cartão/categoria ambíguos → responde com o resumo e os botões **✅ Confirmar / ✏️ Corrigir**. Nada é salvo antes da confirmação.
+- **Comandos:**
+  - `/saldo`
+  - `/fatura [cartão]`
+  - `/pendentes`
+  - `/desfazer` (último lançamento do próprio usuário, até 24h)
+- **Lembretes** (worker, 9h): contas que vencem hoje e faturas que vencem em 2 dias.
+- **Sem áudio na v1.**
+
+**Implementação atual (Fases 2 e 3)** — ver D23/D24:
+
+- Despesa à vista na conta e compra no cartão (à vista ou parcelada), só texto. Receitas recebem uma resposta explicando que chegam depois; nada é lançado.
+- Cartão: identificado pelo nome ou apelido (`bot_aliases` do cartão); com um cartão só, "no crédito" basta; parcelado implica cartão. Se não der para saber qual cartão, o bot pergunta e não lança. A resposta mostra as parcelas, a fatura da 1ª parcela e o limite disponível (ou o comprometido, no adicional sem limite). Desfazer uma compra no cartão segue D31.
+- "Confiança alta" = confiança do modelo ≥ 80 **e** categoria e meio de pagamento identificados. Fora disso: resumo + **✅ Confirmar / ❌ Cancelar** ("✏️ Corrigir" chega na Fase 5). Sem categoria, usa "A classificar".
+- O LLM devolve o valor como texto; a conversão para centavos é o mesmo `parseBRL` do app. Valor ilegível → pede de novo, nunca chuta.
+- Data mencionada no futuro ou inválida → hoje. Data antes do saldo inicial → recusada (D18).
+- Desfazer (botão ou `/desfazer`): só quem lançou, até 24h; o lançamento é excluído logicamente (`deleted_at`).
+- `/saldo`, `/fatura`, `/pendentes` e lembretes: Fase 4.
+
+## 8. Importação OFX/CSV e conciliação
+
+**Formatos**
+
+- Conta principal: OFX genérico + CSV do banco (adapter a definir; ver §11).
+- Fatura Nubank: CSV exportado pelo app (`date,title,amount`, parcelas no título como "Parcela 2/3").
+
+**Idempotência**
+
+- Hash SHA-256 do arquivo bloqueia o mesmo upload duas vezes.
+- Cada linha tem `dedup_key`: FITID no OFX; hash de data|valor|descrição|ocorrência no CSV.
+- A `dedup_key` é única por conta/cartão. Assim, extratos com períodos sobrepostos não duplicam linhas.
+
+**Matching**
+
+- Linha de **conta** ↔ `transactions`. Linha de **fatura** ↔ `invoice_items` (o valor na fatura é o da **parcela**, não o da compra).
+- Candidatos: mesmo valor exato e data ±3 dias.
+- Score = proximidade de data + similaridade de descrição.
+- Atribuição **1:1** (um lançamento só concilia com uma linha), gulosa por maior score.
+- **Nunca** concilia automaticamente. Toda linha passa por revisão. A tela de revisão permite, por linha:
+  - aceitar o match sugerido;
+  - escolher outro;
+  - criar lançamento novo;
+  - ignorar.
+
+## 9. Infraestrutura
+
+**Serviços do `docker-compose.yml`**
+
+- `app`: Next.js standalone.
+- `db`: Postgres 16, com volume nomeado.
+- `worker`: pg-boss, mesma imagem do app com outro entrypoint.
+- `backup`: `pg_dump` diário, retenção de 14 diários + 8 semanais, com cópia off-site opcional via rclone.
+- `caddy`: perfil `vps`, HTTPS automático com domínio próprio.
+
+**Configuração e acesso**
+
+- Toda configuração vem de `.env`, com `.env.example` versionado.
+- Nenhum segredo vai no repositório.
+- NAS (futuro): acesso externo via Tailscale e bot em modo `polling`.
+- **Restore testado** faz parte da definição de pronto da Fase 1.
+
+**Autenticação**
+
+- Email + senha (argon2id), sessão de 30 dias.
+- Rate limit no login.
+
+**PWA**
+
+- Instalável, com manifest e ícones.
+- Service worker só para instalabilidade e cache de assets. Não precisa funcionar offline.
+
+## 10. Registro de decisões
+
+| #   | Decisão                                             | Escolha                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| --- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | ORM                                                 | Drizzle (CHECKs, índices parciais e SQL agregado no schema)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| D2  | Dinheiro                                            | BIGINT centavos, `mode: 'number'`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D3  | Datas de negócio                                    | DATE como string `YYYY-MM-DD`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D4  | Saldo/limite                                        | Sempre derivados, nunca armazenados                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D5  | Arredondamento de parcelas                          | Resto na 1ª parcela                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D6  | Estorno no Gasto Bruto                              | Reduz o mês do estorno; mês original intacto                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D7  | Desconto de antecipação                             | Não reduz o bruto; exibido como "economia"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D8  | Pagamento parcial / rotativo                        | Suportado no schema, sem destaque na UI                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D9  | Parcelas em andamento                               | Cadastro manual, `first_tracked_installment`, fora do bruto histórico                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D10 | Renda PJ                                            | Receita na conta principal; conta PJ fora do app                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D11 | Bot                                                 | Telegram, LLM via API, sem áudio na v1, webhook (VPS) ou polling (NAS)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D12 | Cartão adicional da mãe                             | Fatura só com gastos do casal; limite não rastreado                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D13 | Fora do escopo v1                                   | Orçamento, metas, divisão entre o casal, investimentos, conta PJ                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D14 | Hospedagem                                          | VPS agora, NAS depois; Compose portável                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D15 | Acesso                                              | PWA + email/senha com sessão de 30 dias                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| D16 | Estornar baixa                                      | Volta a `PENDING`, valor volta ao estimado, `posted_date` limpo (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D17 | Ocorrências retroativas                             | Gera de max(início do template, mês do saldo inicial) até o mês atual; nunca meses futuros. Vencimentos anteriores à data do saldo inicial (no mesmo mês) não são gerados: já estavam pagos antes do controle (17/10/2026; complemento na Fase 3)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D18 | Data mínima na conta                                | Lançamento com data anterior ao saldo inicial é bloqueado (evita contagem dupla) (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D19 | Bot local                                           | Implementado e testado com mocks; ligado de verdade só na VPS (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D20 | Conferência de saldo                                | Compara com o saldo calculado **até a data informada** (POSTED com `posted_date` ≤ data); o ajuste é lançado nessa data (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D21 | "Alterar a partir de"                               | Ocorrências do template antigo em meses ≥ o mês da mudança passam para o template novo (uma conta por mês, sempre); só as **pendentes** recebem os valores novos, as já pagas mantêm valor e datas. Mudança no próprio mês de início edita o template no lugar (e atualiza as pendentes). Encerrar um template cancela as pendentes depois do último mês. Cancelar uma ocorrência ("não vai ter esse mês") usa `status = CANCELLED`, para a geração não recriá-la (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D22 | Data de competência da ocorrência                   | `transaction_date` = `due_date` da ocorrência; a baixa só preenche `posted_date` e o valor real (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| D23 | Bot: quando salvar direto                           | Confiança ≥ 80 + categoria + meio de pagamento identificados; senão Confirmar/Cancelar (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D24 | Bot: modelo                                         | `LLM_MODEL` (padrão `claude-opus-5-5`, esforço `low`, com fallback de recusa no servidor); contexto = categorias + pessoas, nunca saldos (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D25 | Pagamento parcial de fatura                         | O restante fica na própria fatura ("falta pagar R$ X"); nada é levado automaticamente para a próxima. Juros/IOF/multa: lançamento manual (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D26 | Estorno Modo B                                      | Gasto Bruto do mês do estorno abate o valor TOTAL da compra (menos estornos anteriores). Itens (parcelas e antecipações na fatura) em faturas abertas/futuras → CANCELLED; crédito único = itens já cobrados em faturas fechadas/pagas + antecipações pagas avulsas − créditos de estornos anteriores. Compra de onboarding: o bruto abate só as parcelas que o app conhece, já que a compra nunca entrou no bruto (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| D27 | Editar fechamento de fatura                         | Só em fatura aberta. Compras afetadas são realocadas: o plano inteiro anda/volta uma fatura, e o app lista o que mudou. Vencimento pode ser editado dentro do mesmo mês (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| D28 | Pagamento do adicional                              | Hipótese da SPEC confirmada: Pix da conta principal para a titular (INVOICE_PAYMENT sai do saldo); limite não rastreado (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| D29 | Datas geradas da fatura                             | Fatura do mês M: vencimento = dia `dueDay` de M; fechamento = dia `closingDay` de M se `closingDay < dueDay`, senão de M−1 (dia inexistente → último dia). Sugestão de fechamento = vencimento − 7, dando a volta no mês (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| D30 | Situação da fatura                                  | Derivada: Aberta (hoje < fechamento); Paga (pagamentos ≥ total, ou total ≤ 0 depois de fechar); Atrasada (fechada, não paga e hoje > vencimento); Fechada. A coluna `status` só registra PAID/paid_at (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D31 | Excluir compra no cartão                            | Só se todas as parcelas estão em faturas abertas/futuras e não houve antecipação nem estorno; senão, usar estorno. A compra excluída some da visualização da fatura (continua no banco e no audit_log); a cancelada por estorno continua visível, riscada, como histórico (decisão de implementação; ajuste pedido em 17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D32 | Antecipação                                         | Só parcelas ACTIVE em faturas ainda não fechadas. Na fatura (ON_INVOICE), o destino tem de estar aberto; padrão: a fatura aberta atual (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D33 | Assinatura no cartão                                | Template CREDIT_CARD vira compra à vista (plano de 1 parcela, `source = RECURRING`) quando o dia da cobrança chega; retroativo como D17 (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D34 | Importação: pagamentos da fatura                    | Linhas "Pagamento recebido" viram `INVOICE_PAYMENT` saindo da conta principal na data da linha. Os que fecham o saldo do arquivo (`LEDGERBAL`) pagam a fatura do arquivo; os demais, a fatura anterior. Se a fatura anterior não tem itens no app (começou a controlar depois), ela ganha um item `ADJUSTMENT` "Saldo da fatura anterior ao controle" do mesmo valor, para o limite não ficar errado. Na revisão dá para trocar a fatura de destino (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D35 | Importação: "Parcela k/N" (k ≥ 2) sem compra no app | Vira parcelamento em andamento (onboarding): parcela atual k, total = valor × N (exato para as restantes, porque o arredondamento fica na 1ª, já passada), na fatura do arquivo; data da compra estimada em k−1 meses antes, só informativa (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D36 | Importação: "Parcela 1/N"                           | Compra parcelada nova; o total é confirmado na revisão (sugestão = valor × N) e precisa gerar exatamente a 1ª parcela do arquivo (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D37 | Importação: compra à vista e conciliação            | Linha sem "Parcela" vira compra à vista na data da linha, e precisa cair na fatura do arquivo (senão os dias do cartão estão errados). Conciliação: mesmo valor exato; parcela com o mesmo número k; data ±3 dias para compras à vista e pagamentos; score = proximidade da data + semelhança da descrição; atribuição 1:1 gulosa. Nada é aceito sem revisão (o "aceitar todas as sugestões" é uma ação explícita do usuário). Estornos e outros créditos: só ignorar por enquanto (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D38 | Home: saídas e saldo projetado                      | Visão de caixa. Saídas do mês = pagas (despesas, pagamentos de fatura e antecipações avulsas com `posted_date` no mês) + pendentes (despesas pendentes que vencem no mês + o que falta pagar das faturas que vencem no mês). Receitas do mês = recebidas (por `posted_date`) + previstas pendentes (por `due_date`). Saldo projetado no fim do mês = saldo atual + receitas pendentes − saídas pendentes, contando também atrasados de meses anteriores (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| D39 | Projeção: assinaturas no cartão                     | Entram no mês em que vence a fatura da cobrança (visão de caixa), só para cobranças ainda não geradas (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| D40 | Projeção: saldo acumulado                           | Além do resultado do mês, mostra o saldo estimado no fim de cada mês futuro = saldo projetado do mês atual + resultados dos meses seguintes, sempre rotulado como estimativa (17/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| D41 | Projeção: o que entra                               | Receitas = templates INCOME ativos no mês. Despesas = templates FIXED/RECURRING_VARIABLE da conta ativos no mês + o que falta pagar das faturas que vencem no mês (itens já agendados − adiantamentos) + assinaturas (D39). Ocorrências de meses futuros são calculadas em memória, nunca gravadas (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| D42 | Relatórios: categorias e filtros                    | Bruto por categoria: compras por categoria − estornos na categoria da compra estornada. Mensal por categoria: itens de fatura pela categoria da compra; ajustes de fatura (ex.: saldo anterior) ficam em "Ajustes de fatura". Filtros: quem lançou e de quem é (vazio = casal) vêm da compra/lançamento; filtro de cartão mostra só o lado cartão; filtro de meio de pagamento separa conta (Pix, débito…) de cartão (antecipação avulsa conta como lado cartão). Gasto Bruto segue a fórmula de referência: conta também despesas pendentes não canceladas (decisão de implementação)                                                                                                                                                                                                                                                                                                                                    |
+| D43 | Lembretes do bot                                    | Todo dia às 9h (America/Sao_Paulo), para os dois usuários com Telegram: contas pendentes que vencem hoje e faturas com vencimento em 2 dias que ainda têm valor a pagar. Sem nada a lembrar, nenhuma mensagem (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| D44 | Correção do saldo inicial                           | O saldo inicial da conta pode ser corrigido em Ajustes (com audit_log), para o caso de o valor do onboarding estar errado. Na conta Nubank do Eduardo: R$ 0,00 → R$ 1.845,82 em 01/10/2026, porque o banco mostra R$ 0,00 em 17/10 e o líquido do período é −R$ 1.845,82 (18/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| D45 | Importação da conta: transferências                 | Aplicação/Resgate (RDB, caixinhas) e Pix/TED entre contas próprias viram `TRANSFER_OUT`/`TRANSFER_IN`: mexem no saldo, mas não contam como gasto nem receita. O app sugere transferência para RDB e para contrapartes com o primeiro nome de um usuário (sem CNPJ); na revisão dá para trocar por receita ou despesa (18/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| D46 | Importação da conta: pagamento de fatura            | "Pagamento de fatura" e qualquer saída marcada na revisão como pagamento de fatura (ex.: Pix para a titular do adicional) viram `INVOICE_PAYMENT` da fatura escolhida; casam com pagamentos já lançados pela importação do cartão. Pix/transferência enviada a um nome que contém todas as palavras (2+) do "titular" de um cartão adicional cadastrado já vem sugerido como pagamento de fatura (o lote "Criar as novas" pula e pede a fatura) (18/10/2026)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| D47 | Importação da conta: conciliação e baixa            | Mesmo valor exato e mesma direção, data ±3 dias (pendente: pelo vencimento). Aceitar a sugestão de uma conta PENDENTE dá a baixa com a data e o valor da linha. Linha nova vira despesa/receita com o meio inferido ("Compra no débito" → débito, Pix → Pix, boleto → boleto). Conferência no fim: saldo do app na data final do arquivo × saldo do arquivo (decisão de implementação)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| D48 | Conciliação 1:1 por lado                            | Um lançamento é conciliado com no máximo uma linha de FATURA e no máximo uma linha de EXTRATO DA CONTA (índices únicos separados). Um pagamento de fatura aparece nos dois arquivos: a linha "Pagamento recebido" da fatura e a linha "Pagamento de fatura" do extrato apontam para o mesmo INVOICE_PAYMENT, sem lançar de novo.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| D49 | Categorias: gestão                                  | Tela em Ajustes → Categorias: criar (nome, tipo, apelidos do bot), renomear, editar apelidos e arquivar/restaurar. **Nunca apaga**: arquivar tira a categoria das listas de escolha, mas lançamentos antigos, relatórios e histórico continuam com ela, e um lançamento antigo pode ser editado mantendo a categoria arquivada (não pode ser movido para outra arquivada). O tipo (despesa/receita) não muda depois de criada. Nome único por tipo, sem diferenciar maiúsculas/acentos (se o nome é de uma arquivada, a mensagem manda restaurá-la). Apelidos normalizados (minúsculas, sem acento) e únicos entre as categorias ativas do mesmo tipo; ao restaurar, vale a mesma checagem. "A classificar" (despesa) e "Outras receitas" (receita) são protegidas: o bot e as importações caem nelas, então não podem ser renomeadas nem arquivadas. Toda mudança grava audit_log (decisão de implementação, 18/10/2026) |
+
+## 11. Pendências (não bloqueiam a Fase 1)
+
+1. **Banco da conta principal:** define o adapter de CSV/OFX da Fase 5.
+2. ~~**Cartão adicional:** como a fatura é paga~~ → resolvido em D28 (Pix da conta principal para a titular). Falta só confirmar se a titular definiu sub-limite (se sim, cadastrar em `limit_total_cents`).
+3. **Dias de fechamento e vencimento** dos dois cartões (entram no onboarding, não no código).

@@ -1,0 +1,3 @@
+DROP INDEX "line_matched_tx";--> statement-breakpoint
+CREATE UNIQUE INDEX "line_matched_tx_bank" ON "import_lines" USING btree ("matched_transaction_id") WHERE "import_lines"."matched_transaction_id" is not null and "import_lines"."bank_account_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "line_matched_tx_card" ON "import_lines" USING btree ("matched_transaction_id") WHERE "import_lines"."matched_transaction_id" is not null and "import_lines"."credit_card_id" is not null;
