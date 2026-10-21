@@ -104,6 +104,8 @@ Primeiro `src/domain/card/` com testes; só depois os serviços e a UI.
 
 > 18/10/2026, a pedido: **gestão de categorias** (Ajustes → Categorias): criar, renomear, apelidos do bot, arquivar/restaurar, com a regra de nunca apagar e a proteção das categorias de reserva. Decisão D49. Ícone e cor das categorias seguem fora da tela (a UI ainda não os usa).
 
+> 21/10/2026, a pedido: **bot ampliado** (D54 a D56): consultas em linguagem natural e por comando (limite dos cartões, pendentes de um mês, resumo de fatura, gastos, resumo do mês, últimos lançamentos), com o mês atual como padrão, e **receitas** pelo bot. Modelo padrão: Claude Haiku 5.5.
+
 ---
 
 ## Depois da v1 (backlog)

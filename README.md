@@ -72,9 +72,10 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 
 ### Bot do Telegram
 
-- Mande `mercado 180 no pix` ou `tênis 600 no nubank em 3x`: o bot entende (via Claude), lança e mostra o saldo.
+- Mande `mercado 180 no pix`, `tênis 600 no nubank em 3x` ou `recebi 5000 de salário`: o bot entende (via Claude Haiku, leve e barato), lança e mostra o saldo.
 - Quando não tem certeza, mostra o que entendeu e pede confirmação. `/desfazer` volta atrás, e **✏️ Corrigir** troca a categoria ou de quem é o gasto, antes ou depois de lançar.
-- `/saldo`, `/fatura` e `/pendentes` respondem na hora; todo dia às 9h chega o lembrete do que vence.
+- **Pergunte** com as suas palavras: limite dos cartões, contas pendentes do mês, resumo de fatura, gastos por categoria, resumo do mês, últimos lançamentos. Sem mês dito vale o mês atual; aceita "novembro", "mês que vem", "mês passado". Também por comando (`/limite`, `/pendentes novembro`, `/fatura nubank`, `/gastos`, `/resumo`, `/ultimos`).
+- Lança **receitas** e despesas ("recebi 5000 de salário"). Todo dia às 9h chega o lembrete do que vence.
 - Só responde aos dois usuários cadastrados; o contexto enviado ao modelo nunca inclui saldos.
 
 ## Princípios (as regras que não se quebram)

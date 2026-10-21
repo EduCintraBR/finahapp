@@ -30,7 +30,18 @@ import { createCardPurchase, deleteCardPurchase, updateCardPurchase } from '@/se
 import { type ServiceCtx, UserError } from '@/server/context';
 import { createEntry, removeEntry, updateEntry } from '@/server/entries';
 import type { CardPurchaseInput, EntryInput } from '@/server/schemas';
-import { balanceText, invoicesText, pendingText } from './reports';
+import { parseMonthArg } from '@/domain/month-ref';
+import {
+  invoiceSummaryText,
+  limitText,
+  monthSummaryText,
+  parseCardAndMonth,
+  pendingMonthText,
+  recentText,
+  runQuery,
+  spendingText,
+} from './queries';
+import { balanceText, invoicesText } from './reports';
 import { ParserUnavailableError, type EntryParser, type ParseContext } from './parser';
 
 export type BotDeps = { db: AnyDB; parser: EntryParser; today: () => ISODate; now: () => Date };
@@ -45,29 +56,33 @@ export type BotReply = {
 export const CONFIDENCE_THRESHOLD = 80;
 const UNDO_WINDOW_MS = 24 * 60 * 60 * 1000;
 const FALLBACK_CATEGORY = 'A classificar';
+const FALLBACK_INCOME_CATEGORY = 'Outras receitas';
 
 const HELP = [
-  'Me mande um gasto em uma linha, por exemplo:',
+  'Lançar: me mande em uma linha, por exemplo:',
   '• mercado 180 no pix',
   '• uber 23,50 débito',
-  '• farmácia 42,90 dinheiro ontem',
   '• tênis 600 no nubank em 3x',
+  '• recebi 5000 de salário (receita)',
   '',
-  'Comandos:',
+  'Perguntar (com as suas palavras, ou pelos comandos):',
   '/saldo — saldo atual e previsto para o fim do mês',
-  '/fatura — faturas e limite dos cartões',
-  '/pendentes — contas a pagar e a receber do mês',
+  '/limite [cartão] — limite disponível dos cartões',
+  '/pendentes [mês] — contas a pagar e a receber (padrão: este mês)',
+  '/fatura [cartão] [mês] — resumo da fatura (padrão: a aberta)',
+  '/gastos [mês] — quanto foi gasto, por categoria',
+  '/resumo [mês] — entrou, saiu, falta e saldo do mês',
+  '/ultimos — últimos lançamentos',
   '/desfazer — desfaz seu último lançamento (até 24h)',
   '',
+  'Mês: "novembro", "11/2026", "próximo" ou "passado". Sem mês, vale o mês atual.',
   'Errou a categoria ou de quem é? Toque em ✏️ Corrigir na resposta (vale até 24h depois de lançar).',
-  '',
-  'Receitas: pelo app.',
 ].join('\n');
 
 type Draft = { type: 'ACCOUNT'; input: EntryInput } | { type: 'CARD'; input: CardPurchaseInput };
 
 const accountDraft = z.object({
-  kind: z.literal('EXPENSE'),
+  kind: z.enum(['EXPENSE', 'INCOME']),
   amount: z.number().int().positive(),
   description: z.string().min(1).max(200),
   categoryId: z.uuid(),
@@ -151,7 +166,7 @@ async function describe(db: AnyDB, d: Draft, today: ISODate): Promise<string> {
       ? `${card?.name ?? 'cartão'} · ${installmentsText(d.input.amount, d.input.installments)}`
       : PAYMENT_METHOD_LABEL[d.input.paymentMethod];
   return [
-    `${d.type === 'CARD' ? '💳' : '💸'} ${input.description} — ${formatBRL(input.amount)}`,
+    `${d.type === 'CARD' ? '💳' : d.input.kind === 'INCOME' ? '💰' : '💸'} ${input.description} — ${formatBRL(input.amount)}`,
     `${cat?.name ?? '?'} · ${how} · ${when}`,
     `De quem: ${ben?.name ?? 'casal'}`,
   ].join('\n');
@@ -174,6 +189,54 @@ async function limitLine(db: AnyDB, cardId: string, today: ISODate): Promise<str
 
 const setStatus = (db: AnyDB, id: string, values: Partial<typeof botMessages.$inferInsert>) =>
   db.update(botMessages).set(values).where(eq(botMessages.id, id));
+
+/** Comandos de consulta, com mês e cartão opcionais (padrão: mês atual). Só lê; nunca grava. */
+async function handleCommand(deps: BotDeps, command: string, args: string): Promise<BotReply> {
+  const { db } = deps;
+  const today = deps.today();
+  const badMonth = { text: 'Não entendi o mês. Use o nome ("novembro"), "11/2026", "próximo" ou "passado".' };
+  const monthOnly = () => {
+    const m = parseMonthArg(args, today);
+    return m.ok ? m.month : undefined;
+  };
+
+  switch (command) {
+    case '/saldo':
+      return { text: await balanceText(db, today) };
+    case '/pendentes': {
+      const month = monthOnly();
+      return month === undefined ? badMonth : { text: await pendingMonthText(db, today, month) };
+    }
+    case '/gastos': {
+      const month = monthOnly();
+      return month === undefined ? badMonth : { text: await spendingText(db, today, month, null) };
+    }
+    case '/resumo': {
+      const month = monthOnly();
+      return month === undefined ? badMonth : { text: await monthSummaryText(db, today, month) };
+    }
+    case '/ultimos':
+      return { text: await recentText(db) };
+    case '/limite': {
+      const cards = await listActiveCards(db);
+      const r = parseCardAndMonth(args, cards, today);
+      if (args.trim() !== '' && (!r.ok || !r.cardId)) {
+        return { text: `Não achei esse cartão. Cartões: ${cards.map((c) => c.name).join(', ')}.` };
+      }
+      return { text: await limitText(db, today, r.ok ? r.cardId : null) };
+    }
+    case '/fatura': {
+      const cards = await listActiveCards(db);
+      const r = parseCardAndMonth(args, cards, today);
+      if (!r.ok) return { text: r.error };
+      // vários cartões e nada dito: visão geral; com cartão (ou um só cartão): o resumo da fatura
+      if (!r.cardId && !r.month && cards.length !== 1) return { text: await invoicesText(db, today) };
+      return { text: await invoiceSummaryText(db, today, r.cardId, r.month) };
+    }
+    default:
+      return { text: HELP };
+  }
+}
 
 export async function handleText(
   deps: BotDeps,
@@ -198,12 +261,10 @@ export async function handleText(
   if (!msg) return null; // update repetido: já processado
 
   if (isCommand) {
-    const command = u.text.trim().split(/\s+/)[0]!.split('@')[0]!.toLowerCase();
+    const parts = u.text.trim().split(/\s+/);
+    const command = parts[0]!.split('@')[0]!.toLowerCase();
     if (command === '/desfazer') return undoLast(deps, sender.id);
-    if (command === '/saldo') return { text: await balanceText(db, deps.today()) };
-    if (command === '/fatura') return { text: await invoicesText(db, deps.today()) };
-    if (command === '/pendentes') return { text: await pendingText(db, deps.today()) };
-    return { text: HELP };
+    return handleCommand(deps, command, parts.slice(1).join(' '));
   }
 
   const today = deps.today();
@@ -230,8 +291,16 @@ export async function handleText(
     return { text };
   };
 
-  if (!parsed.ok) return reject(`Não entendi isso como um gasto.\n\n${HELP}`);
-  if (parsed.kind === 'INCOME') return reject('Por enquanto o bot só lança despesas. Receitas: pelo app.');
+  if (!parsed.ok) return reject(`Não entendi. Mande um gasto, uma receita ou uma pergunta.\n\n${HELP}`);
+  if (parsed.kind === 'QUERY') {
+    // pergunta: só lê (as mesmas consultas do app); o modelo nunca vê saldos nem lançamentos
+    await setStatus(db, msg.id, { status: 'PARSED', parsedPayload: parsed.query });
+    return { text: await runQuery(db, today, parsed.query, balanceText) };
+  }
+  const income = parsed.kind === 'INCOME';
+  if (income && (parsed.paymentMethod === 'CREDIT_CARD' || parsed.installments)) {
+    return reject('Receita não entra no cartão de crédito. Diga como recebeu (pix, transferência…).');
+  }
   if (parsed.amountCents === null) {
     return reject(`${parsed.amountError ?? 'Não encontrei o valor.'} Ex.: "mercado 180 no pix".`);
   }
@@ -241,7 +310,12 @@ export async function handleText(
     const [fallback] = await db
       .select({ id: categories.id })
       .from(categories)
-      .where(and(eq(categories.name, FALLBACK_CATEGORY), eq(categories.kind, 'EXPENSE')));
+      .where(
+        and(
+          eq(categories.name, income ? FALLBACK_INCOME_CATEGORY : FALLBACK_CATEGORY),
+          eq(categories.kind, parsed.kind),
+        ),
+      );
     if (!fallback) return reject('Não consegui identificar a categoria. Lance pelo app.');
     categoryId = fallback.id;
   }
@@ -277,17 +351,18 @@ export async function handleText(
     draft = {
       type: 'ACCOUNT',
       input: {
-        kind: 'EXPENSE',
+        kind: parsed.kind,
         amount: parsed.amountCents,
         description: parsed.description,
         categoryId,
-        paymentMethod: parsed.paymentMethod ?? 'PIX',
+        // receita sem forma de recebimento dita vira "Outro" (não chutamos); despesa sem meio pede confirmação
+        paymentMethod: parsed.paymentMethod ?? (income ? 'OTHER' : 'PIX'),
         date: parsed.date,
         beneficiaryUserId: parsed.beneficiaryUserId,
         notes: null,
       },
     };
-    identified = parsed.paymentMethod !== null;
+    identified = income || parsed.paymentMethod !== null;
   }
 
   const confident = parsed.confidence >= CONFIDENCE_THRESHOLD && parsed.categoryId !== null && identified;
@@ -359,6 +434,9 @@ async function saveDraft(
   }
 }
 
+/** Tipo das categorias que servem ao rascunho: receita → receitas; o resto → despesas. */
+const draftKind = (d: Draft): 'EXPENSE' | 'INCOME' => (d.type === 'ACCOUNT' ? d.input.kind : 'EXPENSE');
+
 const confirmButtons = (id: string): BotButton[] => [
   { text: '✅ Confirmar', data: `c:${id}` },
   { text: '✏️ Corrigir', data: `e:${id}` },
@@ -416,7 +494,7 @@ async function correctionMenu(
     const cats = await deps.db
       .select({ id: categories.id, name: categories.name })
       .from(categories)
-      .where(and(eq(categories.kind, 'EXPENSE'), isNull(categories.archivedAt)))
+      .where(and(eq(categories.kind, draftKind(c.draft)), isNull(categories.archivedAt)))
       .orderBy(asc(categories.name));
     return {
       text: 'Qual é a categoria?',
@@ -469,7 +547,7 @@ async function applyCorrection(
         .from(categories)
         .where(
           and(
-            eq(categories.kind, 'EXPENSE'),
+            eq(categories.kind, draftKind(c.draft)),
             isNull(categories.archivedAt),
             sql`${categories.id}::text like ${arg.toLowerCase() + '%'}`,
           ),
