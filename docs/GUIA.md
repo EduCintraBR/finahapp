@@ -63,7 +63,7 @@ Pronto e testado, mas desligado por padrão (`BOT_MODE=off`). Para ligar:
 
 1. No Telegram, crie o bot com o **@BotFather** e copie o token para `TELEGRAM_BOT_TOKEN`.
 2. Descubra o **ID numérico** de cada um com o **@userinfobot** e coloque em `SEED_USER1_TELEGRAM_ID` e `SEED_USER2_TELEGRAM_ID`. Depois rode o seed de novo. O bot ignora qualquer outra pessoa.
-3. Coloque sua chave da Anthropic em `ANTHROPIC_API_KEY`. `LLM_MODEL` é opcional: o padrão é `claude-opus-5-5`, e `claude-haiku-5-5` sai mais barato.
+3. Coloque sua chave da Anthropic em `ANTHROPIC_API_KEY`. `LLM_MODEL` é opcional: o padrão é `claude-haiku-5-5` (leve e barato, bastante para ler uma linha de gasto); só mude se quiser um modelo maior.
 4. Escolha o modo:
    - **VPS (webhook)**: `BOT_MODE=webhook`, `TELEGRAM_WEBHOOK_SECRET` (`openssl rand -hex 32`) e `AUTH_URL=https://seu-dominio`. Suba a stack e rode `pnpm bot:webhook` uma vez.
    - **Local ou NAS (polling)**: `BOT_MODE=polling` e reinicie o `worker`. Não precisa de domínio nem de porta aberta.

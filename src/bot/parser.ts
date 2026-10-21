@@ -165,7 +165,11 @@ const SERVER_FALLBACK_MODELS = new Set([
   'claude-sonnet-5-5',
 ]);
 
-export const DEFAULT_LLM_MODEL = 'claude-opus-5-5';
+/**
+ * Haiku 5.5: ler uma linha de gasto é extração simples, e o bot roda em toda mensagem. Não tem fallback de recusa
+ * no servidor (por isso não está em SERVER_FALLBACK_MODELS) e não aceita temperature/top_p/top_k: não enviamos.
+ */
+export const DEFAULT_LLM_MODEL = 'claude-haiku-5-5';
 
 /** Parser real (Claude). `client` injetável para testes. */
 export function createClaudeParser(opts: { model?: string; client?: Anthropic } = {}): EntryParser {

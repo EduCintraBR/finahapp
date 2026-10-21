@@ -138,6 +138,24 @@ describe('createClaudeParser', () => {
     expect(userText.toLowerCase()).not.toContain('saldo');
   });
 
+  it('o padrão é o Haiku 5.5: esforço baixo, sem fallback, sem parâmetros de amostragem', async () => {
+    const saved = process.env.LLM_MODEL;
+    delete process.env.LLM_MODEL;
+    try {
+      const { client, parse } = fakeClient({ stop_reason: 'end_turn', parsed_output: raw() });
+      await createClaudeParser({ client })('mercado 180 no pix', ctx);
+      const params = parse.mock.calls[0]![0];
+      expect(params.model).toBe('claude-haiku-5-5');
+      expect(params.output_config.effort).toBe('low');
+      // o Haiku 5.5 recusa (400) temperature/top_p/top_k diferentes do padrão e prefill, e não tem fallback
+      for (const k of ['temperature', 'top_p', 'top_k', 'fallbacks', 'betas'])
+        expect(params).not.toHaveProperty(k);
+      expect(params.messages.at(-1).role).toBe('user');
+    } finally {
+      if (saved !== undefined) process.env.LLM_MODEL = saved;
+    }
+  });
+
   it('modelo sem fallback no servidor não recebe o parâmetro', async () => {
     const { client, parse } = fakeClient({ stop_reason: 'end_turn', parsed_output: raw() });
     await createClaudeParser({ model: 'claude-haiku-5-5', client })('x', ctx);
