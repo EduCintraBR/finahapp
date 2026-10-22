@@ -27,6 +27,13 @@ const ctx: ParseContext = {
 
 const raw = (over: Partial<LlmEntry> = {}): LlmEntry => ({
   is_entry: true,
+  is_query: false,
+  query_type: null,
+  query_card_id: null,
+  query_category_id: null,
+  month_offset: null,
+  month_number: null,
+  year: null,
   kind: 'EXPENSE',
   amount: '180',
   description: 'Mercado',
@@ -113,6 +120,71 @@ describe('normalizeLlmEntry', () => {
   });
 });
 
+describe('normalizeLlmEntry: perguntas', () => {
+  const ask = (over: Partial<LlmEntry>) =>
+    normalizeLlmEntry(raw({ is_entry: false, is_query: true, ...over }), ctx);
+
+  it('pergunta vira consulta; sem mês dito = mês atual (month null)', () => {
+    expect(ask({ query_type: 'BALANCE' })).toEqual({ ok: true, kind: 'QUERY', query: { type: 'BALANCE' } });
+    expect(ask({ query_type: 'PENDING' })).toMatchObject({ query: { type: 'PENDING', month: null } });
+    expect(ask({ query_type: 'RECENT' })).toMatchObject({ query: { type: 'RECENT' } });
+  });
+
+  it('resolve o mês pelo texto do modelo: relativo, nome do mês (sem ano = ano de hoje) e ano', () => {
+    expect(ask({ query_type: 'PENDING', month_offset: 1 })).toMatchObject({ query: { month: '2026-11-01' } });
+    expect(ask({ query_type: 'PENDING', month_offset: -1 })).toMatchObject({
+      query: { month: '2026-09-01' },
+    });
+    expect(ask({ query_type: 'PENDING', month_number: 12 })).toMatchObject({
+      query: { month: '2026-12-01' },
+    });
+    expect(ask({ query_type: 'PENDING', month_number: 1, year: 2027 })).toMatchObject({
+      query: { month: '2027-01-01' },
+    });
+    expect(ask({ query_type: 'PENDING', month_number: 13 })).toMatchObject({ query: { month: null } });
+  });
+
+  it('cartão e categoria só valem se existirem na lista; fatura com um cartão só usa esse', () => {
+    expect(ask({ query_type: 'LIMIT', query_card_id: 'card-edu' })).toMatchObject({
+      query: { cardId: 'card-edu' },
+    });
+    expect(ask({ query_type: 'LIMIT', query_card_id: 'inventado' })).toMatchObject({
+      query: { cardId: null },
+    });
+    expect(ask({ query_type: 'SPENDING', query_category_id: 'cat-mercado' })).toMatchObject({
+      query: { categoryId: 'cat-mercado' },
+    });
+    expect(ask({ query_type: 'SPENDING', query_category_id: 'inventado' })).toMatchObject({
+      query: { categoryId: null },
+    });
+    // dois cartões e nenhum citado: não chuta
+    expect(ask({ query_type: 'INVOICE' })).toMatchObject({ query: { type: 'INVOICE', cardId: null } });
+    const one = { ...ctx, cards: [ctx.cards[0]!] };
+    expect(
+      normalizeLlmEntry(raw({ is_entry: false, is_query: true, query_type: 'INVOICE' }), one),
+    ).toMatchObject({
+      query: { cardId: 'card-edu' },
+    });
+  });
+
+  it('pergunta sem tipo, ou nem lançamento nem pergunta, não é nada', () => {
+    expect(ask({ query_type: null })).toEqual({ ok: false, reason: 'not_entry' });
+    expect(normalizeLlmEntry(raw({ is_entry: false, is_query: false }), ctx)).toEqual({
+      ok: false,
+      reason: 'not_entry',
+    });
+  });
+
+  it('lançamento tem prioridade sobre pergunta (mensagem ambígua não vira consulta)', () => {
+    expect(
+      normalizeLlmEntry(raw({ is_entry: true, is_query: true, query_type: 'BALANCE' }), ctx),
+    ).toMatchObject({
+      ok: true,
+      kind: 'EXPENSE',
+    });
+  });
+});
+
 function fakeClient(response: unknown) {
   const parse = vi.fn().mockResolvedValue(response);
   return { client: { beta: { messages: { parse } } } as unknown as Anthropic, parse };
@@ -136,6 +208,24 @@ describe('createClaudeParser', () => {
     expect(userText).toContain('cat-mercado');
     expect(userText).toContain('roxinho');
     expect(userText.toLowerCase()).not.toContain('saldo');
+  });
+
+  it('o padrão é o Haiku 5.5: esforço baixo, sem fallback, sem parâmetros de amostragem', async () => {
+    const saved = process.env.LLM_MODEL;
+    delete process.env.LLM_MODEL;
+    try {
+      const { client, parse } = fakeClient({ stop_reason: 'end_turn', parsed_output: raw() });
+      await createClaudeParser({ client })('mercado 180 no pix', ctx);
+      const params = parse.mock.calls[0]![0];
+      expect(params.model).toBe('claude-haiku-5-5');
+      expect(params.output_config.effort).toBe('low');
+      // o Haiku 5.5 recusa (400) temperature/top_p/top_k diferentes do padrão e prefill, e não tem fallback
+      for (const k of ['temperature', 'top_p', 'top_k', 'fallbacks', 'betas'])
+        expect(params).not.toHaveProperty(k);
+      expect(params.messages.at(-1).role).toBe('user');
+    } finally {
+      if (saved !== undefined) process.env.LLM_MODEL = saved;
+    }
   });
 
   it('modelo sem fallback no servidor não recebe o parâmetro', async () => {

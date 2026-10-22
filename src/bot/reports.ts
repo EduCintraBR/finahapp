@@ -44,18 +44,6 @@ export async function invoicesText(db: AnyDB, today: ISODate): Promise<string> {
     .join('\n\n');
 }
 
-export async function pendingText(db: AnyDB, today: ISODate): Promise<string> {
-  const rows = await listPending(db, monthStart(today));
-  if (rows.length === 0) return `Nada pendente até o fim de ${formatMonthLabel(monthStart(today))}. 🎉`;
-  const lines = rows.map((r) => {
-    const due = r.dueDate ?? r.date;
-    const tag = due < today ? ' ⚠️ atrasado' : due === today ? ' · vence hoje' : '';
-    const sign = r.kind === 'INCOME' ? 'receber' : 'pagar';
-    return `• ${formatDateBR(due)} ${r.description}: ${sign} ${formatBRL(r.amountCents)}${tag}`;
-  });
-  return [`Pendentes até o fim de ${formatMonthLabel(monthStart(today))}:`, ...lines].join('\n');
-}
-
 /**
  * D43: contas pendentes que vencem hoje + faturas que vencem em 2 dias com valor a pagar.
  * Sem nada a lembrar → null (nenhuma mensagem).

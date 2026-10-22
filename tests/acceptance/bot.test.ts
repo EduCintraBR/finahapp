@@ -31,7 +31,9 @@ let now = new Date();
 
 const q = async <T>(s: string, p: unknown[] = []) => (await pg.query<T>(s, p)).rows;
 
-const parsed = (over: Partial<Extract<ParsedEntry, { ok: true }>> = {}): ParsedEntry => ({
+const parsed = (
+  over: Partial<Extract<ParsedEntry, { ok: true; kind: 'EXPENSE' | 'INCOME' }>> = {},
+): ParsedEntry => ({
   ok: true,
   kind: 'EXPENSE',
   amountCents: 18_000,
@@ -269,12 +271,6 @@ describe('bot do Telegram', () => {
     expect((await q(`select 1 from installment_plans`)).length).toBe(1);
   });
 
-  it('receitas ficam para depois (nada é lançado)', async () => {
-    nextParse = parsed({ kind: 'INCOME' });
-    expect(lastText(await sendText(EDUARDO_TG, 'recebi 5000'))).toContain('só lança despesas');
-    expect(await txCount()).toBe(0);
-  });
-
   it('data antes do início do controle: recusa com a mensagem do app', async () => {
     nextParse = parsed({ date: '2026-09-20' });
     expect(lastText(await sendText(EDUARDO_TG, 'mercado 180 pix dia 20/09'))).toContain('início do controle');
@@ -411,6 +407,273 @@ describe('corrigir (Fase 5)', () => {
   });
 });
 
+describe('receitas e consultas (Fase 6)', () => {
+  /** o Intl separa "R$" do valor com espaço não separável */
+  const n = (v: string | null) => (v ?? '').replace(/ /g, ' ');
+  const reply = async (text: string) => n(lastText(await sendText(EDUARDO_TG, text)));
+  const ctxOf = async () => ({
+    db,
+    userId: (await q<{ id: string }>(`select id from users where name = 'Eduardo'`))[0]!.id,
+    today: '2026-10-17',
+  });
+  const catId = async (name: string) =>
+    (await q<{ id: string }>(`select id from categories where name = $1`, [name]))[0]!.id;
+  const query = (query: Extract<ParsedEntry, { kind: 'QUERY' }>['query']): ParsedEntry => ({
+    ok: true,
+    kind: 'QUERY',
+    query,
+  });
+  type Entry = Extract<ParsedEntry, { ok: true; kind: 'EXPENSE' | 'INCOME' }>;
+  const income = (over: Partial<Entry> = {}) =>
+    parsed({ kind: 'INCOME', description: 'Salário', amountCents: 500_000, paymentMethod: null, ...over });
+  const buyOnCard = async (amount: number, description: string, installments = 1, date = '2026-10-17') =>
+    createCardPurchase(await ctxOf(), {
+      cardId: nubank,
+      amount,
+      installments,
+      description,
+      categoryId: mercado,
+      date,
+      beneficiaryUserId: null,
+      notes: null,
+    });
+
+  describe('receitas', () => {
+    it('lança a receita na hora (categoria e valor certos), soma ao saldo e dá para desfazer', async () => {
+      nextParse = income({ categoryId: await catId('Salário CLT') });
+      const cs = await sendText(EDUARDO_TG, 'recebi 5000 de salário');
+      expect(n(lastText(cs))).toContain('✅ Lançado');
+      expect(n(lastText(cs))).toContain('💰 Salário — R$ 5.000,00');
+      expect(n(lastText(cs))).toContain('Saldo da conta: R$ 10.000,00');
+      const [t] = await q<{ kind: string; category: string; method: string; source: string }>(
+        `select t.kind::text kind, c.name category, t.payment_method::text method, t.source::text source
+         from transactions t join categories c on c.id = t.category_id where t.source = 'BOT'`,
+      );
+      // forma de recebimento não dita: "Outro" (não chutamos Pix)
+      expect(t).toEqual({ kind: 'INCOME', category: 'Salário CLT', method: 'OTHER', source: 'BOT' });
+
+      expect(n(lastText(await tap(EDUARDO_TG, buttons(cs)[0]!)))).toMatch(/Desfeito[\s\S]*R\$\s5\.000,00/);
+      expect(await txCount()).toBe(0);
+    });
+
+    it('sem categoria: usa "Outras receitas" e pede confirmação; confirmar lança', async () => {
+      nextParse = income({ categoryId: null });
+      const cs = await sendText(EDUARDO_TG, 'caiu 5000');
+      expect(n(lastText(cs))).toContain('Confere?');
+      expect(n(lastText(cs))).toContain('Outras receitas');
+      expect(await txCount()).toBe(0);
+      expect(n(lastText(await tap(EDUARDO_TG, buttons(cs)[0]!)))).toContain('✅ Lançado');
+      expect(
+        (
+          await q<{ c: string }>(
+            `select c.name c from transactions t join categories c on c.id = t.category_id where t.source = 'BOT'`,
+          )
+        )[0]!.c,
+      ).toBe('Outras receitas');
+    });
+
+    it('receita no cartão não existe: recusa e explica', async () => {
+      nextParse = income({
+        categoryId: await catId('Renda extra'),
+        paymentMethod: 'CREDIT_CARD',
+        cardId: nubank,
+      });
+      expect(await reply('recebi 100 no cartão')).toContain('Receita não entra no cartão');
+      expect(await txCount()).toBe(0);
+    });
+
+    it('com a forma dita (pix) e de quem é, respeita; ✏️ Corrigir oferece só categorias de RECEITA', async () => {
+      nextParse = income({
+        categoryId: await catId('Renda PJ'),
+        paymentMethod: 'PIX',
+        beneficiaryUserId: (await q<{ id: string }>(`select id from users where name = 'Viviane'`))[0]!.id,
+      });
+      const cs = await sendText(EDUARDO_TG, 'recebi 5000 da pj pix pra viviane');
+      expect(n(lastText(cs))).toContain('De quem: Viviane');
+      const menu = await tap(
+        EDUARDO_TG,
+        buttons(cs).find((d) => d.startsWith('e:'))!,
+      );
+      const cats = await tap(
+        EDUARDO_TG,
+        buttons(menu).find((d) => d.startsWith('kc:'))!,
+      );
+      const markup = sent(cats).at(-1)!.payload.reply_markup as {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      };
+      const labels = markup.inline_keyboard.flat().map((b) => b.text);
+      expect(labels).toContain('Renda PJ');
+      expect(labels).toContain('Salário CLT');
+      expect(labels).not.toContain('Mercado');
+      const pick = markup.inline_keyboard.flat().find((b) => b.text === 'Salário CLT')!.callback_data;
+      expect(n(lastText(await tap(EDUARDO_TG, pick)))).toContain('Salário CLT');
+      expect(
+        (
+          await q<{ c: string; m: string }>(
+            `select c.name c, t.payment_method::text m from transactions t join categories c on c.id = t.category_id where t.source = 'BOT'`,
+          )
+        )[0],
+      ).toEqual({ c: 'Salário CLT', m: 'PIX' });
+    });
+  });
+
+  describe('consultas em linguagem natural', () => {
+    it('limite: do cartão citado, com uso e disponível; cartão adicional sem limite mostra o comprometido', async () => {
+      await buyOnCard(12_345, 'Farmácia');
+      nextParse = query({ type: 'LIMIT', cardId: nubank });
+      const t = await reply('quanto tenho de limite no nubank?');
+      expect(t).toContain('💳 Nubank Eduardo');
+      expect(t).toContain('Limite: R$ 5.000,00 · em uso: R$ 123,45 (2%)');
+      expect(t).toContain('Disponível: R$ 4.876,55');
+      expect(t).toContain('Fatura aberta de novembro de 2026: R$ 123,45');
+      expect(await txCount()).toBe(0); // pergunta nunca lança nada
+    });
+
+    it('pendentes: sem mês = este mês (com atrasados); com mês = só o que vence nele, inclusive faturas', async () => {
+      await buyOnCard(12_345, 'Farmácia'); // cai na fatura de novembro (vence 10/11)
+      const ctx = await ctxOf();
+      await createTemplate(ctx, {
+        type: 'FIXED',
+        direction: 'EXPENSE',
+        description: 'Luz',
+        categoryId: mercado,
+        amount: 25_000,
+        dayOfMonth: 25,
+        paymentMethod: 'PIX',
+        creditCardId: null,
+        startMonth: '2026-10-01',
+        endMonth: null,
+        beneficiaryUserId: null,
+      });
+      await generateOccurrences(db, '2026-10-17');
+
+      nextParse = query({ type: 'PENDING', month: null });
+      const out = await reply('o que falta pagar esse mês?');
+      expect(out).toContain('Pendentes até o fim de outubro de 2026');
+      expect(out).toContain('25/10 Luz: pagar R$ 250,00');
+      expect(out).not.toContain('Fatura Nubank'); // a fatura só vence em novembro
+      expect(out).toContain('A pagar: R$ 250,00');
+
+      nextParse = query({ type: 'PENDING', month: '2026-11-01' });
+      const nov = await reply('o que vence em novembro?');
+      expect(nov).toContain('Pendentes de novembro de 2026');
+      expect(nov).toContain('10/11 Fatura Nubank Eduardo (novembro de 2026): pagar R$ 123,45');
+      expect(nov).not.toContain('Luz');
+
+      nextParse = query({ type: 'PENDING', month: '2026-12-01' });
+      expect(await reply('e dezembro?')).toContain('Nada pendente em dezembro de 2026');
+    });
+
+    it('resumo da fatura: total, datas, maiores compras, por categoria; mês sem fatura avisa', async () => {
+      await buyOnCard(12_345, 'Farmácia');
+      await buyOnCard(30_000, 'Tênis', 3);
+      nextParse = query({ type: 'INVOICE', cardId: nubank, month: null });
+      const t = await reply('resumo da fatura do nubank');
+      expect(t).toContain('💳 Nubank Eduardo · fatura de novembro de 2026 (aberta)');
+      expect(t).toContain('Total: R$ 223,45'); // 123,45 + 1ª parcela de 100,00
+      expect(t).toContain('Fecha 03/11/2026 · vence 10/11/2026');
+      expect(t).toContain('2 lançamentos. Maiores:');
+      expect(t).toContain('• Farmácia — R$ 123,45');
+      expect(t).toContain('• Tênis (1/3) — R$ 100,00');
+      expect(t).toContain('Limite disponível:');
+
+      nextParse = query({ type: 'INVOICE', cardId: nubank, month: '2026-03-01' });
+      expect(await reply('fatura de março')).toContain(
+        'Não achei a fatura de março de 2026 do Nubank Eduardo',
+      );
+    });
+
+    it('gastos do mês e de uma categoria: Bruto e Mensal, por categoria', async () => {
+      await sendText(EDUARDO_TG, 'mercado 180 no pix'); // R$ 180,00 em Mercado
+      await buyOnCard(12_345, 'Farmácia');
+      nextParse = query({ type: 'SPENDING', month: null, categoryId: null });
+      const t = await reply('quanto gastei esse mês?');
+      expect(t).toContain('Gastos de outubro de 2026');
+      expect(t).toContain('Compras do mês (Bruto): R$ 303,45');
+      expect(t).toContain('Sai da conta no mês (Mensal): R$ 180,00'); // a fatura só sai em novembro
+      expect(t).toContain('• Mercado — R$ 303,45');
+
+      nextParse = query({ type: 'SPENDING', month: null, categoryId: mercado });
+      expect(await reply('quanto gastei com mercado?')).toContain('Mercado em outubro de 2026');
+    });
+
+    it('resumo do mês e últimos lançamentos', async () => {
+      await sendText(EDUARDO_TG, 'mercado 180 no pix');
+      nextParse = income({ categoryId: await catId('Salário CLT') });
+      await sendText(EDUARDO_TG, 'recebi 5000 de salário');
+      nextParse = query({ type: 'MONTH_SUMMARY', month: null });
+      const r = await reply('como está o mês?');
+      expect(r).toContain('Resumo de outubro de 2026');
+      expect(r).toContain('Entrou: R$ 5.000,00 · saiu: R$ 180,00');
+      expect(r).toContain('Saldo previsto no fim do mês: R$ 9.820,00');
+
+      nextParse = query({ type: 'RECENT' });
+      const rec = await reply('o que lancei por último?');
+      expect(rec).toContain('Últimos lançamentos:');
+      expect(rec).toMatch(/• 17\/10 Salário — \+ R\$ 5\.000,00 \(Salário CLT · Outro\)/);
+      expect(rec).toMatch(/• 17\/10 Mercado — R\$ 180,00 \(Mercado · Pix\)/);
+    });
+
+    it('conversa que não é lançamento nem pergunta: orienta, sem lançar', async () => {
+      nextParse = { ok: false, reason: 'not_entry' };
+      const t = await reply('bom dia!');
+      expect(t).toContain('Mande um gasto, uma receita ou uma pergunta');
+      expect(t).toContain('/limite');
+    });
+  });
+
+  describe('comandos com mês e cartão', () => {
+    it('/pendentes, /gastos e /resumo aceitam o mês; padrão é o mês atual; mês inválido é recusado', async () => {
+      await buyOnCard(12_345, 'Farmácia');
+      expect(await reply('/pendentes')).toContain('Nada pendente');
+      expect(await reply('/pendentes novembro')).toContain(
+        '10/11 Fatura Nubank Eduardo (novembro de 2026): pagar R$ 123,45',
+      );
+      expect(await reply('/pendentes próximo')).toContain('Pendentes de novembro de 2026');
+      expect(await reply('/pendentes 11/2026')).toContain('Pendentes de novembro de 2026');
+      expect(await reply('/pendentes banana')).toContain('Não entendi o mês');
+      expect(await reply('/gastos')).toContain('Gastos de outubro de 2026');
+      expect(await reply('/gastos passado')).toContain('Gastos de setembro de 2026');
+      expect(await reply('/resumo dezembro')).toContain('Resumo de dezembro de 2026');
+    });
+
+    it('/limite e /fatura aceitam o cartão pelo nome ou apelido; /fatura sem nada = o único cartão', async () => {
+      await buyOnCard(12_345, 'Farmácia');
+      expect(await reply('/limite')).toContain('Limite: R$ 5.000,00');
+      expect(await reply('/limite nubank')).toContain('💳 Nubank Eduardo');
+      expect(await reply('/limite xpto')).toContain('Não achei esse cartão. Cartões: Nubank Eduardo');
+      expect(await reply('/fatura nubank')).toContain('fatura de novembro de 2026 (aberta)');
+      expect(await reply('/fatura nubank novembro')).toContain('fatura de novembro de 2026');
+      expect(await reply('/fatura nubank março')).toContain('Não achei a fatura de março');
+      expect(await reply('/fatura')).toContain('Total: R$ 123,45');
+    });
+
+    it('com dois cartões: /fatura sem cartão mostra a visão geral; com mês pede o cartão', async () => {
+      await createCard(await ctxOf(), {
+        name: 'Roxinho',
+        issuer: 'Nubank',
+        last4: null,
+        isAdditional: false,
+        holderName: null,
+        limitTotal: 100_000,
+        closingDay: 5,
+        dueDay: 12,
+        botAliases: ['roxo'],
+      });
+      expect(await reply('/fatura')).toContain('Nubank Eduardo');
+      expect(await reply('/fatura novembro')).toContain('Qual cartão?');
+      expect(await reply('/fatura roxo')).toContain('Roxinho · fatura de');
+    });
+
+    it('/ultimos e /resumo funcionam sem lançamentos; só quem está na lista pergunta', async () => {
+      expect(await reply('/ultimos')).toContain('Nenhum lançamento ainda');
+      expect(await reply('/resumo')).toContain('Resumo de outubro de 2026');
+      expect(await sendText(999_999, '/saldo')).toEqual([]);
+      expect(await sendText(999_999, '/limite')).toEqual([]);
+    });
+  });
+});
+
 describe('consultas e lembretes (Fase 4)', () => {
   /** o Intl separa "R$" do valor com espaço não separável */
   const n = (v: string | null) => (v ?? '').replace(/ /g, ' ');
@@ -456,14 +719,14 @@ describe('consultas e lembretes (Fase 4)', () => {
       notes: null,
     });
     const fatura = n(lastText(await sendText(EDUARDO_TG, '/fatura')));
-    expect(fatura).toContain('Nubank Eduardo');
-    expect(fatura).toContain('Fatura de novembro de 2026 (aberta): R$ 123,45');
+    expect(fatura).toContain('Nubank Eduardo · fatura de novembro de 2026 (aberta)');
+    expect(fatura).toContain('Total: R$ 123,45');
     expect(fatura).toContain('Limite disponível: R$ 4.876,55');
 
     expect(n(lastText(await sendText(EDUARDO_TG, '/pendentes')))).toContain('Nada pendente');
     await addBill(17);
     const pend = n(lastText(await sendText(VIVIANE_TG, '/pendentes')));
-    expect(pend).toContain('17/10/2026 Luz: pagar R$ 250,00 · vence hoje');
+    expect(pend).toContain('17/10 Luz: pagar R$ 250,00 · vence hoje');
   });
 
   it('lembrete das 9h: conta que vence hoje e fatura que vence em 2 dias; sem nada, nenhuma mensagem', async () => {
