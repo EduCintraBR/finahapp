@@ -183,12 +183,17 @@ export const cardPurchaseInput = z.object({
 });
 export type CardPurchaseInput = z.output<typeof cardPurchaseInput>;
 
-export const cardPurchaseEditInput = cardPurchaseInput.pick({
-  description: true,
-  categoryId: true,
-  beneficiaryUserId: true,
-  notes: true,
-});
+export const cardPurchaseEditInput = cardPurchaseInput
+  .pick({
+    description: true,
+    categoryId: true,
+    beneficiaryUserId: true,
+    notes: true,
+  })
+  .extend({
+    /** novo valor total; ausente = não muda (o formulário só o envia quando a compra permite) */
+    amount: money({ positive: true }).optional(),
+  });
 export type CardPurchaseEditInput = z.output<typeof cardPurchaseEditInput>;
 
 export const onboardingInput = z

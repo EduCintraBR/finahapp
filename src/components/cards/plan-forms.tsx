@@ -234,6 +234,7 @@ export function PurchaseEditForm({
   categories,
   users,
   defaults,
+  amountEditable,
 }: {
   planId: string;
   categories: CategoryOption[];
@@ -243,7 +244,10 @@ export function PurchaseEditForm({
     categoryId: string;
     beneficiaryUserId: string | null;
     notes: string | null;
+    amountCents: number;
   };
+  /** false quando já há parcela em fatura fechada, antecipação ou estorno */
+  amountEditable: boolean;
 }) {
   const [state, action, pending] = useActionState(editPurchaseAction, null);
   return (
@@ -252,6 +256,25 @@ export function PurchaseEditForm({
       <Field label="Descrição" htmlFor="pe-desc">
         <Input id="pe-desc" name="description" required maxLength={180} defaultValue={defaults.description} />
       </Field>
+      {amountEditable ? (
+        <Field
+          label="Valor total"
+          htmlFor="pe-amount"
+          hint="As parcelas são refeitas; o resto do arredondamento vai na 1ª."
+        >
+          <MoneyInput
+            id="pe-amount"
+            name="amount"
+            required
+            defaultValue={formatDecimalBR(defaults.amountCents)}
+          />
+        </Field>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          O valor só pode mudar enquanto nenhuma parcela estiver em fatura fechada e não houver antecipação ou
+          estorno.
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="pe-cat">
           <NativeSelect id="pe-cat" name="categoryId" defaultValue={defaults.categoryId}>
