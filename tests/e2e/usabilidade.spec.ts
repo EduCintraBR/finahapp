@@ -130,3 +130,21 @@ test('seletor de mês: Início e Cartões mostram o mês escolhido, com cartão 
   await expect(page.getByText('Sem fatura').first()).toBeVisible();
   await noHorizontalScroll(page);
 });
+
+test('excluir um fixo: confirma, volta para a lista e o fixo some', async ({ page }) => {
+  await page.goto('/fixos/novo');
+  await page.getByLabel('Descrição').fill('Fixo para excluir');
+  await page.getByLabel('Valor').fill('10,00');
+  await page.getByLabel('Dia do vencimento').fill('28');
+  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await page.getByRole('button', { name: 'Cadastrar' }).click();
+  await expect(page.getByText('Histórico', { exact: true })).toBeVisible();
+  await expect(page.getByText('Excluir', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Excluir fixo' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Excluir este fixo?');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();
+
+  await expect(page).toHaveURL(/\/fixos$/);
+  await expect(page.getByText('Fixo para excluir')).toHaveCount(0);
+});

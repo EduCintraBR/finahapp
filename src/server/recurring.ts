@@ -291,6 +291,53 @@ export async function endTemplate(ctx: ServiceCtx, id: string, lastMonth: ISODat
 }
 
 /**
+ * Exclui o fixo e o que ele ainda não gerou de dinheiro (D63): o modelo some da lista e as contas dele que não foram
+ * pagas (pendentes e canceladas) saem do histórico (delete lógico). As contas já pagas, e as compras de assinatura já
+ * lançadas no cartão, são dinheiro que de fato saiu: ficam no extrato e no saldo, só deixam de apontar para o fixo.
+ * Nada muda no saldo, e o antes/depois vai para o histórico de alterações.
+ */
+export async function deleteTemplate(ctx: ServiceCtx, id: string) {
+  return ctx.db.transaction(async (tx) => {
+    const old = await loadTemplate(tx, id);
+    const occurrences = await tx
+      .select({ id: transactions.id, status: transactions.status })
+      .from(transactions)
+      .where(and(eq(transactions.recurringTemplateId, id), isNull(transactions.deletedAt)));
+    const unpaid = occurrences.filter((o) => o.status === 'PENDING' || o.status === 'CANCELLED');
+    const kept = occurrences.filter((o) => o.status !== 'PENDING' && o.status !== 'CANCELLED');
+    if (unpaid.length > 0) {
+      await tx
+        .update(transactions)
+        .set({ deletedAt: new Date(), version: sql`${transactions.version} + 1` })
+        .where(
+          inArray(
+            transactions.id,
+            unpaid.map((o) => o.id),
+          ),
+        );
+    }
+    // o par (template, mês) só vale junto: solta as pagas do fixo antes de apagar o modelo
+    await tx
+      .update(transactions)
+      .set({ recurringTemplateId: null, occurrenceMonth: null, version: sql`${transactions.version} + 1` })
+      .where(eq(transactions.recurringTemplateId, id));
+    await tx.delete(recurringTemplates).where(eq(recurringTemplates.id, id));
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'recurring_templates',
+      entityId: id,
+      action: 'DELETE',
+      before: {
+        template: old,
+        removedOccurrenceIds: unpaid.map((o) => o.id),
+        keptTransactionIds: kept.map((o) => o.id),
+      },
+    });
+    return { removed: unpaid.length, kept: kept.length };
+  });
+}
+
+/**
  * Materializa o que falta (D17, D33). Idempotente: pode rodar no worker e ao abrir o app ao
  * mesmo tempo — o índice único (template, mês) garante uma ocorrência por mês.
  *  - template da conta → transaction PENDING no vencimento;

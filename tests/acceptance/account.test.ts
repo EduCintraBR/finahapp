@@ -10,7 +10,13 @@ import { seed, seedConfigFromEnv } from '@/db/seed';
 import { createCheckpoint } from '@/server/checkpoints';
 import type { ServiceCtx } from '@/server/context';
 import { confirmPayment, createEntry, removeEntry, revertPayment, updateEntry } from '@/server/entries';
-import { changeTemplateFrom, createTemplate, endTemplate, generateOccurrences } from '@/server/recurring';
+import {
+  changeTemplateFrom,
+  createTemplate,
+  deleteTemplate,
+  endTemplate,
+  generateOccurrences,
+} from '@/server/recurring';
 import type { EntryInput, TemplateInput } from '@/server/schemas';
 import { freshDb } from './helpers';
 
@@ -280,6 +286,31 @@ describe('fixos e recorrentes', () => {
       ['2027-02-01', 'CANCELLED'],
     ]);
     expect(await generateOccurrences(db, '2027-05-01')).toBe(0);
+  });
+
+  it('excluir o fixo (D63): some com o modelo e as contas não pagas; as pagas ficam e o saldo não muda', async () => {
+    const feb = { ...ctx, today: '2027-02-01' };
+    const { id } = await createTemplate(feb, template());
+    const [oct, nov, dez] = await occurrences(id);
+    await confirmPayment(feb, oct!.id, oct!.version, { date: '2026-10-10', amount: 200_000 });
+    await removeEntry(feb, dez!.id, dez!.version); // uma cancelada (não vai ter esse mês)
+    const saldoAntes = await balance();
+
+    const r = await deleteTemplate(feb, id);
+    expect(r).toEqual({ removed: 4, kept: 1 }); // nov, jan, fev pendentes + dez cancelada; out paga
+
+    expect(await q(`select 1 from recurring_templates where id = $1`, [id])).toHaveLength(0);
+    const rest = await q<{ status: string; tpl: string | null; month: string | null }>(
+      `select status, recurring_template_id tpl, occurrence_month::text as month from transactions where description = $1 and deleted_at is null`,
+      [template().description],
+    );
+    expect(rest).toEqual([{ status: 'POSTED', tpl: null, month: null }]);
+    expect(await balance()).toBe(saldoAntes);
+    expect(nov).toBeDefined();
+    // a geração não recria nada
+    expect(await generateOccurrences(db, '2027-05-01')).toBe(0);
+    // e não dá para excluir duas vezes
+    await expect(deleteTemplate(feb, id)).rejects.toThrow('não encontrado');
   });
 
   it('receita prevista gera ocorrência de entrada', async () => {

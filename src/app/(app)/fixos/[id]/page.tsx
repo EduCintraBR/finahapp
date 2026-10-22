@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { EntryRowItem } from '@/components/entries/entry-list';
+import { ActionButton } from '@/components/forms/action-button';
 import { Amount } from '@/components/money/amount';
 import { EndTemplateForm } from '@/components/recurring/end-template-form';
 import { TemplateForm } from '@/components/recurring/template-form';
@@ -15,6 +16,7 @@ import { listCategories, listUsers } from '@/db/queries/lookups';
 import { compareDates, formatMonthLabel, monthStart, today, toMonthParam } from '@/domain/dates';
 import { formatDecimalBR } from '@/domain/money';
 import { PAYMENT_METHOD_LABEL, RECURRING_TYPE_LABEL } from '@/lib/labels';
+import { deleteTemplateAction } from '../actions';
 
 export const metadata: Metadata = { title: 'Fixo' };
 
@@ -125,12 +127,41 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
         <Card>
           <CardHeader>
             <CardTitle>Encerrar</CardTitle>
+            <CardDescription>
+              Para de gerar contas depois do mês escolhido (por exemplo, o mês atual). O que já foi gerado até
+              lá continua no histórico.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <EndTemplateForm id={t.id} defaultMonth={toMonthParam(month)} />
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Excluir</CardTitle>
+          <CardDescription>
+            Apaga este fixo e as contas dele que não foram pagas (pendentes e canceladas, de qualquer mês). As
+            já pagas ficam no extrato e no saldo, só deixam de ser ligadas a um fixo.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ActionButton
+            action={deleteTemplateAction}
+            fields={{ id: t.id }}
+            variant="destructive"
+            label="Excluir fixo"
+            pendingLabel="Excluindo…"
+            confirm={{
+              title: 'Excluir este fixo?',
+              description:
+                'O fixo e todas as contas dele ainda não pagas somem do histórico. As contas já pagas continuam no extrato e o saldo não muda. Fica registrado no histórico de alterações.',
+              confirmLabel: 'Excluir',
+            }}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }
