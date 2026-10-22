@@ -91,6 +91,15 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash').notNull(),           // argon2id
   telegramUserId: bigint('telegram_user_id', { mode: 'number' }).unique(), // whitelist do bot
   color: varchar('color', { length: 16 }),                 // badge "Ele/Ela" na UI
+  // 2FA (TOTP, D64): segredos cifrados com AES-256-GCM (chave derivada do AUTH_SECRET); nunca em texto puro
+  totpSecret: text('totp_secret'),                          // autenticador ativo
+  totpPendingSecret: text('totp_pending_secret'),           // em cadastro (até confirmar o 1º código)
+  totpEnabledAt: timestamp('totp_enabled_at', { withTimezone: true }),
+  totpLastStep: bigint('totp_last_step', { mode: 'number' }), // último passo de 30 s aceito (sem reuso de código)
+  recoveryCodeHashes: text('recovery_code_hashes').array().notNull().default(sql`'{}'::text[]`), // sha256, uso único
+  pendingRecoveryCodeHashes: text('pending_recovery_code_hashes').array().notNull().default(sql`'{}'::text[]`),
+  // sobe ao trocar a senha / "sair de todos os aparelhos": sessões com versão antiga deixam de valer
+  sessionVersion: integer('session_version').notNull().default(1),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

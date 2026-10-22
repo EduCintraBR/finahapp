@@ -9,6 +9,9 @@ x-app: &app
   image: ${FINAH_IMAGE:-finah:local}
   build: .
   restart: unless-stopped
+  # o app roda como usuário sem privilégio (Dockerfile) e não precisa de nenhuma capability do Linux
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
   env_file:
     - path: .env
       required: false
@@ -24,6 +27,7 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-finah}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
@@ -68,6 +72,7 @@ services:
     build: docker/backup
     image: finah-backup:local
     restart: unless-stopped
+    security_opt: [no-new-privileges:true]
     environment:
       PGHOST: db
       PGUSER: ${POSTGRES_USER:-finah}
@@ -77,6 +82,8 @@ services:
       BACKUP_KEEP_DAILY: ${BACKUP_KEEP_DAILY:-14}
       BACKUP_KEEP_WEEKLY: ${BACKUP_KEEP_WEEKLY:-8}
       RCLONE_REMOTE: ${RCLONE_REMOTE:-}
+      # chave PÚBLICA do age (age1...): a cópia off-site sai cifrada para ela
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
       TZ: America/Sao_Paulo
     volumes:
       - ${BACKUP_DIR:-./backups}:/backups

@@ -33,3 +33,4 @@ npm-debug.log*
 
 # arquivos reais de extrato/fatura (dados pessoais)
 /tmp/
+/.next-*/

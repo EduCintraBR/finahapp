@@ -33,13 +33,25 @@ echo "✓ app saudável"
 step "Seed"
 docker compose run --rm app node dist/seed.mjs
 
+# 2FA obrigatório (D64): ativa o 2FA dos dois usuários de teste com um código de recuperação conhecido
+# (só o sha256 vai para o banco, como no app). O login abaixo usa senha + esse código.
+SMOKE_CODE="smok-etst"
+SMOKE_HASH="$(printf '%s' smoketst | sha256sum | cut -d' ' -f1)"
+docker compose exec -T backup psql -v ON_ERROR_STOP=1 -qc \
+  "update users set totp_enabled_at = now(), totp_secret = 'v1:smoke', recovery_code_hashes = array['$SMOKE_HASH']"
+
 login() { # login <email> <senha> <nome esperado>
   rm -f "$JAR"
   local csrf
   csrf="$(curl -fsS -c "$JAR" -b "$JAR" "$BASE/api/auth/csrf" | sed -E 's/.*"csrfToken":"([^"]+)".*/\1/')"
+  # sem o código, a senha certa não cria sessão
   curl -fsS -o /dev/null -c "$JAR" -b "$JAR" -X POST "$BASE/api/auth/callback/credentials" \
     --data-urlencode "csrfToken=$csrf" --data-urlencode "email=$1" --data-urlencode "password=$2" \
     --data-urlencode "callbackUrl=$BASE/"
+  curl -fsS -b "$JAR" "$BASE/api/auth/session" | grep -q "\"name\"" && fail "login de $1 sem código não deveria valer"
+  curl -fsS -o /dev/null -c "$JAR" -b "$JAR" -X POST "$BASE/api/auth/callback/credentials" \
+    --data-urlencode "csrfToken=$csrf" --data-urlencode "email=$1" --data-urlencode "password=$2" \
+    --data-urlencode "code=$SMOKE_CODE" --data-urlencode "callbackUrl=$BASE/"
   curl -fsS -b "$JAR" "$BASE/api/auth/session" | grep -q "\"name\":\"$3\"" || fail "login de $1 falhou"
   [ "$(curl -s -o /dev/null -w '%{http_code}' -b "$JAR" "$BASE/")" = 200 ] || fail "home não abriu para $1"
   echo "✓ login de $3"

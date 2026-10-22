@@ -3,6 +3,7 @@
  */
 import { expect, test, type Page } from '@playwright/test';
 import { e2eEnv } from './env';
+import { login } from './login';
 
 const row = (page: Page, name: string) =>
   page.getByTestId('category-row').filter({ has: page.getByText(name, { exact: true }) });
@@ -15,11 +16,7 @@ const open = async (page: Page, name: string) => {
 };
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
-  await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await login(page, e2eEnv.users.eduardo);
 });
 
 test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async ({ page }) => {

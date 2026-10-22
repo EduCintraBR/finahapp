@@ -36,7 +36,7 @@ jobs:
       COMPOSE: docker compose -p finah-dev
       HEALTH_URL: ${{ vars.DEPLOY_DEV_URL || 'https://dev.finahapp.com' }}/api/health
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
       - name: SSH
         env:
@@ -81,7 +81,8 @@ jobs:
 
       - name: Conferência final (login no ar, containers saudáveis)
         run: |
-          curl -fsS --max-time 15 "${HEALTH_URL%/api/health}/login" | grep -q "Finah"
+          # o dev tem senha extra no nginx (só /api/health é aberto): confere o login de dentro da VPS
+          ssh vps "curl -fsS --max-time 15 http://127.0.0.1:3001/login | grep -q Finah"
           ssh vps "cd $APP_DIR && $COMPOSE ps --format '{{.Name}} {{.Status}}'"
 
       - name: Volta para a versão anterior se algo falhou

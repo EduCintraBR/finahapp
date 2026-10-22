@@ -4,6 +4,7 @@
 #
 #   docker compose exec backup restore.sh latest                  # último diário → finah_restore
 #   docker compose exec backup restore.sh /backups/daily/X.dump meu_teste
+#   docker compose exec -e AGE_IDENTITY=/backups/chave.txt backup restore.sh /backups/X.dump.age   # cópia do Drive (cifrada)
 #
 # Para promover o restore a banco principal, veja "Restaurar de verdade" no README.
 set -eu
@@ -16,6 +17,15 @@ if [ "$src" = "latest" ]; then
   [ -n "$src" ] || { echo "[restore] nenhum backup em /backups/daily"; exit 1; }
 fi
 [ -f "$src" ] || { echo "[restore] arquivo não encontrado: $src"; exit 1; }
+case "$src" in
+  *.age)
+    [ -n "${AGE_IDENTITY:-}" ] && [ -f "$AGE_IDENTITY" ] || { echo "[restore] backup cifrado: informe AGE_IDENTITY=<arquivo da chave privada>"; exit 1; }
+    plain="/tmp/restore-$$.dump"
+    trap 'rm -f "$plain"' EXIT
+    age --decrypt --identity "$AGE_IDENTITY" --output "$plain" "$src"
+    src="$plain"
+    ;;
+esac
 [ "$target" != "$PGDATABASE" ] || { echo "[restore] o destino não pode ser o banco em uso ($PGDATABASE)"; exit 1; }
 
 echo "[restore] $src → banco limpo \"$target\""
