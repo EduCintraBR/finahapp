@@ -98,6 +98,14 @@ Em produção usamos **nginx no host** com Let's Encrypt (Certbot), e não o Cad
 - nginx: `/etc/nginx/sites-available/finah` faz proxy de `finahapp.com` e `www.finahapp.com` para `127.0.0.1:3000` (`client_max_body_size 2m`). O HTTPS e o redirecionamento 80→443 vêm do `certbot --nginx`, e a renovação é automática (`certbot.timer`).
 - Firewall (ufw): só 22, 80 e 443.
 
+### Ambiente de dev (dev.finahapp.com)
+
+Na mesma VPS, isolado da produção: código em `/opt/finah-dev`, projeto Compose `finah-dev` (`docker compose -p finah-dev ...`), **Postgres e volume próprios** (banco `finah_dev`), app em `127.0.0.1:3001`, banco em `127.0.0.1:5433`, imagem `finah-dev:local` e `.env` próprio (segredos diferentes, `AUTH_URL=https://dev.finahapp.com`, `BOT_MODE=off`, sem chave da Anthropic e sem backup no Drive). O nginx usa `/etc/nginx/sites-available/finah-dev` e o HTTPS vem do `certbot --nginx -d dev.finahapp.com`.
+
+- **Deploy**: todo push na `dev` roda o CI e publica aqui (`deploy-dev.yml`), com o mesmo desenho do deploy de produção (volta para a imagem anterior se falhar), só que sem o backup prévio: é um ambiente descartável.
+- **Dados**: nasceu de uma cópia (`pg_dump`) do banco de produção. Os logins são os mesmos da produção (as senhas vieram junto). O que você lança lá **não** vai para a produção, e a produção não é atualizada sozinha. Para refazer a cópia: `docker exec finah-db-1 pg_dump -U finah -d finah --no-owner --no-acl | docker exec -i finah-dev-db-1 psql -U finah -d finah_dev`, num banco dev vazio (`docker compose -p finah-dev down -v` e `up -d db` antes). O comando só lê a produção.
+- **Bot**: desligado no dev. Um bot do Telegram só aponta para um webhook, e ele está na produção.
+
 **Atualizar a produção** (na sua máquina, na raiz do projeto):
 
 ```bash
