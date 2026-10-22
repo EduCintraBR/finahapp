@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { addDays, addMonths, diffMonths, monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { login } from './login';
 
 function previousMonthFixture(): Buffer {
   const shift = Math.max(0, diffMonths(today(), '2026-10-18'));
@@ -20,11 +21,7 @@ function previousMonthFixture(): Buffer {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
-  await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await login(page, e2eEnv.users.eduardo);
 });
 
 test('importar o mês anterior ao início: mostra o recuo, confirma, ignora em lote e troca o match', async ({

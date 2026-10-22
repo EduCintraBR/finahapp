@@ -1,0 +1,32 @@
+# Atualizações de segurança e de versão (o CI roda em cada PR do Dependabot; nada entra sem passar).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: dev
+    open-pull-requests-limit: 5
+    groups:
+      dependencias:
+        patterns: ['*']
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: dev
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: dev
+  - package-ecosystem: docker
+    directory: /docker/backup
+    schedule:
+      interval: weekly
+      day: monday
+    target-branch: dev

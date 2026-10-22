@@ -1,4 +1,5 @@
 import type { NextConfig } from 'next';
+import { SECURITY_HEADERS } from './src/lib/csp';
 
 const nextConfig: NextConfig = {
   output: 'standalone',
@@ -19,6 +20,7 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
+      { source: '/:path*', headers: SECURITY_HEADERS },
       {
         source: '/sw.js',
         headers: [

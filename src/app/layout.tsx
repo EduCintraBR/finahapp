@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import { ServiceWorkerRegister } from '@/components/pwa/service-worker-register';
 import { THEME_COLOR, THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
@@ -27,12 +28,14 @@ export const viewport: Viewport = {
   colorScheme: 'dark light',
 };
 
-export default function RootLayout({ children }: LayoutProps<'/'>) {
+export default async function RootLayout({ children }: LayoutProps<'/'>) {
+  // nonce do CSP (src/proxy.ts): sem ele o navegador bloqueia o script inline do tema
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* antes da primeira pintura: aplica o tema escolhido neste aparelho (evita piscar) */}
-        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-dvh">
         {children}

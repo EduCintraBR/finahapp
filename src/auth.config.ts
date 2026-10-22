@@ -17,7 +17,7 @@ export const SESSION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
  * Os providers (com acesso ao banco) ficam em src/auth.ts.
  */
 export const authConfig = {
-  trustHost: true, // self-hosted atrás do Caddy
+  trustHost: true, // self-hosted atrás do nginx
   pages: { signIn: '/login' },
   session: { strategy: 'jwt', maxAge: SESSION_MAX_AGE_SECONDS },
   providers: [],
@@ -33,11 +33,15 @@ export const authConfig = {
       return loggedIn; // false → redireciona para /login?callbackUrl=...
     },
     jwt({ token, user }) {
-      if (user?.id) token.sub = user.id;
+      if (user?.id) {
+        token.sub = user.id;
+        token.sv = user.sessionVersion; // conferido a cada página/ação contra users.session_version
+      }
       return token;
     },
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
+      session.sessionVersion = typeof token.sv === 'number' ? token.sv : null;
       return session;
     },
   },

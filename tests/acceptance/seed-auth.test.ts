@@ -6,8 +6,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { AnyDB } from '@/db/client';
 import { seed, seedConfigFromEnv } from '@/db/seed';
 import { seedCategories } from '@/db/seed-data';
-import { authenticate } from '@/server/auth/authenticate';
+import { authenticate, beginLogin } from '@/server/auth/authenticate';
 import { LoginRateLimiter } from '@/server/auth/rate-limit';
+import { deriveKey } from '@/server/auth/secret-box';
+import { validSession } from '@/server/auth/session-check';
+import { totpCode, totpStep } from '@/server/auth/totp';
 import { freshDb } from './helpers';
 
 const env = {
@@ -110,57 +113,134 @@ describe('seed', () => {
   });
 });
 
-describe('login', () => {
-  it('autentica com email em qualquer caixa e rejeita senha errada', async () => {
+describe('login com 2FA obrigatório (D64)', () => {
+  const key = deriveKey('auth-secret-de-teste');
+  const NOW = 1_800_000_000_000;
+  const deps = (nowMs = NOW) => ({ key, nowMs });
+  const codeAt = (secret: string, nowMs = NOW) => totpCode(secret, totpStep(nowMs));
+  const user = async (email: string) =>
+    (
+      await pg.query<{
+        totp_secret: string | null;
+        totp_pending_secret: string | null;
+        totp_enabled_at: Date | null;
+        recovery: number;
+      }>(
+        `select totp_secret, totp_pending_secret, totp_enabled_at, cardinality(recovery_code_hashes) recovery from users where email = $1`,
+        [email],
+      )
+    ).rows[0]!;
+  const auth = (
+    email: string,
+    password: string,
+    code: string,
+    nowMs = NOW,
+    limiter = new LoginRateLimiter(),
+  ) => authenticate(db, limiter, { email, password, code, ip: 'x' }, deps(nowMs));
+
+  /** 1º login: senha → cadastro do autenticador → código confirma. Devolve o segredo e os códigos de recuperação. */
+  const enroll = async (limiter: LoginRateLimiter, email: string, password: string) => {
+    const begin = await beginLogin(db, limiter, { email, password, ip: 'x' }, key);
+    if (!begin.ok || begin.step !== 'enroll') throw new Error('esperava cadastro');
+    const r = await auth(email, password, codeAt(begin.enrollment.secret), NOW, limiter);
+    expect(r.ok).toBe(true);
+    return begin.enrollment;
+  };
+
+  it('senha errada não passa da 1ª etapa; email em qualquer caixa; sem código não entra', async () => {
     await seed(db, seedConfigFromEnv(env));
     const limiter = new LoginRateLimiter();
-    const ok = await authenticate(db, limiter, {
-      email: ' EDUARDO@example.com ',
-      password: 'senha-do-eduardo',
-      ip: 'x',
-    });
-    expect(ok.ok && ok.user.name).toBe('Eduardo');
-    expect(
-      await authenticate(db, limiter, { email: 'eduardo@example.com', password: 'errada', ip: 'x' }),
-    ).toEqual({
-      ok: false,
-      reason: 'invalid',
-    });
-    expect(await authenticate(db, limiter, { email: 'ninguem@example.com', password: 'x', ip: 'x' })).toEqual(
-      {
-        ok: false,
-        reason: 'invalid',
-      },
-    );
-    expect(await authenticate(db, limiter, { email: 42, password: null, ip: 'x' })).toEqual({
-      ok: false,
-      reason: 'invalid',
-    });
+    const begin = (email: unknown, password: unknown) =>
+      beginLogin(db, limiter, { email, password, ip: 'x' }, key);
+    const invalid = { ok: false, reason: 'invalid' };
+    expect(await begin('eduardo@example.com', 'errada')).toEqual(invalid);
+    expect(await begin('ninguem@example.com', 'x')).toEqual(invalid);
+    expect(await begin(42, null)).toEqual(invalid);
+    const r = await begin(' EDUARDO@example.com ', 'senha-do-eduardo');
+    expect(r.ok && r.step).toBe('enroll');
+    // senha certa sem código (o authorize sozinho) não cria sessão
+    expect(await auth('eduardo@example.com', 'senha-do-eduardo', '')).toEqual(invalid);
   });
 
-  it('bloqueia após 5 senhas erradas, mesmo com a senha certa', async () => {
+  it('1º login cadastra o autenticador: segredo cifrado, 10 códigos, e depois pede só o código (sem reuso)', async () => {
     await seed(db, seedConfigFromEnv(env));
     const limiter = new LoginRateLimiter();
-    for (let i = 0; i < 5; i++) {
-      await authenticate(db, limiter, {
-        email: 'esposa@example.com',
-        password: `errada${i}`,
-        ip: '10.0.0.1',
-      });
-    }
-    const r = await authenticate(db, limiter, {
-      email: 'esposa@example.com',
-      password: 'senha-da-esposa',
-      ip: '10.0.0.1',
+    const { secret, recoveryCodes, otpauthUri } = await enroll(
+      limiter,
+      'eduardo@example.com',
+      'senha-do-eduardo',
+    );
+    expect(recoveryCodes).toHaveLength(10);
+    expect(otpauthUri).toContain('otpauth://totp/Finah');
+
+    const u = await user('eduardo@example.com');
+    expect(u.totp_enabled_at).not.toBeNull();
+    expect(u.totp_pending_secret).toBeNull();
+    expect(u.recovery).toBe(10);
+    expect(u.totp_secret).toMatch(/^v1:/);
+    expect(u.totp_secret).not.toContain(secret); // nunca em texto puro
+
+    expect(
+      await beginLogin(
+        db,
+        limiter,
+        { email: 'eduardo@example.com', password: 'senha-do-eduardo', ip: 'x' },
+        key,
+      ),
+    ).toEqual({ ok: true, step: 'code' });
+
+    // o mesmo código (mesmo passo de 30 s) não vale de novo; o do passo seguinte vale
+    expect((await auth('eduardo@example.com', 'senha-do-eduardo', codeAt(secret))).ok).toBe(false);
+    const later = NOW + 30_000;
+    expect(await auth('eduardo@example.com', 'senha-do-eduardo', codeAt(secret, later), later)).toEqual({
+      ok: true,
+      user: expect.objectContaining({ name: 'Eduardo', email: 'eduardo@example.com', sessionVersion: 1 }),
     });
-    expect(r.ok).toBe(false);
+    // código errado; senha errada com código certo
+    const after = later + 60_000;
+    expect((await auth('eduardo@example.com', 'senha-do-eduardo', '000000', after)).ok).toBe(false);
+    expect((await auth('eduardo@example.com', 'errada', codeAt(secret, after), after)).ok).toBe(false);
+  });
+
+  it('código de recuperação entra uma vez só e é gasto', async () => {
+    await seed(db, seedConfigFromEnv(env));
+    const { recoveryCodes } = await enroll(new LoginRateLimiter(), 'esposa@example.com', 'senha-da-esposa');
+    expect((await auth('esposa@example.com', 'senha-da-esposa', recoveryCodes[3]!.toUpperCase())).ok).toBe(
+      true,
+    );
+    expect((await user('esposa@example.com')).recovery).toBe(9);
+    expect((await auth('esposa@example.com', 'senha-da-esposa', recoveryCodes[3]!)).ok).toBe(false);
+    const audits = await pg.query(
+      `select 1 from audit_log where entity = 'users' and after->>'mfa' = 'recovery_code_used'`,
+    );
+    expect(audits.rows).toHaveLength(1);
+  });
+
+  it('bloqueia após 5 erros de código, mesmo com tudo certo; o outro usuário no mesmo IP entra', async () => {
+    await seed(db, seedConfigFromEnv(env));
+    const limiter = new LoginRateLimiter();
+    const esposa = await enroll(limiter, 'esposa@example.com', 'senha-da-esposa');
+    const eduardo = await enroll(limiter, 'eduardo@example.com', 'senha-do-eduardo');
+    const later = NOW + 90_000;
+    const tryLogin = (email: string, password: string, code: string) =>
+      authenticate(db, limiter, { email, password, code, ip: '10.0.0.1' }, deps(later));
+    for (let i = 0; i < 5; i++) await tryLogin('esposa@example.com', 'senha-da-esposa', `00000${i}`);
+    const r = await tryLogin('esposa@example.com', 'senha-da-esposa', codeAt(esposa.secret, later));
     expect(!r.ok && r.reason).toBe('rate_limited');
-    // o outro usuário, no mesmo IP, continua entrando
-    const other = await authenticate(db, limiter, {
-      email: 'eduardo@example.com',
-      password: 'senha-do-eduardo',
-      ip: '10.0.0.1',
-    });
+    const other = await tryLogin('eduardo@example.com', 'senha-do-eduardo', codeAt(eduardo.secret, later));
     expect(other.ok).toBe(true);
+  });
+
+  it('sessão só vale com a versão atual e o 2FA ativo', async () => {
+    await seed(db, seedConfigFromEnv(env));
+    const id = (await pg.query<{ id: string }>(`select id from users where email = 'eduardo@example.com'`))
+      .rows[0]!.id;
+    expect(await validSession(db, id, 1)).toBeNull(); // sem 2FA ainda
+    await enroll(new LoginRateLimiter(), 'eduardo@example.com', 'senha-do-eduardo');
+    expect(await validSession(db, id, 1)).toEqual(expect.objectContaining({ id, name: 'Eduardo' }));
+    expect(await validSession(db, id, null)).toBeNull(); // sessão de antes do 2FA (sem versão)
+    await pg.query(`update users set session_version = session_version + 1 where id = $1`, [id]);
+    expect(await validSession(db, id, 1)).toBeNull(); // trocou a senha / saiu de todos os aparelhos
+    expect(await validSession(db, id, 2)).not.toBeNull();
   });
 });

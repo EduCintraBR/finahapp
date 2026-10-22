@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { login } from './login';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -18,11 +19,7 @@ const available = (p: Page) => p.getByText(/^Disponível/).first();
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
-  await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await login(page, e2eEnv.users.eduardo);
 });
 
 test.afterAll(async () => page.close());

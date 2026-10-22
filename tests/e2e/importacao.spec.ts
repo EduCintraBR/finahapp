@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { addMonths, diffMonths, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { login } from './login';
 
 function shiftedFixture(): Buffer {
   const shift = Math.max(0, diffMonths(today(), '2026-10-18'));
@@ -23,11 +24,7 @@ function shiftedFixture(): Buffer {
 test('importar a fatura: criar em lote, confirmar o total da parcela 1/2 e bater com o arquivo', async ({
   page,
 }) => {
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
-  await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await login(page, e2eEnv.users.eduardo);
 
   await page.goto('/cartoes/novo');
   await page.getByLabel('Nome').fill('Nubank Import');

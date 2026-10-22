@@ -95,6 +95,17 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 
 As regras completas, com as decisões tomadas, estão em [docs/SPEC.md](docs/SPEC.md).
 
+## Segurança
+
+Dados financeiros de duas pessoas, na internet: o Finah é fechado por padrão.
+
+- **Login com 2FA obrigatório** (senha + app autenticador, com códigos de recuperação de uso único), senhas com argon2id e limite de tentativas.
+- Sessões que caem ao trocar a senha ou com **"sair de todos os aparelhos"**.
+- **CSP com nonce**, HSTS e cabeçalhos de segurança; nenhum script de terceiros.
+- Segredos do 2FA cifrados no banco; **backups off-site cifrados** (age) com a chave só com o dono.
+- VPS com SSH só por chave, fail2ban, atualizações automáticas e firewall; containers sem privilégios.
+- Repositório com `main` protegida, actions fixadas por SHA, Dependabot e secret scanning.
+
 ## Tecnologia
 
 | Camada    | O que usamos                                                                                   |

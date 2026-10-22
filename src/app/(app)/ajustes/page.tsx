@@ -8,14 +8,29 @@ import { OpeningBalanceForm } from '@/components/settings/opening-balance-form';
 import { ThemeSwitch } from '@/components/theme/theme-controls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
-import { bankAccounts } from '@/db/schema';
+import { bankAccounts, users } from '@/db/schema';
+import {
+  ChangeAuthenticatorForm,
+  ChangePasswordForm,
+  LogoutEverywhereButton,
+  RecoveryCodesForm,
+} from '@/components/settings/security-forms';
 
 export const metadata: Metadata = { title: 'Ajustes' };
+
+const formatDateTimeBR = (d: Date) =>
+  new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeZone: 'America/Sao_Paulo' }).format(d);
 export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const session = await auth();
   const [account] = await getDb().select().from(bankAccounts).where(eq(bankAccounts.isPrimary, true));
+  const [mfa] = session?.user?.id
+    ? await getDb()
+        .select({ enabledAt: users.totpEnabledAt, codes: users.recoveryCodeHashes })
+        .from(users)
+        .where(eq(users.id, session.user.id))
+    : [];
 
   async function logout() {
     'use server';
@@ -36,6 +51,41 @@ export default async function SettingsPage() {
               <LogOut aria-hidden /> Sair
             </Button>
           </form>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Segurança</CardTitle>
+          <CardDescription>
+            Verificação em duas etapas ativa
+            {mfa?.enabledAt ? ` desde ${formatDateTimeBR(mfa.enabledAt)}` : ''} · {mfa?.codes.length ?? 0}{' '}
+            código(s) de recuperação sobrando.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Trocar senha</summary>
+            <div className="px-3 pb-3">
+              <ChangePasswordForm />
+            </div>
+          </details>
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              Novos códigos de recuperação
+            </summary>
+            <div className="px-3 pb-3">
+              <RecoveryCodesForm />
+            </div>
+          </details>
+          <details className="rounded-lg border">
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              Trocar de app autenticador
+            </summary>
+            <div className="px-3 pb-3">
+              <ChangeAuthenticatorForm />
+            </div>
+          </details>
+          <LogoutEverywhereButton />
         </CardContent>
       </Card>
       <Card>

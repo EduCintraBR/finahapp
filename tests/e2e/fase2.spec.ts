@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { login as loginWith2fa } from './login';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -15,10 +16,7 @@ const brl = (s: string) => new RegExp(`R\\$\\s${s.replace('.', '\\.')}`);
 async function login(page: Page, user: { email: string; password: string }) {
   await page.goto('/');
   await expect(page).toHaveURL(/\/login/);
-  await page.getByLabel('Email').fill(user.email);
-  await page.getByLabel('Senha').fill(user.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await loginWith2fa(page, user, { goto: false });
 }
 
 const balanceCard = (page: Page) => page.locator('[data-slot=card]').filter({ hasText: 'Saldo atual' });

@@ -4,7 +4,13 @@ import postgres from 'postgres';
 import { createDb } from '../../src/db/client';
 import { seed, seedConfigFromEnv } from '../../src/db/seed';
 import { monthStart, today } from '../../src/domain/dates';
+import { users } from '../../src/db/schema';
+import { hashRecoveryCode } from '../../src/server/auth/recovery-codes';
+import { deriveKey, seal } from '../../src/server/auth/secret-box';
+import { totpCode, totpStep } from '../../src/server/auth/totp';
+import { eq } from 'drizzle-orm';
 import { E2E_DB, e2eEnv } from './env';
+import { E2E_TOTP_SECRET, RECOVERY_POOL, resetLoginCounter } from './login';
 
 /** Recria o banco finah_e2e do zero: migrações + seed com os usuários de teste. */
 export default async function globalSetup() {
@@ -32,9 +38,19 @@ export default async function globalSetup() {
         SEED_OPENING_BALANCE_DATE: monthStart(today()),
       }),
     );
+    // Eduardo já com o autenticador ativo; Viviane cadastra o dela pela tela (fase2)
+    await db
+      .update(users)
+      .set({
+        totpSecret: seal(E2E_TOTP_SECRET, deriveKey(e2eEnv.authSecret)),
+        totpEnabledAt: new Date(),
+        recoveryCodeHashes: RECOVERY_POOL.map(hashRecoveryCode),
+      })
+      .where(eq(users.email, eduardo.email));
   } finally {
     await client.end();
   }
+  resetLoginCounter();
   await warmUp();
 }
 
@@ -64,6 +80,10 @@ async function warmUp() {
     await page.goto('/login');
     await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
     await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
+    await page.getByRole('button', { name: 'Continuar' }).click();
+    const code = page.getByLabel('Código');
+    await code.waitFor({ timeout: 90_000 });
+    await code.fill(totpCode(E2E_TOTP_SECRET, totpStep(Date.now())));
     await page.getByRole('button', { name: 'Entrar' }).click();
     await page.getByRole('heading', { name: /Olá,/ }).waitFor({ timeout: 90_000 });
     for (const path of WARM_ROUTES) await page.goto(path);

@@ -4,13 +4,10 @@
  */
 import { expect, test } from '@playwright/test';
 import { e2eEnv } from './env';
+import { login } from './login';
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/login');
-  await page.getByLabel('Email').fill(e2eEnv.users.eduardo.email);
-  await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
-  await page.getByRole('button', { name: 'Entrar' }).click();
-  await expect(page.getByRole('heading', { name: /Olá,/ })).toBeVisible();
+  await login(page, e2eEnv.users.eduardo);
 });
 
 test('Home: caixa do mês, gasto Mensal × Bruto e últimos lançamentos; bate com o relatório', async ({

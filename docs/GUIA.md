@@ -106,7 +106,8 @@ Em produção usamos **nginx no host** com Let's Encrypt (Certbot), e não o Cad
 Na mesma VPS, isolado da produção: código em `/opt/finah-dev`, projeto Compose `finah-dev` (`docker compose -p finah-dev ...`), **Postgres e volume próprios** (banco `finah_dev`), app em `127.0.0.1:3001`, banco em `127.0.0.1:5433`, imagem `finah-dev:local` e `.env` próprio (segredos diferentes, `AUTH_URL=https://dev.finahapp.com`, `BOT_MODE=off`, sem chave da Anthropic e sem backup no Drive). O nginx usa `/etc/nginx/sites-available/finah-dev` e o HTTPS vem do `certbot --nginx -d dev.finahapp.com`.
 
 - **Deploy**: todo push na `dev` roda o CI e publica aqui (`deploy-dev.yml`), com o mesmo desenho do deploy de produção (volta para a imagem anterior se falhar), só que sem o backup prévio: é um ambiente descartável.
-- **Dados**: nasceu de uma cópia (`pg_dump`) do banco de produção. Os logins são os mesmos da produção (as senhas vieram junto). O que você lança lá **não** vai para a produção, e a produção não é atualizada sozinha. Para refazer a cópia: `docker exec finah-db-1 pg_dump -U finah -d finah --no-owner --no-acl | docker exec -i finah-dev-db-1 psql -U finah -d finah_dev`, num banco dev vazio (`docker compose -p finah-dev down -v` e `up -d db` antes). O comando só lê a produção.
+- **Acesso**: o nginx pede um usuário e senha próprios (HTTP Basic, `/etc/nginx/finah-dev.htpasswd`) antes de chegar no app, e manda `noindex` para os buscadores. Só `/api/health` fica aberto (o deploy confere a saúde por ali). Para trocar a senha: `printf 'finah:%s\n' "$(openssl passwd -6)" > /etc/nginx/finah-dev.htpasswd && systemctl reload nginx`.
+- **Dados**: só **dados fictícios** (seed com usuários e senhas de teste, diferentes da produção). Nunca copie o banco de produção para cá: o dev existe para testar, não para guardar dados reais. Para zerar: `docker compose -p finah-dev down -v`, `up -d` e rode o seed (`docker compose -p finah-dev run --rm app node dist/seed.mjs`). O login também pede 2FA: cada um cadastra um autenticador de dev no 1º login.
 - **Bot**: desligado no dev. Um bot do Telegram só aponta para um webhook, e ele está na produção.
 
 **Atualizar a produção** (na sua máquina, na raiz do projeto):
@@ -130,10 +131,25 @@ Abra o endereço no Chrome (Android) ou Safari (iOS) → menu → **Adicionar à
 Mesmo Compose, sem o perfil `vps`: `APP_BIND=0.0.0.0` no `.env` e acesso pela rede local ou Tailscale.
 Para usar a imagem publicada pelo workflow `Imagem` (amd64 + arm64): `FINAH_IMAGE=ghcr.io/<dono>/<repo>:<tag>` e `docker compose up -d --no-build`.
 
+## Segurança
+
+- **Login**: senha + **código do app autenticador** (Google Authenticator, 1Password, Authy…). No 1º login o app mostra um QR code para cadastrar o autenticador e **10 códigos de recuperação**: guarde-os no gerenciador de senhas. Cada código de recuperação entra uma vez só, no lugar do código do app.
+- **Ajustes → Segurança**: trocar a senha (pelo menos 12 caracteres; derruba todas as sessões), gerar novos códigos de recuperação, trocar de app autenticador (celular novo) e **sair de todos os aparelhos** (celular perdido).
+- **Perdi o celular**: entre com um código de recuperação e use "Trocar de app autenticador" em Ajustes. **Perdi o celular e os códigos**: na VPS, zere o 2FA da pessoa e ela cadastra de novo no próximo login:
+  `docker compose exec backup psql -c "update users set totp_secret = null, totp_pending_secret = null, totp_enabled_at = null, recovery_code_hashes = '{}', session_version = session_version + 1 where email = 'email@da.pessoa'"`
+- **AUTH_SECRET**: assina as sessões e cifra os segredos do 2FA. Trocar o AUTH_SECRET derruba todas as sessões **e** invalida os autenticadores (rode o comando acima para os dois e cadastrem de novo).
+- **O que protege o app**: CSP com nonce (nenhum script de fora roda), cabeçalhos de segurança, HSTS, limite de tentativas de login (no nginx e no app, por email e por IP), sessões que caem quando a senha muda, nada de dado sensível em log.
+- **VPS**: SSH só com chave (login por senha desligado; root só com a chave), fail2ban (bane IP que erra o SSH; reincidente fica 1 semana), atualizações de segurança automáticas (`unattended-upgrades`; reinicie quando `/var/run/reboot-required` existir), ufw só com 22/80/443, banco e app só em `127.0.0.1`, nginx sem versão no cabeçalho e quem acessa pelo IP é recusado. Ver banidos: `fail2ban-client status sshd`.
+- **Chaves que só você tem**: a chave SSH do seu PC (`~/.ssh/id_ed25519`), a **chave privada dos backups** (age) e os códigos de recuperação. Guarde as três no gerenciador de senhas e numa cópia offline.
+
 ## Backup
 
 O serviço `backup` roda `pg_dump` todo dia às 03:00 (America/Sao_Paulo) em `./backups/daily`, copia o de domingo para `./backups/weekly` e mantém 14 diários + 8 semanais (ajustável no `.env`).
 Cópia off-site opcional: coloque um `rclone.conf` em `docker/backup/rclone/` e defina `RCLONE_REMOTE` (ex.: `b2:finah-backups`). A cópia é um `rclone copy`: um disco local vazio nunca apaga o que já está na nuvem.
+
+**A cópia off-site sai cifrada** (age) para a chave pública `BACKUP_AGE_RECIPIENT` do `.env`: o Drive só guarda arquivos `.dump.age`, ilegíveis sem a chave privada (`AGE-SECRET-KEY-...`), que fica **só com você** (gerenciador de senhas + cópia offline), nunca na VPS. Com `RCLONE_REMOTE` e sem a chave pública, o backup não envia nada (falha avisando). Os dumps locais da VPS (`./backups/daily`) ficam sem cifra, para restaurar rápido.
+
+**Restaurar um backup do Drive**: baixe o `.dump.age`, copie-o e a chave privada para `/opt/finah/backups/` na VPS e rode `docker compose exec -e AGE_IDENTITY=/backups/chave.txt backup restore.sh /backups/<arquivo>.dump.age` (restaura num banco novo e compara as contagens). **Apague a chave da VPS em seguida** (`rm /opt/finah/backups/chave.txt`). Para só decifrar na sua máquina: `age -d -i chave.txt -o backup.dump arquivo.dump.age`.
 
 **Produção (Google Drive):** `RCLONE_REMOTE=gdrive:finah-backups`, com escopo `drive.file` (o backup só enxerga os arquivos que ele mesmo criou, nunca o resto do Drive). Para refazer a autorização (token revogado ou conta trocada), na sua máquina com o rclone, rode `rclone authorize drive --drive-scope drive.file` e cole o JSON do token em `/opt/finah/docker/backup/rclone/rclone.conf` na VPS, na seção `[gdrive]` (`type = drive`, `scope = drive.file`, `token = {...}`). O Drive **não apaga** backups antigos sozinho: de vez em quando, limpe a pasta `finah-backups`.
 
