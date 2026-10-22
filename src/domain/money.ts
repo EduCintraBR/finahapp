@@ -138,3 +138,20 @@ const DECIMAL_FORMATTER = new Intl.NumberFormat('pt-BR', {
 export function formatDecimalBR(cents: Cents): string {
   return DECIMAL_FORMATTER.format(centsToDecimalString(cents) as Intl.StringNumericLiteral);
 }
+
+const MASK_MAX_DIGITS = 12;
+
+/**
+ * Máscara de valor "centavos primeiro", como nos apps de banco: só os dígitos digitados importam e a vírgula fica
+ * sempre antes dos 2 últimos. "1" → "0,01", "12345" → "123,45", "123456789" → "1.234.567,89". Um "-" digitado
+ * em qualquer lugar vira o sinal. Vazio fica vazio (o campo obrigatório continua acusando a falta do valor).
+ * Só texto: nada de float; o servidor converte para centavos (parseBRL).
+ */
+export function maskMoneyInput(raw: string): string {
+  const negative = raw.includes('-');
+  const digits = raw.replace(/\D/g, '').replace(/^0+/, '').slice(0, MASK_MAX_DIGITS);
+  if (digits === '') return negative && raw.trim() !== '' ? '-' : '';
+  const padded = digits.padStart(3, '0');
+  const int = padded.slice(0, -2).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  return `${negative ? '-' : ''}${int},${padded.slice(-2)}`;
+}

@@ -55,13 +55,21 @@ test('lançar uma despesa pelo botão + e ver no extrato e no saldo', async () =
   await expect(balanceCard(page)).toContainText(brl('876,55'));
 });
 
-test('validação em pt-BR: valor com 3 casas é recusado', async () => {
+test('máscara de valor: digita só os números e os centavos entram primeiro', async () => {
   await page.goto('/lancamentos/novo');
-  await page.getByLabel('Valor').fill('12,345');
-  await page.getByLabel('Descrição').fill('Teste');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
-  await page.getByRole('button', { name: 'Lançar' }).click();
-  await expect(page.getByRole('alert').filter({ hasText: 'Valor inválido' })).toBeVisible();
+  const valor = page.getByLabel('Valor');
+  await valor.pressSequentially('1');
+  await expect(valor).toHaveValue('0,01');
+  await valor.pressSequentially('2345');
+  await expect(valor).toHaveValue('123,45');
+  await valor.pressSequentially('600');
+  await expect(valor).toHaveValue('123.456,00');
+  await valor.press('Backspace');
+  await expect(valor).toHaveValue('12.345,60');
+  await valor.fill('');
+  await expect(valor).toHaveValue('');
+  await valor.fill('5.000,00'); // colar/preencher o valor já formatado continua valendo
+  await expect(valor).toHaveValue('5.000,00');
 });
 
 test('cadastrar um fixo gera a conta do mês como pendente', async () => {

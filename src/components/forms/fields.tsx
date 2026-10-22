@@ -1,5 +1,6 @@
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { maskMoneyInput } from '@/domain/money';
 import { cn } from '@/lib/utils';
 
 /** Campo com rótulo. */
@@ -26,10 +27,11 @@ export function Field({
 }
 
 /**
- * Valor em reais. Texto livre ("1.234,56", "1234,56", "1234.56"): a conversão para centavos
- * é feita no servidor (parseBRL), nunca com float no navegador.
+ * Valor em reais com máscara de centavos primeiro (digitar 1234 mostra "12,34"), como nos apps de banco: não precisa
+ * digitar a vírgula. O texto mascarado ("1.234,56") é o que vai no formulário; a conversão para centavos é feita no
+ * servidor (parseBRL), nunca com float no navegador.
  */
-export function MoneyInput({ className, ...props }: Omit<React.ComponentProps<'input'>, 'type'>) {
+export function MoneyInput({ className, onChange, ...props }: Omit<React.ComponentProps<'input'>, 'type'>) {
   return (
     <div className="relative">
       <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
@@ -37,11 +39,15 @@ export function MoneyInput({ className, ...props }: Omit<React.ComponentProps<'i
       </span>
       <Input
         type="text"
-        inputMode="decimal"
+        inputMode="numeric"
         autoComplete="off"
         placeholder="0,00"
         className={cn('pl-9 text-base tabular-nums', className)}
         {...props}
+        onChange={(e) => {
+          e.target.value = maskMoneyInput(e.target.value);
+          onChange?.(e);
+        }}
       />
     </div>
   );

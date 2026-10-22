@@ -82,7 +82,7 @@ Implementações de referência em SQL em `tests/acceptance/card-ledger.test.ts`
 ## Convenções
 
 - Código e identificadores em inglês; **toda UI, mensagens de erro e respostas do bot em pt-BR**.
-- Formatação BRL com `Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })`; input de valor aceita "1.234,56", "1234,56" e "1234.56".
+- Formatação BRL com `Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })`; o campo de valor (`MoneyInput`) tem máscara de centavos primeiro (digitar 1234 mostra "12,34"; `maskMoneyInput` em `domain/money.ts`), e o servidor segue aceitando "1.234,56", "1234,56" e "1234.56" (bot, importação).
 - Mobile-first: toda tela deve funcionar em 375px de largura. Ações frequentes (lançar, dar baixa) a no máximo 2 toques da home.
 - Server Actions retornam `{ ok: true, data } | { ok: false, error }` — nunca lançam para o cliente.
 - Identidade: `createdByUserId` = quem lançou (sessão ou remetente do bot). `beneficiaryUserId` = de quem é o gasto (null = casal).
