@@ -12,6 +12,8 @@ export default defineConfig({
   retries: 0,
   reporter: [['list']],
   timeout: 60_000,
+  // rotas que o `next dev` ainda não compilou levam vários segundos num CI frio
+  expect: { timeout: 15_000 },
   globalSetup: './tests/e2e/global-setup.ts',
   use: {
     baseURL: e2eEnv.baseURL,
