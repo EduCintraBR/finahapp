@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { type ActionResult, fail } from '@/lib/action-result';
 import { runAction } from '@/server/context';
-import { changeTemplateFrom, createTemplate, endTemplate } from '@/server/recurring';
+import { changeTemplateFrom, createTemplate, deleteTemplate, endTemplate } from '@/server/recurring';
 import { changeFromInput, endTemplateInput, firstIssue, templateInput } from '@/server/schemas';
 import { getServiceCtx } from '@/server/session';
 
@@ -45,4 +45,14 @@ export async function endTemplateAction(
   if (!r.ok) return r;
   revalidatePath('/', 'layout');
   redirect(`/fixos/${id}`);
+}
+
+export async function deleteTemplateAction(
+  _prev: ActionResult<null> | null,
+  fd: FormData,
+): Promise<ActionResult<null>> {
+  const r = await runAction(async () => deleteTemplate(await getServiceCtx(), String(fd.get('id') ?? '')));
+  if (!r.ok) return r;
+  revalidatePath('/', 'layout');
+  redirect('/fixos');
 }
