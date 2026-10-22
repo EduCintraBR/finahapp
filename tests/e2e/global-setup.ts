@@ -40,8 +40,23 @@ export default async function globalSetup() {
 
 /**
  * O `next dev` compila cada rota na primeira visita (o Início, com os gráficos, leva vários segundos num CI frio),
- * o que estourava o tempo do 1º teste. Entra e abre as telas mais pesadas uma vez antes de começar.
+ * o que estourava o tempo do 1º teste. Entra e abre as telas uma vez antes de começar.
  */
+const WARM_ROUTES = [
+  '/lancamentos',
+  '/lancamentos/novo',
+  '/lancamentos/importar',
+  '/cartoes',
+  '/cartoes/novo',
+  '/fixos',
+  '/fixos/novo',
+  '/conta/conferencia',
+  '/relatorios',
+  '/relatorios/projecao',
+  '/ajustes',
+  '/ajustes/categorias',
+];
+
 async function warmUp() {
   const browser = await chromium.launch();
   try {
@@ -51,7 +66,7 @@ async function warmUp() {
     await page.getByLabel('Senha').fill(e2eEnv.users.eduardo.password);
     await page.getByRole('button', { name: 'Entrar' }).click();
     await page.getByRole('heading', { name: /Olá,/ }).waitFor({ timeout: 90_000 });
-    for (const path of ['/lancamentos', '/cartoes', '/ajustes']) await page.goto(path);
+    for (const path of WARM_ROUTES) await page.goto(path);
   } finally {
     await browser.close();
   }
