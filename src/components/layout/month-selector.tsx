@@ -29,7 +29,7 @@ export function MonthSelector({ currentMonth, className }: { currentMonth: ISODa
 
   return (
     <div className={cn('flex items-center gap-1', className)}>
-      <Button asChild variant="ghost" size="icon" aria-label="Mês anterior">
+      <Button asChild variant="ghost" size="icon-sm" aria-label="Mês anterior">
         <Link href={hrefFor(addMonths(selected, -1))} scroll={false}>
           <ChevronLeft />
         </Link>
@@ -38,13 +38,13 @@ export function MonthSelector({ currentMonth, className }: { currentMonth: ISODa
         href={hrefFor(currentMonth)}
         scroll={false}
         title={isCurrent ? undefined : 'Voltar para o mês atual'}
-        className="min-w-36 rounded-md px-2 py-1 text-center text-sm font-medium first-letter:uppercase"
+        className="min-w-28 rounded-md px-1 py-1 text-center text-sm font-medium whitespace-nowrap first-letter:uppercase"
         aria-live="polite"
       >
         {formatMonthLabel(selected)}
         {!isCurrent && <span className="ml-1 align-middle text-xs text-primary">•</span>}
       </Link>
-      <Button asChild variant="ghost" size="icon" aria-label="Próximo mês">
+      <Button asChild variant="ghost" size="icon-sm" aria-label="Próximo mês">
         <Link href={hrefFor(addMonths(selected, 1))} scroll={false}>
           <ChevronRight />
         </Link>

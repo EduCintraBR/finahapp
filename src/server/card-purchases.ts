@@ -61,7 +61,7 @@ async function insertPlan(
   tx: Tx,
   ctx: ServiceCtx,
   s: PlanSpec,
-): Promise<{ transactionId: string; planId: string }> {
+): Promise<{ transactionId: string; planId: string; invoiceId: string }> {
   const lines = buildInstallments(s.total, s.count, s.firstTracked);
   if (lines.length !== s.invoices.length)
     throw new Error('Número de faturas diferente do número de parcelas.');
@@ -120,14 +120,15 @@ async function insertPlan(
     action: 'CREATE',
     after: { transaction: t, plan, itemIds: items.map((i) => i.id) },
   });
-  return { transactionId: t!.id, planId: plan!.id };
+  // invoiceId = a fatura onde a compra (a 1ª parcela) caiu: é para onde a tela volta depois de lançar
+  return { transactionId: t!.id, planId: plan!.id, invoiceId: s.invoices[0]!.id };
 }
 
 export async function createCardPurchase(
   ctx: ServiceCtx,
   input: CardPurchaseInput,
   source: 'MANUAL' | 'BOT' = 'MANUAL',
-): Promise<{ transactionId: string; planId: string }> {
+): Promise<{ transactionId: string; planId: string; invoiceId: string }> {
   return ctx.db.transaction(async (tx) => {
     const account = await getPrimaryAccount(tx);
     const dateError = checkNotBeforeOpening(input.date, account.openingBalanceDate);

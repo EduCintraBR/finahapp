@@ -65,7 +65,8 @@ export async function cardPurchaseAction(_p: Prev, fd: FormData): Promise<Action
   const r = await runAction(async () => createCardPurchase(await getServiceCtx(), parsed.data));
   if (!r.ok) return r;
   refresh();
-  redirect(`/cartoes/compras/${r.data.planId}`);
+  // volta para a fatura onde a compra caiu (os detalhes da compra só abrem se você tocar nela)
+  redirect(`/cartoes/faturas/${r.data.invoiceId}`);
 }
 
 export async function onboardingAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
@@ -74,7 +75,7 @@ export async function onboardingAction(_p: Prev, fd: FormData): Promise<ActionRe
   const r = await runAction(async () => createOnboardingPlan(await getServiceCtx(), parsed.data));
   if (!r.ok) return r;
   refresh();
-  redirect(`/cartoes/compras/${r.data.planId}`);
+  redirect(`/cartoes/faturas/${r.data.invoiceId}`);
 }
 
 export async function editPurchaseAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {

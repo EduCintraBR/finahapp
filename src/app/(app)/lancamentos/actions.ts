@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { monthStart, today, toMonthParam, type ISODate } from '@/domain/dates';
 import { type ActionResult, fail } from '@/lib/action-result';
 import { runAction } from '@/server/context';
 import { confirmPayment, createEntry, removeEntry, revertPayment, updateEntry } from '@/server/entries';
@@ -13,6 +14,12 @@ const back = (fd: FormData, fallback = '/lancamentos') => {
   const v = fd.get('returnTo');
   return typeof v === 'string' && v.startsWith('/') && !v.startsWith('//') ? v : fallback;
 };
+
+/** Lista de lançamentos do mês da data (sem ?mes= quando é o mês atual). */
+function entriesOfMonth(date: ISODate): string {
+  const month = monthStart(date);
+  return month === monthStart(today()) ? '/lancamentos' : `/lancamentos?mes=${toMonthParam(month)}`;
+}
 
 const done = (to: string): never => {
   revalidatePath('/', 'layout');
@@ -26,6 +33,7 @@ export async function saveEntryAction(
   const parsed = entryInput.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
   const id = fd.get('id');
+  const creating = !(typeof id === 'string' && id);
   const r = await runAction(async () => {
     const ctx = await getServiceCtx();
     if (typeof id === 'string' && id) {
@@ -35,7 +43,8 @@ export async function saveEntryAction(
     }
   });
   if (!r.ok) return r;
-  return done(back(fd));
+  // lançamento novo: volta para a lista do mês da data lançada; edição: volta de onde veio
+  return done(creating ? entriesOfMonth(parsed.data.date) : back(fd));
 }
 
 export async function removeEntryAction(

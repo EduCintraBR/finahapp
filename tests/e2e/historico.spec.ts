@@ -79,6 +79,6 @@ test('importar o mês anterior ao início: mostra o recuo, confirma, ignora em l
 
   // o saldo inicial recuou em Ajustes, com a trilha de auditoria registrada
   await page.goto('/ajustes');
-  await expect(page.getByLabel('Em')).toHaveValue(newStart);
+  await expect(page.getByLabel('Em', { exact: true })).toHaveValue(newStart);
   await expect(page.getByLabel('Saldo inicial')).toHaveValue('0,00');
 });

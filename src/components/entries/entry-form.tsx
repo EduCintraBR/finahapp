@@ -48,6 +48,7 @@ export function EntryForm({
   returnTo,
   cards = [],
   initialMode,
+  initialCardId,
 }: {
   categories: CategoryOption[];
   users: UserOption[];
@@ -56,6 +57,8 @@ export function EntryForm({
   returnTo: string;
   cards?: CardOption[];
   initialMode?: Mode;
+  /** cartão já escolhido (quando se vem da tela de um cartão); sem isso, o primeiro da lista */
+  initialCardId?: string;
 }) {
   const [entryState, entryAction, entryPending] = useActionState(saveEntryAction, null);
   const [cardState, cardAction, cardPending] = useActionState(cardPurchaseAction, null);
@@ -138,7 +141,7 @@ export function EntryForm({
       {isCard && (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Cartão" htmlFor="cardId">
-            <NativeSelect id="cardId" name="cardId" required defaultValue={cards[0]?.id}>
+            <NativeSelect id="cardId" name="cardId" required defaultValue={initialCardId ?? cards[0]?.id}>
               {cards.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}

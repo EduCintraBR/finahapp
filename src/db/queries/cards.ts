@@ -11,7 +11,7 @@ import {
   resolveInvoice,
   type InvoiceState,
 } from '@/domain/card/invoices';
-import { compareDates, type ISODate } from '@/domain/dates';
+import { compareDates, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
 import {
   anticipationRecords,
@@ -183,6 +183,36 @@ export async function listCardSummaries(db: AnyDB, today: ISODate, opts: { cardI
       lastInstallmentMonth: p?.lastMonth ?? null,
     };
   });
+}
+
+/**
+ * Cada cartão no mês escolhido no seletor: o resumo de sempre (limite, fatura aberta) mais a fatura cujo mês de
+ * referência é o mês escolhido. `monthInvoice` null = esse cartão não tem fatura lançada nesse mês.
+ */
+export type CardMonthView = Awaited<ReturnType<typeof listCardSummaries>>[number] & {
+  viewMonth: ISODate;
+  isCurrentMonth: boolean;
+  monthInvoice: InvoiceSummary | null;
+};
+
+export async function listCardMonthViews(
+  db: AnyDB,
+  today: ISODate,
+  month: ISODate | null,
+): Promise<CardMonthView[]> {
+  const viewMonth = month ?? monthStart(today);
+  const summaries = await listCardSummaries(db, today);
+  return Promise.all(
+    summaries.map(async (s) => {
+      const invoices = await listCardInvoices(db, s.card.id, today);
+      return {
+        ...s,
+        viewMonth,
+        isCurrentMonth: viewMonth === monthStart(today),
+        monthInvoice: invoices.find((i) => i.referenceMonth === viewMonth) ?? null,
+      };
+    }),
+  );
 }
 
 /** Faturas de um cartão, da mais nova para a mais antiga (inclui a atual pela regra, se ainda não existir). */

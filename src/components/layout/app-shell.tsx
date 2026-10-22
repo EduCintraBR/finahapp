@@ -4,6 +4,7 @@ import type { ISODate } from '@/domain/dates';
 import { BottomNav } from './bottom-nav';
 import { Logo } from './logo';
 import { MonthSelector } from './month-selector';
+import { ThemeQuickToggle } from '@/components/theme/theme-controls';
 import { NAV_ITEMS } from './nav-items';
 import { Sidebar } from './sidebar';
 
@@ -31,13 +32,16 @@ export function AppShell({
             <Suspense fallback={<div className="h-9" />}>
               <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
             </Suspense>
-            <Link
-              href={NAV_ITEMS.settings.href}
-              aria-label={`${user.name} — ajustes`}
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground"
-            >
-              {initial}
-            </Link>
+            <div className="flex items-center gap-1">
+              <ThemeQuickToggle />
+              <Link
+                href={NAV_ITEMS.settings.href}
+                aria-label={`${user.name} — ajustes`}
+                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-sm font-semibold text-secondary-foreground"
+              >
+                {initial}
+              </Link>
+            </div>
           </div>
         </header>
         {/* pb-24: espaço para a navegação inferior no celular */}

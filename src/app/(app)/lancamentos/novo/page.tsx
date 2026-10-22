@@ -9,7 +9,7 @@ import { today } from '@/domain/dates';
 export const metadata: Metadata = { title: 'Novo lançamento' };
 
 export default async function NewEntryPage({ searchParams }: PageProps<'/lancamentos/novo'>) {
-  const { tipo } = await searchParams;
+  const { tipo, cartao } = await searchParams;
   const db = getDb();
   const [categories, users, cards] = await Promise.all([
     listCategories(db),
@@ -28,6 +28,8 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
             returnTo="/lancamentos"
             cards={cards.map((c) => ({ id: c.id, name: c.name }))}
             initialMode={tipo === 'cartao' ? 'CARD' : undefined}
+            // vindo da tela de um cartão, a compra já vem nesse cartão (e não no primeiro da lista)
+            initialCardId={cards.find((c) => c.id === cartao)?.id}
           />
         </CardContent>
       </Card>

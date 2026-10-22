@@ -16,7 +16,7 @@ export function HighlightBadge({ dueDate, today }: { dueDate: ISODate | null; to
   return (
     <Badge
       variant={h === 'OVERDUE' ? 'destructive' : 'secondary'}
-      className={cn(h === 'TODAY' && 'bg-amber-500 text-white')}
+      className={cn(h === 'TODAY' && 'bg-warning text-warning-foreground')}
     >
       {DUE_HIGHLIGHT_LABEL[h]}
     </Badge>

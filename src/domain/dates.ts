@@ -211,3 +211,9 @@ const WEEKDAY_SHORT = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'] as cons
 export function formatDayLabel(value: ISODate): string {
   return `${formatDateBR(value).slice(0, 5)} · ${WEEKDAY_SHORT[dayOfWeek(value)]}`;
 }
+
+/** '2026-10-01' → 'out/26' (rótulo curto de gráfico). */
+export function formatMonthShort(month: ISODate): string {
+  const { year, month: m } = parseISODate(month);
+  return `${MONTH_NAMES[m - 1]!.slice(0, 3)}/${String(year).slice(2)}`;
+}

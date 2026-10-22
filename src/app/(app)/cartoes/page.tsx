@@ -4,15 +4,20 @@ import { CreditCard, Plus } from 'lucide-react';
 import { CardSummaryCard } from '@/components/cards/card-summary';
 import { Button } from '@/components/ui/button';
 import { getDb } from '@/db/client';
-import { listCardSummaries } from '@/db/queries/cards';
-import { today } from '@/domain/dates';
+import { listCardMonthViews } from '@/db/queries/cards';
+import { monthSuffix } from '@/components/layout/month-link';
+import { monthStart, today } from '@/domain/dates';
+import { resolveMonth } from '@/lib/month';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
 
 export const metadata: Metadata = { title: 'Cartões' };
 
-export default async function CardsPage() {
+export default async function CardsPage({ searchParams }: PageProps<'/cartoes'>) {
   await ensureOccurrences(); // assinaturas no cartão do mês
-  const summaries = await listCardSummaries(getDb(), today());
+  const hoje = today();
+  const month = await resolveMonth(searchParams);
+  const summaries = await listCardMonthViews(getDb(), hoje, month);
+  const suffix = monthSuffix(month, monthStart(hoje));
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -39,7 +44,7 @@ export default async function CardsPage() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {summaries.map((s) => (
-            <CardSummaryCard key={s.card.id} s={s} />
+            <CardSummaryCard key={s.card.id} s={s} href={`/cartoes/${s.card.id}${suffix}`} />
           ))}
         </div>
       )}

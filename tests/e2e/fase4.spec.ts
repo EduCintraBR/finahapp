@@ -16,9 +16,11 @@ test.beforeEach(async ({ page }) => {
 test('Home: caixa do mês, gasto Mensal × Bruto e últimos lançamentos; bate com o relatório', async ({
   page,
 }) => {
-  await expect(page.getByText(/Caixa de/)).toBeVisible();
-  await expect(page.getByText('Saldo previsto no fim do mês')).toBeVisible();
-  await expect(page.getByText('Gasto do mês')).toBeVisible();
+  await expect(page.getByText(/Saldo atual/)).toBeVisible();
+  await expect(page.getByText(/Previsto no fim do mês/)).toBeVisible();
+  await expect(page.getByRole('img', { name: /Gastos por categoria/ })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Saídas por mês/ })).toBeVisible();
+  await expect(page.getByText('Gastos do mês')).toBeVisible();
   await expect(page.getByText('Últimos lançamentos')).toBeVisible();
   const mensal = await page.getByTestId('spend-monthly').innerText();
   const bruto = await page.getByTestId('spend-gross').innerText();
@@ -29,7 +31,7 @@ test('Home: caixa do mês, gasto Mensal × Bruto e últimos lançamentos; bate c
 
   await page
     .locator('[data-slot=card]')
-    .filter({ hasText: 'Gasto do mês' })
+    .filter({ hasText: 'Gastos do mês' })
     .getByRole('link', { name: 'Detalhes' })
     .click();
   await expect(page.getByRole('heading', { name: 'Relatórios' })).toBeVisible();

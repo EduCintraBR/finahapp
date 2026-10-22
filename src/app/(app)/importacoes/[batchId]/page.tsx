@@ -86,12 +86,12 @@ export default async function ImportReviewPage({ params }: PageProps<'/importaco
         <CardContent className="space-y-3">
           {diff !== null && (
             <div
-              className={`flex items-start gap-2 rounded-md px-3 py-2 text-sm ${diff === 0 ? 'bg-income/10' : 'bg-amber-500/10'}`}
+              className={`flex items-start gap-2 rounded-md px-3 py-2 text-sm ${diff === 0 ? 'bg-income/10' : 'bg-warning/10'}`}
             >
               {diff === 0 ? (
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-income" aria-hidden />
               ) : (
-                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-warning-text" aria-hidden />
               )}
               <span>
                 A pagar no app: <span className="font-medium">{formatBRL(r.appRemainingCents)}</span> · no

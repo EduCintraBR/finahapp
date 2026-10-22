@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { auth, signOut } from '@/auth';
 import { Button } from '@/components/ui/button';
 import { OpeningBalanceForm } from '@/components/settings/opening-balance-form';
+import { ThemeSwitch } from '@/components/theme/theme-controls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { bankAccounts } from '@/db/schema';
@@ -35,6 +36,15 @@ export default async function SettingsPage() {
               <LogOut aria-hidden /> Sair
             </Button>
           </form>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Aparência</CardTitle>
+          <CardDescription>Vale só para este aparelho. O padrão é o tema escuro.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ThemeSwitch />
         </CardContent>
       </Card>
       <Card>
