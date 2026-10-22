@@ -118,7 +118,7 @@ export function PendingLineActions({
       />
 
       {line.blockedBefore && line.kind !== 'CREDIT' && line.kind !== 'PAYMENT' && (
-        <p className="rounded-md bg-amber-500/10 px-3 py-2 text-sm">
+        <p className="rounded-md bg-warning/10 px-3 py-2 text-sm">
           Compra de antes do início do controle ({formatDateBR(line.blockedBefore)}). Para lançá-la, importe
           antes o extrato da conta desse período (o app recua o início do controle sozinho) e volte aqui; ou
           ignore a linha.

@@ -11,14 +11,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { listCardInvoices, listCardPlans, listCardSummaries } from '@/db/queries/cards';
-import { formatDateBR, formatMonthLabel, today } from '@/domain/dates';
+import { formatDateBR, formatMonthLabel, monthStart, today } from '@/domain/dates';
+import { resolveMonth } from '@/lib/month';
+import { cn } from '@/lib/utils';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
 import { archiveCardAction } from '../actions';
 
 export const metadata: Metadata = { title: 'Cartão' };
 
-export default async function CardPage({ params }: PageProps<'/cartoes/[id]'>) {
+export default async function CardPage({ params, searchParams }: PageProps<'/cartoes/[id]'>) {
   const { id } = await params;
+  const month = await resolveMonth(searchParams);
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
   const db = getDb();
   const hoje = today();
@@ -29,6 +32,8 @@ export default async function CardPage({ params }: PageProps<'/cartoes/[id]'>) {
   ]);
   if (!s) notFound();
   const c = s.card;
+  const viewing = month !== monthStart(hoje); // o mês do seletor, quando não é o atual
+  const monthInvoice = invoices.find((i) => i.referenceMonth === month);
   const activePlans = plans.filter((p) => p.status === 'ACTIVE' && p.remainingCount > 0 && p.count > 1);
 
   return (
@@ -52,7 +57,7 @@ export default async function CardPage({ params }: PageProps<'/cartoes/[id]'>) {
           <LimitBar s={s} />
           <div className="flex flex-wrap gap-2">
             <Button asChild size="sm">
-              <Link href="/lancamentos/novo?tipo=cartao">
+              <Link href={`/lancamentos/novo?tipo=cartao&cartao=${c.id}`}>
                 <Plus aria-hidden /> Nova compra
               </Link>
             </Button>
@@ -65,6 +70,32 @@ export default async function CardPage({ params }: PageProps<'/cartoes/[id]'>) {
           </div>
         </CardContent>
       </Card>
+
+      {viewing && (
+        <div
+          className={cn(
+            'rounded-xl border px-4 py-3 text-sm',
+            monthInvoice?.id ? 'bg-card' : 'border-dashed text-muted-foreground',
+          )}
+        >
+          {monthInvoice?.id ? (
+            <Link
+              href={`/cartoes/faturas/${monthInvoice.id}`}
+              className="flex items-center justify-between gap-3"
+            >
+              <span>
+                Fatura de <span className="font-medium">{formatMonthLabel(month)}</span> (mês escolhido)
+              </span>
+              <span className="flex items-center gap-2">
+                <Amount cents={monthInvoice.totalCents} className="font-semibold" />
+                <InvoiceStateBadge state={monthInvoice.state} />
+              </span>
+            </Link>
+          ) : (
+            <>Nenhuma fatura lançada para {formatMonthLabel(month)} neste cartão.</>
+          )}
+        </div>
+      )}
 
       <Card className="gap-0 pb-0">
         <CardHeader className="pb-3">
@@ -93,7 +124,10 @@ export default async function CardPage({ params }: PageProps<'/cartoes/[id]'>) {
               <Link
                 key={inv.referenceMonth}
                 href={`/cartoes/faturas/${inv.id}`}
-                className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
+                className={cn(
+                  'flex items-center gap-3 px-4 py-3 hover:bg-muted/50',
+                  inv.referenceMonth === month && viewing && 'bg-accent/60',
+                )}
               >
                 {body}
               </Link>

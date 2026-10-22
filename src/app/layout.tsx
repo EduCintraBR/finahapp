@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { ServiceWorkerRegister } from '@/components/pwa/service-worker-register';
+import { THEME_COLOR, THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -21,15 +22,18 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-    { media: '(prefers-color-scheme: dark)', color: '#0a0a0a' },
-  ],
+  // o padrão é escuro; o script do tema e o ThemeControls ajustam a cor quando o tema muda
+  themeColor: THEME_COLOR.dark,
+  colorScheme: 'dark light',
 };
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
   return (
-    <html lang="pt-BR">
+    <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
+      <head>
+        {/* antes da primeira pintura: aplica o tema escolhido neste aparelho (evita piscar) */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-dvh">
         {children}
         <ServiceWorkerRegister />

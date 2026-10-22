@@ -106,6 +106,8 @@ Primeiro `src/domain/card/` com testes; só depois os serviços e a UI.
 
 > 21/10/2026, a pedido: **bot ampliado** (D54 a D56): consultas em linguagem natural e por comando (limite dos cartões, pendentes de um mês, resumo de fatura, gastos, resumo do mês, últimos lançamentos), com o mês atual como padrão, e **receitas** pelo bot. Modelo padrão: Claude Haiku 5.5.
 
+> 21/10/2026, a pedido (uso real): **ajustes de usabilidade** (D57 a D60): dashboard do Início refeito (saldo e previsão, indicadores, pizza por categoria, barras de 6 meses, cartões, pendências), tema claro/escuro com revisão das cores, seletor de mês também nos cartões e faturas, itens da fatura por dia, "Nova compra" com o cartão pré-selecionado e volta para a fatura/lista do mês depois de lançar.
+
 ---
 
 ## Depois da v1 (backlog)

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { CreditCard } from 'lucide-react';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
-import type { CardSummary, InvoiceSummary } from '@/db/queries/cards';
+import type { CardMonthView, CardSummary, InvoiceSummary } from '@/db/queries/cards';
 import { INVOICE_STATE_LABEL } from '@/domain/card/invoices';
 import { formatDateBR, formatMonthLabel } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
@@ -12,7 +12,7 @@ export function InvoiceStateBadge({ state }: { state: InvoiceSummary['state'] })
   return (
     <Badge
       variant={state === 'OVERDUE' ? 'destructive' : state === 'PAID' ? 'secondary' : 'outline'}
-      className={cn(state === 'CLOSED' && 'border-amber-500 text-amber-700 dark:text-amber-400')}
+      className={cn(state === 'CLOSED' && 'border-warning text-warning-text')}
     >
       {INVOICE_STATE_LABEL[state]}
     </Badge>
@@ -61,12 +61,22 @@ export function LimitBar({ s }: { s: CardSummary }) {
   );
 }
 
-export function CardSummaryCard({ s }: { s: CardSummary }) {
-  const inv = s.currentInvoice;
-  const unpaid = s.unpaidClosed[0];
+/**
+ * Cartão no mês escolhido no seletor. No mês atual mostra a fatura aberta (a que está acumulando compras) e, se
+ * houver, a do próprio mês logo abaixo; em outro mês mostra a fatura daquele mês, ou "sem fatura lançada" com
+ * o valor zerado quando o cartão não tem fatura nele. O limite é sempre o de agora.
+ */
+export function CardSummaryCard({ s, href }: { s: CardMonthView; href: string }) {
+  const open = s.currentInvoice;
+  const shown = s.isCurrentMonth ? open : s.monthInvoice;
+  const alsoThisMonth =
+    s.isCurrentMonth && s.monthInvoice && s.monthInvoice.referenceMonth !== open.referenceMonth
+      ? s.monthInvoice
+      : null;
+  const unpaid = s.isCurrentMonth ? s.unpaidClosed[0] : undefined;
   return (
     <Link
-      href={`/cartoes/${s.card.id}`}
+      href={href}
       className="block space-y-3 rounded-xl border bg-card p-4 shadow-xs transition-colors hover:bg-muted/40"
     >
       <div className="flex items-start justify-between gap-2">
@@ -79,19 +89,44 @@ export function CardSummaryCard({ s }: { s: CardSummary }) {
             <div className="text-xs text-muted-foreground">Adicional · titular {s.card.holderName}</div>
           )}
         </div>
-        <InvoiceStateBadge state={inv.state} />
+        {shown ? <InvoiceStateBadge state={shown.state} /> : <Badge variant="outline">Sem fatura</Badge>}
       </div>
 
-      <div>
-        <div className="text-xs text-muted-foreground">
-          Fatura de {formatMonthLabel(inv.referenceMonth)} · fecha {formatDateBR(inv.closingDate).slice(0, 5)}{' '}
-          · vence {formatDateBR(inv.dueDate).slice(0, 5)}
+      {shown ? (
+        <div>
+          <div className="text-xs text-muted-foreground">
+            Fatura de {formatMonthLabel(shown.referenceMonth)} · fecha{' '}
+            {formatDateBR(shown.closingDate).slice(0, 5)} · vence {formatDateBR(shown.dueDate).slice(0, 5)}
+          </div>
+          <Amount cents={shown.totalCents} className="text-2xl font-semibold" />
+          {shown.paidCents > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Pago {formatBRL(shown.paidCents)} · falta {formatBRL(shown.remainingCents)}
+            </div>
+          )}
         </div>
-        <Amount cents={inv.totalCents} className="text-2xl font-semibold" />
-      </div>
+      ) : (
+        <div>
+          <div className="text-xs text-muted-foreground">Fatura de {formatMonthLabel(s.viewMonth)}</div>
+          <Amount cents={0} className="text-2xl font-semibold text-muted-foreground" />
+          <div className="text-xs text-muted-foreground">
+            Nenhuma fatura lançada para {formatMonthLabel(s.viewMonth)} neste cartão.
+          </div>
+        </div>
+      )}
+
+      {alsoThisMonth && (
+        <div className="flex items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-xs">
+          <span>Fatura de {formatMonthLabel(alsoThisMonth.referenceMonth)}</span>
+          <span className="flex items-center gap-2">
+            <span className="font-semibold">{formatBRL(alsoThisMonth.totalCents)}</span>
+            <InvoiceStateBadge state={alsoThisMonth.state} />
+          </span>
+        </div>
+      )}
 
       {unpaid && (
-        <div className="rounded-md bg-amber-500/10 px-3 py-2 text-xs">
+        <div className="rounded-md bg-warning/10 px-3 py-2 text-xs">
           Fatura de {formatMonthLabel(unpaid.referenceMonth)}{' '}
           {unpaid.state === 'OVERDUE' ? 'atrasada' : 'fechada'}: falta pagar{' '}
           <span className="font-semibold">{formatBRL(unpaid.remainingCents)}</span>

@@ -51,6 +51,10 @@ test('compra parcelada em 3x pelo botão +, resto do arredondamento na 1ª', asy
   await page.getByLabel('Categoria').selectOption({ label: 'Compras' });
   await page.getByRole('button', { name: 'Lançar' }).click();
 
+  // depois de lançar volta para a fatura onde a compra caiu (os detalhes só abrem se você tocar nela)
+  await expect(page).toHaveURL(/\/cartoes\/faturas\//);
+  await expect(page.getByRole('heading', { level: 3 }).first()).toBeVisible(); // itens separados por dia
+  await page.getByRole('link', { name: /Tênis/ }).first().click();
   await expect(page).toHaveURL(/\/cartoes\/compras\//);
   planUrl = page.url();
   for (const p of ['1/3', '2/3', '3/3']) await expect(page.getByText(p, { exact: true })).toBeVisible();
@@ -127,6 +131,11 @@ test('parcelamento em andamento: só as parcelas restantes', async () => {
   await page.getByLabel('Total de parcelas').fill('10');
   await page.getByLabel('Categoria').selectOption({ label: 'Casa e manutenção' });
   await page.getByRole('button', { name: 'Cadastrar parcelamento' }).click();
+  await expect(page).toHaveURL(/\/cartoes\/faturas\//);
+  await page
+    .getByRole('link', { name: /Geladeira/ })
+    .first()
+    .click();
   await expect(page).toHaveURL(/\/cartoes\/compras\//);
   await expect(page.getByText('9/10', { exact: true })).toBeVisible();
   await expect(page.getByText('10/10', { exact: true })).toBeVisible();
@@ -148,14 +157,12 @@ test('compra excluída some da fatura', async () => {
   await page.getByLabel('Descrição').fill('Lançada errado');
   await page.getByLabel('Categoria').selectOption({ label: 'Compras' });
   await page.getByRole('button', { name: 'Lançar' }).click();
-  await expect(page).toHaveURL(/\/cartoes\/compras\//);
-  const purchaseUrl = page.url();
-  await page
-    .getByRole('link', { name: /fatura de/ })
-    .first()
-    .click();
+  await expect(page).toHaveURL(/\/cartoes\/faturas\//);
   await expect(page.getByText('Lançada errado')).toBeVisible();
   const invoiceUrl = page.url();
+  await page.getByRole('link', { name: /Lançada errado/ }).click();
+  await expect(page).toHaveURL(/\/cartoes\/compras\//); // espera a navegação antes de guardar a URL
+  const purchaseUrl = page.url();
 
   await page.goto(purchaseUrl);
   await page.getByText('Editar', { exact: true }).click();

@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { getInvoiceDetail } from '@/db/queries/cards';
-import { compareDates, formatDateBR, formatMonthLabel, today } from '@/domain/dates';
+import { compareDates, formatDateBR, formatDayLabel, formatMonthLabel, today } from '@/domain/dates';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
 import { PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -35,6 +35,10 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
   if (!d) notFound();
   const { card, summary: inv, items, payments } = d;
   const label = `${card.name} · ${formatMonthLabel(inv.referenceMonth)}`;
+  // do dia mais novo para o mais antigo, como a tela de lançamentos
+  const byDay = new Map<string, typeof items>();
+  for (const i of items) byDay.set(i.postingDate, [...(byDay.get(i.postingDate) ?? []), i]);
+  const groups = [...byDay].sort(([a], [b]) => compareDates(b, a));
   const closingEditable = compareDates(hoje, inv.closingDate) < 0;
 
   return (
@@ -89,47 +93,62 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
           {items.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhum item nesta fatura.</p>
           ) : (
-            items.map((i) => {
-              const inactive = i.status !== 'ACTIVE';
-              const row = (
-                <>
-                  {i.createdByName ? (
-                    <UserBadge name={i.createdByName} color={i.createdByColor} />
-                  ) : (
-                    <span className="size-5" />
+            groups.flatMap(([date, dayItems]) => [
+              // um cabeçalho por dia, como na tela de lançamentos; o total do dia só conta itens ativos
+              <div
+                key={`day-${date}`}
+                className="flex items-center justify-between bg-muted/40 px-4 py-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase"
+              >
+                <h3>{formatDayLabel(date)}</h3>
+                <span className="tabular-nums">
+                  {formatBRL(
+                    dayItems.reduce((sum, i) => sum + (i.status === 'ACTIVE' ? i.amountCents : 0), 0),
                   )}
-                  <div className="min-w-0 flex-1">
-                    <div className={cn('truncate font-medium', inactive && 'line-through opacity-60')}>
-                      {i.description}
+                </span>
+              </div>,
+              ...dayItems.map((i) => {
+                const inactive = i.status !== 'ACTIVE';
+                const row = (
+                  <>
+                    {i.createdByName ? (
+                      <UserBadge name={i.createdByName} color={i.createdByColor} />
+                    ) : (
+                      <span className="size-5" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('truncate font-medium', inactive && 'line-through opacity-60')}>
+                        {i.description}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        {i.categoryName && <span>{i.categoryName}</span>}
+                        {ITEM_KIND_LABEL[i.kind] && (
+                          <Badge variant="outline">{ITEM_KIND_LABEL[i.kind]}</Badge>
+                        )}
+                        {inactive && <Badge variant="secondary">{ITEM_STATUS_LABEL[i.status]}</Badge>}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      <span>{formatDateBR(i.postingDate)}</span>
-                      {i.categoryName && <span>· {i.categoryName}</span>}
-                      {ITEM_KIND_LABEL[i.kind] && <Badge variant="outline">{ITEM_KIND_LABEL[i.kind]}</Badge>}
-                      {inactive && <Badge variant="secondary">{ITEM_STATUS_LABEL[i.status]}</Badge>}
-                    </div>
+                    <Amount
+                      cents={Math.abs(i.amountCents)}
+                      direction={i.amountCents < 0 ? 'in' : undefined}
+                      className={cn('text-sm font-medium', inactive && 'line-through opacity-50')}
+                    />
+                  </>
+                );
+                return i.planId ? (
+                  <Link
+                    key={i.id}
+                    href={`/cartoes/compras/${i.planId}`}
+                    className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
+                  >
+                    {row}
+                  </Link>
+                ) : (
+                  <div key={i.id} className="flex items-center gap-3 px-4 py-3">
+                    {row}
                   </div>
-                  <Amount
-                    cents={Math.abs(i.amountCents)}
-                    direction={i.amountCents < 0 ? 'in' : undefined}
-                    className={cn('text-sm font-medium', inactive && 'line-through opacity-50')}
-                  />
-                </>
-              );
-              return i.planId ? (
-                <Link
-                  key={i.id}
-                  href={`/cartoes/compras/${i.planId}`}
-                  className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
-                >
-                  {row}
-                </Link>
-              ) : (
-                <div key={i.id} className="flex items-center gap-3 px-4 py-3">
-                  {row}
-                </div>
-              );
-            })
+                );
+              }),
+            ])
           )}
         </CardContent>
       </Card>

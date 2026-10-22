@@ -85,7 +85,7 @@ function BackfillConfirm({
   const { plan } = preview;
   const c = plan.check;
   return (
-    <div className="space-y-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm" role="alert">
+    <div className="space-y-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm" role="alert">
       <p className="font-medium">Este extrato é de antes do início do controle</p>
       <p>
         {plan.earlyLines} {plan.earlyLines === 1 ? 'lançamento é' : 'lançamentos são'} anteriores a{' '}

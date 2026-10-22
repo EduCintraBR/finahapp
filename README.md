@@ -44,7 +44,7 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 
 ### Cartões de crédito
 
-- Cada compra cai na **fatura certa** pela data de fechamento real (editável quando o banco muda).
+- Cada compra cai na **fatura certa** pela data de fechamento real (editável quando o banco muda). Depois de lançar, a tela volta para a fatura onde a compra caiu, com os itens separados por dia.
 - **Parcelamento** com a soma sempre exata: o resto do arredondamento vai na primeira parcela.
 - **Limite disponível** derivado das faturas, **pagar fatura** (total ou parcial) e desfazer o pagamento.
 - **Antecipação de parcelas** com o desconto que o banco deu contado como economia.
@@ -59,6 +59,12 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 - Conferência no final: o saldo do app tem que bater com o do arquivo.
 - **Meses anteriores ao início do controle**: o app recua o saldo inicial calculando-o do próprio arquivo, e só segue se ele bater com o saldo atual.
 - Na revisão: troque o match por outro lançamento, ignore linhas em lote (útil na fatura do cartão adicional) e atualize as sugestões.
+
+### Painel inicial
+
+- Saldo em destaque com a **previsão do fim do mês**, indicadores do mês, **pizza dos gastos por categoria**, saídas dos últimos 6 meses, cartões, pendências (dar baixa em 2 toques) e últimos lançamentos.
+- **Navegue pelos meses**: ao voltar um mês, tudo muda junto, inclusive a fatura de cada cartão (ou "nenhuma fatura lançada para esse mês").
+- **Tema escuro (padrão) ou claro**, por aparelho.
 
 ### Relatórios e projeção
 
