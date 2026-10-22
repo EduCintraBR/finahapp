@@ -6,6 +6,7 @@ import {
   centsToDecimalString,
   formatDecimalBR,
   formatBRL,
+  maskMoneyInput,
   parseBRL,
   splitInstallments,
   sumCents,
@@ -177,6 +178,45 @@ describe('formatDecimalBR (valor para pré-preencher input)', () => {
     fc.assert(
       fc.property(fc.integer({ min: -9_999_999_999_999, max: 9_999_999_999_999 }), (c) => {
         expect(parseBRL(formatDecimalBR(c))).toBe(c);
+      }),
+    );
+  });
+});
+
+describe('maskMoneyInput (centavos primeiro)', () => {
+  it('a vírgula fica antes dos 2 últimos dígitos, com milhar', () => {
+    expect(maskMoneyInput('')).toBe('');
+    expect(maskMoneyInput('1')).toBe('0,01');
+    expect(maskMoneyInput('12')).toBe('0,12');
+    expect(maskMoneyInput('123')).toBe('1,23');
+    expect(maskMoneyInput('12345')).toBe('123,45');
+    expect(maskMoneyInput('123456789')).toBe('1.234.567,89');
+  });
+
+  it('é idempotente: remascarar o texto já mascarado não muda nada (apagar e digitar também)', () => {
+    expect(maskMoneyInput('1.234,56')).toBe('1.234,56');
+    expect(maskMoneyInput('0,0')).toBe(''); // apagou o último dígito de "0,01"
+    expect(maskMoneyInput('1.234,5')).toBe('123,45');
+  });
+
+  it('ignora zeros à esquerda e o que não é dígito; "-" vira o sinal', () => {
+    expect(maskMoneyInput('0001')).toBe('0,01');
+    expect(maskMoneyInput('R$ 10,5a')).toBe('1,05');
+    expect(maskMoneyInput('-')).toBe('-');
+    expect(maskMoneyInput('-1234')).toBe('-12,34');
+    expect(maskMoneyInput('12-34')).toBe('-12,34');
+  });
+
+  it('limita o tamanho', () => {
+    expect(maskMoneyInput('1234567890123456')).toBe('1.234.567.890,12');
+  });
+
+  it('property: o texto mascarado é aceito pelo parseBRL e vale os mesmos centavos dos dígitos', () => {
+    fc.assert(
+      fc.property(fc.integer({ min: 1, max: 999_999_999_999 }), (cents) => {
+        const masked = maskMoneyInput(String(cents));
+        expect(parseBRL(masked)).toBe(cents);
+        expect(maskMoneyInput(masked)).toBe(masked);
       }),
     );
   });

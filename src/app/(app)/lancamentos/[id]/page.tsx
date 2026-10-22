@@ -22,7 +22,7 @@ export const metadata: Metadata = { title: 'Lançamento' };
 
 const SOURCE_LABEL: Record<string, string> = {
   MANUAL: 'pelo app',
-  BOT: 'pelo Telegram',
+  BOT: 'pelo bot',
   RECURRING: 'automaticamente (fixo)',
   SYSTEM: 'pelo sistema',
   IMPORT: 'por importação',

@@ -1,9 +1,7 @@
 name: CI
 
 on:
-  push:
-    # na main o CI roda dentro do Deploy (deploy.yml), uma vez só e antes de publicar
-    branches: [dev]
+  # push na dev/main: o CI roda dentro de deploy-dev.yml / deploy.yml, uma vez só e antes de publicar
   pull_request:
   # Reaproveitado pelo deploy: nada vai para produção sem passar por aqui.
   workflow_call:

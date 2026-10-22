@@ -75,7 +75,7 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
               <Badge variant="outline">em andamento (cadastro inicial)</Badge>
             )}
             {purchase.source === 'RECURRING' && <Badge variant="outline">assinatura</Badge>}
-            {purchase.source === 'BOT' && <Badge variant="outline">pelo Telegram</Badge>}
+            {purchase.source === 'BOT' && <Badge variant="outline">pelo bot</Badge>}
           </div>
           <CardTitle className="text-xl">{purchase.description}</CardTitle>
           <Amount cents={plan.totalAmountCents} className="text-3xl font-semibold" />
@@ -179,7 +179,9 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
               categoryId: purchase.categoryId ?? '',
               beneficiaryUserId: purchase.beneficiaryUserId,
               notes: purchase.notes,
+              amountCents: plan.totalAmountCents,
             }}
+            amountEditable={deletable}
           />
           {deletable ? (
             <ActionButton

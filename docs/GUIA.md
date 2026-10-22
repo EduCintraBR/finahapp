@@ -36,6 +36,8 @@ Testes de navegador (Playwright, tela de celular): `docker compose up -d db` e d
 - **Home**: saldo atual; **caixa do mês** (o que entrou, saiu, falta receber e falta pagar, e o saldo previsto para o fim do mês); pendentes; **gasto do mês** em Mensal (o que sai da conta no mês, com as faturas que vencem nele) e Bruto (o que foi comprado no mês), com a economia das antecipações; cartões; últimos lançamentos. Os números são os mesmos dos relatórios.
 - **Relatórios**: gasto por categoria em **Mensal** ou **Bruto** (alterne no topo), com filtros de de quem é, quem lançou, cartão e meio de pagamento, e a evolução dos últimos 12 meses (Mensal × Bruto, com tabela). **Projeção** (atalho em Relatórios): resultado e saldo estimado dos próximos meses, com receitas e contas cadastradas, faturas já agendadas e assinaturas; avance de 3 em 3 meses (até 3 anos).
 - **Dar baixa**: na Home, em "Pendentes", toque em **Paguei** ou **Recebi** e confirme a data e o valor real (2 toques). Errou? Abra o lançamento e use **Estornar baixa**: ele volta a pendente com o valor estimado.
+- **Corrigir o valor de uma compra no cartão**: em Editar, na tela da compra. Só enquanto nenhuma parcela tiver caído em fatura fechada e não houver antecipação ou estorno; depois disso, o valor fica travado.
+- **Digitar valores**: os campos de valor têm máscara de banco: digite só os números e os centavos entram primeiro (1 → 0,01; 1234 → 12,34; 123456 → 1.234,56), sem precisar da vírgula. Apagar tira o último dígito.
 - **Início (dashboard)**: o saldo em destaque com a previsão do fim do mês, os indicadores do mês (entrou, saiu, a receber, a pagar), a pizza dos gastos por categoria, as saídas dos últimos 6 meses, os cartões, as pendências (com **Paguei/Recebi** em 2 toques) e os últimos lançamentos. Tudo segue o mês do seletor no topo: ao voltar um mês, os números, os gastos e as faturas são os daquele mês.
 - **Mês nos cartões**: em Cartões, cada cartão mostra a fatura do mês escolhido; se ele não tem fatura nesse mês, aparece zerado com a mensagem "Nenhuma fatura lançada para esse mês neste cartão". No mês atual, o destaque é a fatura aberta e a do mês aparece logo abaixo.
 - **Tema claro/escuro**: o padrão é escuro. Use o botão de sol/lua no cabeçalho, ou Ajustes → Aparência (Escuro, Claro ou Sistema). Vale só para o aparelho em que você escolheu.
@@ -97,6 +99,14 @@ Em produção usamos **nginx no host** com Let's Encrypt (Certbot), e não o Cad
 - `docker compose up -d --build` (sem o perfil `vps`): o app fica só em `127.0.0.1:3000` e o Postgres só em `127.0.0.1:5432`.
 - nginx: `/etc/nginx/sites-available/finah` faz proxy de `finahapp.com` e `www.finahapp.com` para `127.0.0.1:3000` (`client_max_body_size 2m`). O HTTPS e o redirecionamento 80→443 vêm do `certbot --nginx`, e a renovação é automática (`certbot.timer`).
 - Firewall (ufw): só 22, 80 e 443.
+
+### Ambiente de dev (dev.finahapp.com)
+
+Na mesma VPS, isolado da produção: código em `/opt/finah-dev`, projeto Compose `finah-dev` (`docker compose -p finah-dev ...`), **Postgres e volume próprios** (banco `finah_dev`), app em `127.0.0.1:3001`, banco em `127.0.0.1:5433`, imagem `finah-dev:local` e `.env` próprio (segredos diferentes, `AUTH_URL=https://dev.finahapp.com`, `BOT_MODE=off`, sem chave da Anthropic e sem backup no Drive). O nginx usa `/etc/nginx/sites-available/finah-dev` e o HTTPS vem do `certbot --nginx -d dev.finahapp.com`.
+
+- **Deploy**: todo push na `dev` roda o CI e publica aqui (`deploy-dev.yml`), com o mesmo desenho do deploy de produção (volta para a imagem anterior se falhar), só que sem o backup prévio: é um ambiente descartável.
+- **Dados**: nasceu de uma cópia (`pg_dump`) do banco de produção. Os logins são os mesmos da produção (as senhas vieram junto). O que você lança lá **não** vai para a produção, e a produção não é atualizada sozinha. Para refazer a cópia: `docker exec finah-db-1 pg_dump -U finah -d finah --no-owner --no-acl | docker exec -i finah-dev-db-1 psql -U finah -d finah_dev`, num banco dev vazio (`docker compose -p finah-dev down -v` e `up -d db` antes). O comando só lê a produção.
+- **Bot**: desligado no dev. Um bot do Telegram só aponta para um webhook, e ele está na produção.
 
 **Atualizar a produção** (na sua máquina, na raiz do projeto):
 

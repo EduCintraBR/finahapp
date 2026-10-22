@@ -243,12 +243,45 @@ export async function planItems(tx: Tx, planId: string) {
     .orderBy(asc(invoiceItems.installmentNumber));
 }
 
-/** Corrigir descrição, categoria, de quem é e observações (valor e parcelas: excluir e lançar de novo). */
+/**
+ * Corrigir descrição, categoria, de quem é, observações e valor total. Parcelas e número de parcelas não mudam
+ * (para isso, excluir e lançar de novo). O valor só muda enquanto nada da compra foi fechado: nenhuma parcela em fatura
+ * fechada, nem antecipação ou estorno (mesma regra da exclusão, D31). Refaz as parcelas com a mesma regra do lançamento
+ * (resto do arredondamento na 1ª) e grava no histórico.
+ */
 export async function updateCardPurchase(ctx: ServiceCtx, planId: string, input: CardPurchaseEditInput) {
   return ctx.db.transaction(async (tx) => {
     const { plan, tx: t } = await loadPlan(tx, planId);
     await checkExpenseCategory(tx, input.categoryId, t.categoryId);
     await checkUser(tx, input.beneficiaryUserId);
+    const newTotal = input.amount ?? plan.totalAmountCents;
+    const changesAmount = newTotal !== plan.totalAmountCents;
+    const items = await planItems(tx, planId);
+    if (changesAmount) {
+      if (newTotal < plan.installmentCount)
+        throw new UserError('Cada parcela precisa ter pelo menos R$ 0,01.');
+      const [antic] = await tx
+        .select({ id: anticipationRecords.id })
+        .from(anticipationRecords)
+        .where(eq(anticipationRecords.installmentPlanId, planId))
+        .limit(1);
+      const [refund] = await tx
+        .select({ id: refundRecords.id })
+        .from(refundRecords)
+        .where(eq(refundRecords.installmentPlanId, planId))
+        .limit(1);
+      const clean =
+        !antic &&
+        !refund &&
+        items.every(
+          (i) =>
+            i.kind === 'INSTALLMENT' && i.status === 'ACTIVE' && compareDates(ctx.today, i.closingDate) < 0,
+        );
+      if (!clean)
+        throw new UserError(
+          'Esta compra já tem parcela em fatura fechada, antecipação ou estorno: o valor não pode mudar. Use "Estornar" ou lance de novo.',
+        );
+    }
     const [after] = await tx
       .update(transactions)
       .set({
@@ -256,15 +289,31 @@ export async function updateCardPurchase(ctx: ServiceCtx, planId: string, input:
         categoryId: input.categoryId,
         beneficiaryUserId: input.beneficiaryUserId,
         notes: input.notes,
+        ...(changesAmount ? { amountCents: newTotal } : {}),
         version: sql`${transactions.version} + 1`,
       })
       .where(eq(transactions.id, t.id))
       .returning();
-    const items = await tx
+    if (changesAmount) {
+      await tx
+        .update(installmentPlans)
+        .set({ totalAmountCents: newTotal })
+        .where(eq(installmentPlans.id, planId));
+      const lines = buildInstallments(newTotal, plan.installmentCount, plan.firstTrackedInstallment);
+      for (const line of lines) {
+        await tx
+          .update(invoiceItems)
+          .set({ amountCents: line.amountCents })
+          .where(
+            and(eq(invoiceItems.installmentPlanId, planId), eq(invoiceItems.installmentNumber, line.number)),
+          );
+      }
+    }
+    const installments = await tx
       .select({ id: invoiceItems.id, number: invoiceItems.installmentNumber })
       .from(invoiceItems)
       .where(and(eq(invoiceItems.installmentPlanId, planId), eq(invoiceItems.kind, 'INSTALLMENT')));
-    for (const it of items) {
+    for (const it of installments) {
       await tx
         .update(invoiceItems)
         .set({ description: itemDescription(input.description, it.number!, plan.installmentCount) })
