@@ -72,7 +72,7 @@ tests/acceptance/      cenários de ponta a ponta contra Postgres real (PGlite)
 
 Implementações de referência em SQL em `tests/acceptance/card-ledger.test.ts` — o código de produção deve produzir os mesmos números.
 
-- **Saldo da conta** = `opening_balance` + Σ entradas − Σ saídas, só `status = POSTED`, não deletadas.
+- **Saldo da conta** = `opening_balance` + Σ entradas − Σ saídas, só `status = POSTED`, não deletadas, **com `posted_date` ≤ a data de corte** (hoje no "Saldo atual"; lançamento com data futura é _agendado_ e só entra no dia). `getAccountBalance` exige a data de corte.
 - **Limite disponível** = `limit_total` − Σ invoice_items `ACTIVE` do cartão (todas as faturas) + Σ `INVOICE_PAYMENT` POSTED do cartão. `limit_total` NULL → limite não rastreado (cartão adicional de terceiro). Pode ficar > limite total (saldo credor).
 - **Total da fatura** = Σ invoice_items `ACTIVE` da fatura.
 - **Empréstimo:** o valor recebido (INCOME com `loan_id`) entra no Saldo da conta mas **não** em "Entrou"/receitas; as parcelas são EXPENSE PENDING (`loan_installment_number`); falta pagar = Σ parcelas PENDING; desconto = `estimated_amount_cents` − `amount_cents` (acréscimo se negativo).

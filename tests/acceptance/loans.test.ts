@@ -26,7 +26,7 @@ let loanId: string;
 
 const q = async <T = Record<string, unknown>>(s: string, p: unknown[] = []) => (await pg.query<T>(s, p)).rows;
 const at = (today: string): ServiceCtx => ({ ...ctx, today });
-const balance = () => getAccountBalance(db, accountId);
+const balance = () => getAccountBalance(db, accountId, '2100-01-01');
 const loan = async (today = TODAY) => (await getLoan(db, loanId, today))!;
 
 const create = (overrides: Partial<Parameters<typeof createLoan>[1]> = {}) =>

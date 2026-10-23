@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { getEntry, planIdOfTransaction } from '@/db/queries/entries';
+import { isScheduled } from '@/domain/account/rules';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { formatDateBR, today } from '@/domain/dates';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
@@ -66,7 +67,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={pending ? 'outline' : entry.status === 'CANCELLED' ? 'destructive' : 'secondary'}>
-              {STATUS_LABEL[entry.status]}
+              {isScheduled(entry, today()) ? 'Agendado' : STATUS_LABEL[entry.status]}
             </Badge>
             {pending && <HighlightBadge dueDate={entry.dueDate} today={hoje} />}
             {isOccurrence && (

@@ -91,7 +91,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     benefitCredited,
     loans,
   ] = await Promise.all([
-    getAccountBalance(db, account.id),
+    getAccountBalance(db, account.id, hoje),
     cashSummary(db, month, hoje),
     grossSpend(db, month, end, 'category'),
     monthlySpend(db, month, end, 'category'),

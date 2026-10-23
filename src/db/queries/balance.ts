@@ -8,9 +8,10 @@ import { bankAccounts, transactions } from '../schema';
 /**
  * Saldo da conta — fórmula canônica (mesma do teste de referência em tests/acceptance/card-ledger.test.ts):
  *   opening_balance + Σ entradas − Σ saídas, só POSTED e não deletadas.
- * `asOf` limita a posted_date ≤ data (conferência de saldo, D20).
+ * `asOf` limita a posted_date ≤ data e é OBRIGATÓRIO (D67): o saldo "atual" é o de hoje, e lançamento com data
+ * futura (agendado) só entra no dia. Na conferência de saldo (D20) é a data conferida.
  */
-export async function getAccountBalance(db: AnyDB, accountId: string, asOf?: ISODate): Promise<Cents> {
+export async function getAccountBalance(db: AnyDB, accountId: string, asOf: ISODate): Promise<Cents> {
   const [row] = await db
     .select({
       v: sql<string>`${bankAccounts.openingBalanceCents} + coalesce(sum(case
@@ -24,7 +25,7 @@ export async function getAccountBalance(db: AnyDB, accountId: string, asOf?: ISO
         eq(transactions.bankAccountId, bankAccounts.id),
         eq(transactions.status, 'POSTED'),
         isNull(transactions.deletedAt),
-        asOf ? lte(transactions.postedDate, asOf) : undefined,
+        lte(transactions.postedDate, asOf),
       ),
     )
     .where(eq(bankAccounts.id, accountId))

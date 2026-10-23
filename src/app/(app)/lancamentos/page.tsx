@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { isScheduled } from '@/domain/account/rules';
 import { FileUp, Landmark, Repeat, Scale, SlidersHorizontal } from 'lucide-react';
 import { EntryList } from '@/components/entries/entry-list';
 import { NativeSelect } from '@/components/forms/fields';
@@ -27,6 +28,7 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
   const sp = await searchParams;
   const month = await resolveMonth(searchParams);
   const db = getDb();
+  const hoje = today();
 
   const filters: EntryFilters = {
     month,
@@ -46,10 +48,12 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
 
   const sum = (pred: (e: (typeof entries)[number]) => boolean) =>
     entries.filter(pred).reduce((s, e) => s + e.amountCents, 0);
-  const inPaid = sum((e) => e.status === 'POSTED' && e.kind === 'INCOME');
-  const outPaid = sum((e) => e.status === 'POSTED' && e.kind === 'EXPENSE');
-  const outPending = sum((e) => e.status === 'PENDING' && e.kind === 'EXPENSE');
-  const inPending = sum((e) => e.status === 'PENDING' && e.kind === 'INCOME');
+  // agendado (pago com data futura, D67) ainda não entrou nem saiu da conta: conta como a receber / a pagar
+  const future = (e: (typeof entries)[number]) => isScheduled(e, hoje);
+  const inPaid = sum((e) => e.status === 'POSTED' && !future(e) && e.kind === 'INCOME');
+  const outPaid = sum((e) => e.status === 'POSTED' && !future(e) && e.kind === 'EXPENSE');
+  const outPending = sum((e) => (e.status === 'PENDING' || future(e)) && e.kind === 'EXPENSE');
+  const inPending = sum((e) => (e.status === 'PENDING' || future(e)) && e.kind === 'INCOME');
 
   const activeFilters = Object.entries(filters).filter(([k, v]) => k !== 'month' && v !== undefined).length;
   const mesParam = toMonthParam(month);
@@ -160,7 +164,7 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
         </form>
       </details>
 
-      <EntryList entries={entries} today={today()} returnTo={returnTo} />
+      <EntryList entries={entries} today={hoje} returnTo={returnTo} />
     </div>
   );
 }

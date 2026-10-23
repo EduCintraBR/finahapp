@@ -26,3 +26,11 @@ export const DUE_HIGHLIGHT_LABEL: Record<DueHighlight, string> = {
   TODAY: 'Vence hoje',
   SOON: 'Vence em até 3 dias',
 };
+
+/**
+ * Lançamento agendado (D67): já registrado como pago, mas com data DEPOIS de hoje. Ele só passa a valer no saldo
+ * da conta no dia: até lá é "a receber"/"a pagar", sem precisar dar baixa (entra sozinho quando a data chega).
+ */
+export function isScheduled(e: { status: string; postedDate: ISODate | null }, today: ISODate): boolean {
+  return e.status === 'POSTED' && e.postedDate !== null && compareDates(e.postedDate, today) > 0;
+}

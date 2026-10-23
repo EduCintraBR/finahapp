@@ -8,7 +8,7 @@
  */
 import { asc, eq, isNull } from 'drizzle-orm';
 import { sql, type SQL } from 'drizzle-orm';
-import { addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/domain/dates';
+import { addDays, addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/domain/dates';
 import type { Cents } from '@/domain/money';
 import {
   accumulate,
@@ -253,7 +253,18 @@ async function pendingAccount(
   return centsFromDb(r?.v);
 }
 
-async function postedAccount(db: AnyDB, kinds: string[], from: ISODate, to: ISODate): Promise<Cents> {
+/**
+ * Já aconteceu: pago com data de `from` até `to` (limitada a hoje, D67). O que está pago mas com data depois de hoje
+ * é agendado (ver scheduledAccount) e ainda não saiu nem entrou na conta.
+ */
+async function postedAccount(
+  db: AnyDB,
+  kinds: string[],
+  from: ISODate,
+  to: ISODate,
+  today: ISODate,
+): Promise<Cents> {
+  const upTo = compareDates(to, today) > 0 ? today : to;
   const [r] = await rows<{ v: string | null }>(
     db,
     sql`select sum(t.amount_cents) as v from transactions t
@@ -262,10 +273,35 @@ async function postedAccount(db: AnyDB, kinds: string[], from: ISODate, to: ISOD
           sql`, `,
         )}) and t.status = 'POSTED' and t.deleted_at is null and t.bank_account_id is not null
           and not (t.kind = 'INCOME' and t.loan_id is not null)
-          and t.posted_date between ${from} and ${to}`,
+          and t.posted_date between ${from} and ${upTo}`,
   );
   return centsFromDb(r?.v);
 }
+
+/** Agendado (D67): pago, com data DEPOIS de hoje, até `to`. Soma ao "a receber"/"a pagar" e à previsão do saldo. */
+async function scheduledAccount(
+  db: AnyDB,
+  kinds: string[],
+  from: ISODate,
+  to: ISODate,
+  today: ISODate,
+): Promise<Cents> {
+  const start = compareDates(from, today) > 0 ? from : addDays(today, 1);
+  if (compareDates(start, to) > 0) return 0;
+  const [r] = await rows<{ v: string | null }>(
+    db,
+    sql`select sum(t.amount_cents) as v from transactions t
+        where t.kind in (${sql.join(
+          kinds.map((k) => sql`${k}`),
+          sql`, `,
+        )}) and t.status = 'POSTED' and t.deleted_at is null and t.bank_account_id is not null
+          and not (t.kind = 'INCOME' and t.loan_id is not null)
+          and t.posted_date between ${start} and ${to}`,
+  );
+  return centsFromDb(r?.v);
+}
+
+const OUT_KINDS = ['EXPENSE', 'INVOICE_PAYMENT', 'ANTICIPATION_PAYMENT'];
 
 /** Parcelas de empréstimo ainda pendentes que vencem no intervalo (D66): meses futuros da projeção. */
 async function loanInstallmentsDue(db: AnyDB, from: ISODate, to: ISODate): Promise<Cents> {
@@ -281,12 +317,14 @@ async function loanInstallmentsDue(db: AnyDB, from: ISODate, to: ISODate): Promi
 /** Saldo projetado no fim do mês atual (D38): saldo + receitas pendentes − saídas pendentes (com atrasados). */
 export async function projectedEndOfCurrentMonth(db: AnyDB, balance: Cents, today: ISODate): Promise<Cents> {
   const end = monthEnd(today);
-  const [inc, exp, inv] = await Promise.all([
+  const [inc, exp, inv, schedIn, schedOut] = await Promise.all([
     pendingAccount(db, 'INCOME', null, end),
     pendingAccount(db, 'EXPENSE', null, end),
     invoicesRemaining(db, null, end),
+    scheduledAccount(db, ['INCOME'], today, end, today),
+    scheduledAccount(db, OUT_KINDS, today, end, today),
   ]);
-  return balance + inc - exp - inv;
+  return balance + inc + schedIn - exp - inv - schedOut;
 }
 
 export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Promise<CashSummary | null> {
@@ -294,15 +332,26 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
   if (!account) return null;
   const from = monthStart(month);
   const to = monthEnd(month);
-  const [balanceCents, incomeReceivedCents, incomePendingCents, outPaidCents, pendingExp, pendingInv] =
-    await Promise.all([
-      getAccountBalance(db, account.id),
-      postedAccount(db, ['INCOME'], from, to),
-      pendingAccount(db, 'INCOME', from, to),
-      postedAccount(db, ['EXPENSE', 'INVOICE_PAYMENT', 'ANTICIPATION_PAYMENT'], from, to),
-      pendingAccount(db, 'EXPENSE', from, to),
-      invoicesRemaining(db, from, to),
-    ]);
+  const [
+    balanceCents,
+    incomeReceivedCents,
+    pendingInc,
+    outPaidCents,
+    pendingExp,
+    pendingInv,
+    schedIn,
+    schedOut,
+  ] = await Promise.all([
+    getAccountBalance(db, account.id, today),
+    postedAccount(db, ['INCOME'], from, to, today),
+    pendingAccount(db, 'INCOME', from, to),
+    postedAccount(db, OUT_KINDS, from, to, today),
+    pendingAccount(db, 'EXPENSE', from, to),
+    invoicesRemaining(db, from, to),
+    scheduledAccount(db, ['INCOME'], from, to, today),
+    scheduledAccount(db, OUT_KINDS, from, to, today),
+  ]);
+  const incomePendingCents = pendingInc + schedIn; // a receber = pendentes + agendados (D67)
   const current = monthStart(today);
   let endOfMonthCents: Cents;
   let endOfMonthKind: CashSummary['endOfMonthKind'];
@@ -322,7 +371,7 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
     incomeReceivedCents,
     incomePendingCents,
     outPaidCents,
-    outPendingCents: pendingExp + pendingInv,
+    outPendingCents: pendingExp + pendingInv + schedOut,
     endOfMonthCents,
     endOfMonthKind,
   };
@@ -336,7 +385,7 @@ export type ProjectionRow = MonthProjection & { estimatedBalanceCents: Cents };
 export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate): Promise<ProjectionRow[]> {
   const account = await getPrimaryAccount(db);
   if (!account) return [];
-  const balance = await getAccountBalance(db, account.id);
+  const balance = await getAccountBalance(db, account.id, today);
   const start = await projectedEndOfCurrentMonth(db, balance, today);
 
   const [tpls, cards, mats] = await Promise.all([
@@ -386,11 +435,23 @@ export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate)
   }
   const results: MonthProjection[] = [];
   for (const m of months) {
-    const [invoicesDueCents, loansDueCents] = await Promise.all([
+    const [invoicesDueCents, loansDueCents, scheduledInCents, scheduledOutCents] = await Promise.all([
       invoicesRemaining(db, m, monthEnd(m)),
       loanInstallmentsDue(db, m, monthEnd(m)),
+      scheduledAccount(db, ['INCOME'], m, monthEnd(m), today),
+      scheduledAccount(db, OUT_KINDS, m, monthEnd(m), today),
     ]);
-    results.push(projectMonth({ month: m, today, templates, invoicesDueCents, loansDueCents }));
+    results.push(
+      projectMonth({
+        month: m,
+        today,
+        templates,
+        invoicesDueCents,
+        loansDueCents,
+        scheduledInCents,
+        scheduledOutCents,
+      }),
+    );
   }
   const balances = accumulate(
     start,

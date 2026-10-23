@@ -38,6 +38,7 @@ describe('projectMonth (D41)', () => {
       variableCents: 25_000,
       invoicesCents: 150_000,
       loansCents: 0,
+      scheduledOutCents: 0,
       subscriptionsCents: 5_590, // cobrança de 15/11 cai na fatura que vence em 16/12
       resultCents: 800_000 - (200_000 + 25_000 + 150_000 + 5_590),
     });
@@ -53,6 +54,20 @@ describe('projectMonth (D41)', () => {
     });
     expect(p.loansCents).toBe(120_050);
     expect(p.resultCents).toBe(800_000 - 120_050);
+  });
+
+  it('lançamentos já registrados com data no mês (agendados) entram na projeção (D67)', () => {
+    const p = projectMonth({
+      month: '2026-12-01',
+      today: '2026-10-18',
+      templates: [],
+      invoicesDueCents: 0,
+      scheduledInCents: 500_000,
+      scheduledOutCents: 120_000,
+    });
+    expect(p.incomeCents).toBe(500_000);
+    expect(p.scheduledOutCents).toBe(120_000);
+    expect(p.resultCents).toBe(380_000);
   });
 
   it('template que só começa depois não entra', () => {

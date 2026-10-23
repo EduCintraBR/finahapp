@@ -145,3 +145,39 @@ test('excluir um fixo: confirma, volta para a lista e o fixo some', async ({ pag
   await expect(page).toHaveURL(/\/fixos$/);
   await expect(page.getByText('Fixo para excluir')).toHaveCount(0);
 });
+
+test('receita com data futura fica agendada: não entra no saldo atual, mostra o aviso e o selo', async ({
+  page,
+}) => {
+  const balanceOf = async () => {
+    await page.goto('/');
+    return page.locator('[data-slot=card]').filter({ hasText: 'Saldo atual' }).first().innerText();
+  };
+  const before = await balanceOf();
+
+  const future = addDays(today(), 10);
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('50000');
+  await page.getByLabel('Descrição').fill('Freela agendado');
+  await page.getByLabel('Categoria').selectOption({ label: 'Salário CLT' });
+  await page.locator('#date').fill(future);
+  await expect(page.getByText(/Data futura: fica agendado e só entra no saldo em/)).toBeVisible();
+  await page.getByRole('button', { name: 'Lançar' }).click();
+
+  await expect(page).toHaveURL(/\/lancamentos/);
+  const row = page.getByRole('link', { name: /Freela agendado/ });
+  await expect(row).toContainText('Agendado');
+  expect(await balanceOf()).toBe(before); // o saldo de hoje não mudou
+
+  // uma receita de hoje, ao contrário, conta na hora
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('10000');
+  await page.getByLabel('Descrição').fill('Receita de hoje');
+  await page.getByLabel('Categoria').selectOption({ label: 'Salário CLT' });
+  await expect(page.getByText(/Data futura/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page.getByRole('link', { name: /Receita de hoje/ })).not.toContainText('Agendado');
+  expect(await balanceOf()).not.toBe(before);
+});
