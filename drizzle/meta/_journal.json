@@ -29,6 +29,13 @@
       "when": 1792783177153,
       "tag": "0003_loose_shadow_king",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792789033498,
+      "tag": "0004_eminent_power_man",
+      "breakpoints": true
     }
   ]
 }

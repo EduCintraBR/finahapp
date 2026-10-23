@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { FileUp, Repeat, Scale, SlidersHorizontal } from 'lucide-react';
+import { FileUp, Landmark, Repeat, Scale, SlidersHorizontal } from 'lucide-react';
 import { EntryList } from '@/components/entries/entry-list';
 import { NativeSelect } from '@/components/forms/fields';
 import { Amount } from '@/components/money/amount';
@@ -61,8 +61,15 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
         <h1 className="text-2xl font-semibold tracking-tight">Lançamentos</h1>
         <div className="flex gap-1">
           <Button asChild variant="ghost" size="sm">
-            <Link href="/fixos">
-              <Repeat aria-hidden /> Fixos
+            <Link href="/fixos" aria-label="Fixos">
+              <Repeat aria-hidden />
+              <span className="hidden sm:inline">Fixos</span>
+            </Link>
+          </Button>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/emprestimos" aria-label="Empréstimos">
+              <Landmark aria-hidden />
+              <span className="hidden sm:inline">Empréstimos</span>
             </Link>
           </Button>
           <Button asChild variant="ghost" size="sm">
@@ -72,8 +79,9 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
             </Link>
           </Button>
           <Button asChild variant="ghost" size="sm">
-            <Link href="/conta/conferencia">
-              <Scale aria-hidden /> Conferir
+            <Link href="/conta/conferencia" aria-label="Conferir">
+              <Scale aria-hidden />
+              <span className="hidden sm:inline">Conferir</span>
             </Link>
           </Button>
         </div>

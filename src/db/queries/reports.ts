@@ -43,6 +43,9 @@ async function rows<T>(db: AnyDB, q: SQL): Promise<T[]> {
   return (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[];
 }
 
+/** Data do Gasto Mensal (caixa) de uma despesa da conta: vencimento (ou à vista); parcela de empréstimo paga, a data do pagamento. */
+const CASH_DATE_SQL = `case when t.loan_installment_number is not null and t.status = 'POSTED' then t.posted_date else coalesce(t.due_date, t.posted_date) end`;
+
 /** Filtros de pessoa/categoria sobre a transação `alias` (a compra ou o lançamento). */
 function personFilters(f: ReportFilters, alias: string): SQL {
   const a = sql.raw(alias);
@@ -128,12 +131,14 @@ export async function monthlySpend(
   key: Key,
   f: ReportFilters = {},
 ): Promise<Totals> {
+  // parcela de empréstimo já paga (D66) conta na data do pagamento; as demais, no vencimento (ou à vista)
+  const cashDate = sql.raw(CASH_DATE_SQL);
   const account = await rows<{ k: string; v: string }>(
     db,
-    sql`select ${keyExpr(key, 't.category_id', 'coalesce(t.due_date, t.posted_date)')} as k, sum(t.amount_cents) as v
+    sql`select ${keyExpr(key, 't.category_id', CASH_DATE_SQL)} as k, sum(t.amount_cents) as v
         from transactions t
         where t.kind = 'EXPENSE' and t.bank_account_id is not null and t.status <> 'CANCELLED' and t.deleted_at is null
-          and coalesce(t.due_date, t.posted_date) between ${from} and ${to}${personFilters(f, 't')}${accountSide(f, 't')}
+          and ${cashDate} between ${from} and ${to}${personFilters(f, 't')}${accountSide(f, 't')}
         group by 1`,
   );
   // gastos no cartão de benefícios (D65): saem do saldo da carteira na data do gasto
@@ -242,6 +247,7 @@ async function pendingAccount(
     db,
     sql`select sum(t.amount_cents) as v from transactions t
         where t.kind = ${kind} and t.status = 'PENDING' and t.deleted_at is null and t.bank_account_id is not null
+          and not (t.kind = 'INCOME' and t.loan_id is not null)
           and t.due_date <= ${to} ${from ? sql`and t.due_date >= ${from}` : sql``}`,
   );
   return centsFromDb(r?.v);
@@ -255,7 +261,19 @@ async function postedAccount(db: AnyDB, kinds: string[], from: ISODate, to: ISOD
           kinds.map((k) => sql`${k}`),
           sql`, `,
         )}) and t.status = 'POSTED' and t.deleted_at is null and t.bank_account_id is not null
+          and not (t.kind = 'INCOME' and t.loan_id is not null)
           and t.posted_date between ${from} and ${to}`,
+  );
+  return centsFromDb(r?.v);
+}
+
+/** Parcelas de empréstimo ainda pendentes que vencem no intervalo (D66): meses futuros da projeção. */
+async function loanInstallmentsDue(db: AnyDB, from: ISODate, to: ISODate): Promise<Cents> {
+  const [r] = await rows<{ v: string | null }>(
+    db,
+    sql`select sum(t.amount_cents) as v from transactions t
+        where t.loan_installment_number is not null and t.status = 'PENDING' and t.deleted_at is null
+          and t.due_date between ${from} and ${to}`,
   );
   return centsFromDb(r?.v);
 }
@@ -368,8 +386,11 @@ export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate)
   }
   const results: MonthProjection[] = [];
   for (const m of months) {
-    const invoicesDueCents = await invoicesRemaining(db, m, monthEnd(m));
-    results.push(projectMonth({ month: m, today, templates, invoicesDueCents }));
+    const [invoicesDueCents, loansDueCents] = await Promise.all([
+      invoicesRemaining(db, m, monthEnd(m)),
+      loanInstallmentsDue(db, m, monthEnd(m)),
+    ]);
+    results.push(projectMonth({ month: m, today, templates, invoicesDueCents, loansDueCents }));
   }
   const balances = accumulate(
     start,

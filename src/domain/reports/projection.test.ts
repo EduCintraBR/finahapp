@@ -37,9 +37,22 @@ describe('projectMonth (D41)', () => {
       fixedCents: 200_000,
       variableCents: 25_000,
       invoicesCents: 150_000,
+      loansCents: 0,
       subscriptionsCents: 5_590, // cobrança de 15/11 cai na fatura que vence em 16/12
       resultCents: 800_000 - (200_000 + 25_000 + 150_000 + 5_590),
     });
+  });
+
+  it('parcelas de empréstimo pendentes do mês saem do resultado (D66)', () => {
+    const p = projectMonth({
+      month: '2026-12-01',
+      today: '2026-10-18',
+      templates: [tpl({ direction: 'INCOME', amountCents: 800_000 })],
+      invoicesDueCents: 0,
+      loansDueCents: 120_050,
+    });
+    expect(p.loansCents).toBe(120_050);
+    expect(p.resultCents).toBe(800_000 - 120_050);
   });
 
   it('template que só começa depois não entra', () => {

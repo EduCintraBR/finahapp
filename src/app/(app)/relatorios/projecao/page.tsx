@@ -81,7 +81,7 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
 
       <ul className="space-y-2" aria-label="Projeção por mês">
         {rows.map((r) => {
-          const out = r.fixedCents + r.variableCents + r.invoicesCents + r.subscriptionsCents;
+          const out = r.fixedCents + r.variableCents + r.invoicesCents + r.subscriptionsCents + r.loansCents;
           return (
             <li key={r.month}>
               <Card className="gap-2 py-4" data-testid="projection-month">
@@ -100,6 +100,7 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
                     {r.fixedCents > 0 && <Row label="· Fixos" cents={r.fixedCents} />}
                     {r.variableCents > 0 && <Row label="· Recorrentes (estim.)" cents={r.variableCents} />}
                     {r.invoicesCents > 0 && <Row label="· Faturas" cents={r.invoicesCents} />}
+                    {r.loansCents > 0 && <Row label="· Empréstimos" cents={r.loansCents} />}
                     {r.subscriptionsCents > 0 && <Row label="· Assinaturas" cents={r.subscriptionsCents} />}
                   </dl>
                   <div className="flex justify-between border-t pt-2 text-xs">
