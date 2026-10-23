@@ -39,7 +39,10 @@ export default async function TemplatesPage() {
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
-        Todo mês o app cria cada conta como pendente no dia do vencimento. Você dá baixa quando pagar.
+        Todo mês o app cria cada conta como pendente no dia do vencimento. Você dá baixa quando pagar.{' '}
+        <Link href="/emprestimos" className="underline underline-offset-2">
+          Empréstimos parcelados ficam em Empréstimos.
+        </Link>
       </p>
 
       {sections.map((s) => {

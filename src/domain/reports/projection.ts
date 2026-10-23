@@ -22,6 +22,10 @@ export type MonthProjection = {
   fixedCents: Cents;
   variableCents: Cents;
   invoicesCents: Cents;
+  /** parcelas de empréstimo pendentes que vencem no mês */
+  loansCents: Cents;
+  /** saídas já registradas com data neste mês (agendadas) */
+  scheduledOutCents: Cents;
   subscriptionsCents: Cents;
   resultCents: Cents;
 };
@@ -49,6 +53,11 @@ export function projectMonth(input: {
   templates: readonly ProjectionTemplate[];
   /** o que falta pagar das faturas que vencem no mês (itens agendados − adiantamentos) */
   invoicesDueCents: Cents;
+  /** parcelas de empréstimo ainda pendentes que vencem no mês (D66) */
+  loansDueCents?: Cents;
+  /** lançamentos já registrados com data neste mês (futuro), que a projeção não deve ignorar (D67) */
+  scheduledInCents?: Cents;
+  scheduledOutCents?: Cents;
 }): MonthProjection {
   const month = monthStart(input.month);
   let incomeCents = 0;
@@ -65,14 +74,25 @@ export function projectMonth(input: {
     else if (t.type === 'FIXED') fixedCents += t.amountCents;
     else variableCents += t.amountCents;
   }
+  const loansCents = input.loansDueCents ?? 0;
+  const scheduledOutCents = input.scheduledOutCents ?? 0;
+  incomeCents += input.scheduledInCents ?? 0;
   const resultCents =
-    incomeCents - (fixedCents + variableCents + input.invoicesDueCents + subscriptionsCents);
+    incomeCents -
+    (fixedCents +
+      variableCents +
+      input.invoicesDueCents +
+      subscriptionsCents +
+      loansCents +
+      scheduledOutCents);
   return {
     month,
     incomeCents,
     fixedCents,
     variableCents,
     invoicesCents: input.invoicesDueCents,
+    loansCents,
+    scheduledOutCents,
     subscriptionsCents,
     resultCents,
   };

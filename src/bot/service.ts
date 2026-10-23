@@ -172,10 +172,10 @@ async function describe(db: AnyDB, d: Draft, today: ISODate): Promise<string> {
   ].join('\n');
 }
 
-async function balanceLine(db: AnyDB): Promise<string> {
+async function balanceLine(db: AnyDB, today: ISODate): Promise<string> {
   const account = await getPrimaryAccount(db);
   if (!account) return '';
-  return `Saldo da conta: ${formatBRL(await getAccountBalance(db, account.id))}`;
+  return `Saldo da conta: ${formatBRL(await getAccountBalance(db, account.id, today))}`;
 }
 
 /** Limite disponível (ou comprometido, no adicional sem limite) — SPEC §7. */
@@ -413,7 +413,7 @@ async function saveDraft(
         .join('\n');
     } else {
       transactionId = (await createEntry(ctx, draft.input, 'BOT')).id;
-      footer = await balanceLine(deps.db);
+      footer = await balanceLine(deps.db, today);
     }
     await setStatus(deps.db, botMessageId, {
       status: 'CREATED',
@@ -656,7 +656,9 @@ async function undo(deps: BotDeps, botMessageId: string, userId: string): Promis
     throw err;
   }
   await setStatus(db, botMessageId, { status: 'UNDONE' });
-  const footer = t.creditCardId ? await limitLine(db, t.creditCardId, ctx.today) : await balanceLine(db);
+  const footer = t.creditCardId
+    ? await limitLine(db, t.creditCardId, ctx.today)
+    : await balanceLine(db, ctx.today);
   return { text: `↩️ Desfeito.\n\n${footer}` };
 }
 

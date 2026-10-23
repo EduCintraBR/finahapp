@@ -281,6 +281,34 @@ export const benefitWallets = pgTable('benefit_wallets', {
   unique('benefit_wallets_card_name').on(t.benefitCardId, t.name),
 ]);
 
+// ─────────────────────────── empréstimos (D66) ───────────────────────────
+/**
+ * Empréstimo: o valor recebido entra na conta como INCOME (fora das receitas dos relatórios) e o total a pagar,
+ * já com juros, vira N parcelas: uma transaction EXPENSE PENDING por parcela (loan_id + loan_installment_number).
+ * O que falta pagar é derivado das parcelas pendentes (nunca armazenado). Adiantar/pagar é a baixa de sempre:
+ * estimated_amount_cents guarda o valor programado e amount_cents o realmente pago (desconto ou acréscimo).
+ */
+export const loans = pgTable('loans', {
+  id: pk(),
+  name: varchar('name', { length: 80 }).notNull(),
+  lender: varchar('lender', { length: 80 }),             // banco / quem emprestou
+  principalCents: money('principal_cents').notNull(),    // valor recebido
+  totalCents: money('total_cents').notNull(),            // total a pagar, já com juros
+  installmentCount: smallint('installment_count').notNull(),
+  receivedDate: day('received_date').notNull(),
+  firstDueDate: day('first_due_date').notNull(),
+  bankAccountId: uuid('bank_account_id').notNull().references(() => bankAccounts.id),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+  deletedAt: deletedAt(),
+}, (t) => [
+  check('loans_principal_positive', sql`${t.principalCents} > 0`),
+  check('loans_total_covers_principal', sql`${t.totalCents} >= ${t.principalCents}`),
+  check('loans_installments', sql`${t.installmentCount} between 1 and 120 and ${t.totalCents} >= ${t.installmentCount}`),
+]);
+
 // ─────────────────────────── transactions ───────────────────────────
 /**
  * O FATO econômico. Duas famílias:
@@ -310,6 +338,8 @@ export const transactions = pgTable('transactions', {
   creditCardId: uuid('credit_card_id').references(() => creditCards.id),
   benefitWalletId: uuid('benefit_wallet_id').references(() => benefitWallets.id), // cartão de benefícios (D65)
   benefitCreditMonth: day('benefit_credit_month'),     // só no crédito automático do mês (idempotência)
+  loanId: uuid('loan_id').references(() => loans.id),  // parcela (EXPENSE) ou valor recebido (INCOME) de um empréstimo (D66)
+  loanInstallmentNumber: smallint('loan_installment_number'), // só nas parcelas
   categoryId: uuid('category_id').references(() => categories.id),
 
   transactionDate: day('transaction_date').notNull(), // data do fato (compra/competência)
@@ -346,6 +376,12 @@ export const transactions = pgTable('transactions', {
   uniqueIndex('tx_benefit_credit_month').on(t.benefitWalletId, t.benefitCreditMonth)
     .where(sql`${t.benefitCreditMonth} is not null and ${t.deletedAt} is null`),
   index('tx_benefit_wallet').on(t.benefitWalletId, t.postedDate).where(sql`${t.benefitWalletId} is not null`),
+  check('tx_loan_installment', sql`${t.loanInstallmentNumber} is null
+    or (${t.loanId} is not null and ${t.kind} = 'EXPENSE' and ${t.loanInstallmentNumber} >= 1)`),
+  // Uma transaction por parcela do empréstimo
+  uniqueIndex('tx_loan_installment_unique').on(t.loanId, t.loanInstallmentNumber)
+    .where(sql`${t.loanInstallmentNumber} is not null and ${t.deletedAt} is null`),
+  index('tx_loan').on(t.loanId).where(sql`${t.loanId} is not null`),
   check('tx_posted_has_date', sql`${t.status} <> 'POSTED' or ${t.postedDate} is not null`),
   check('tx_pending_has_due', sql`${t.status} <> 'PENDING' or ${t.dueDate} is not null`),
   check('tx_invoice_payment_link', sql`(${t.kind} = 'INVOICE_PAYMENT') = (${t.paidInvoiceId} is not null)`),

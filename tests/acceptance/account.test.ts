@@ -6,6 +6,7 @@ import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AnyDB } from '@/db/client';
 import { getAccountBalance } from '@/db/queries/balance';
+import { cashSummary, projection } from '@/db/queries/reports';
 import { seed, seedConfigFromEnv } from '@/db/seed';
 import { createCheckpoint } from '@/server/checkpoints';
 import type { ServiceCtx } from '@/server/context';
@@ -58,7 +59,7 @@ const referenceBalance = async () =>
   );
 
 const balance = async () => {
-  const prod = await getAccountBalance(db, accountId);
+  const prod = await getAccountBalance(db, accountId, '2100-01-01');
   expect(prod).toBe(await referenceBalance());
   return prod;
 };
@@ -365,5 +366,81 @@ describe('conferência de saldo (D20)', () => {
       applyAdjustment: true,
     });
     expect(r.adjustmentTransactionId).toBeNull();
+  });
+});
+
+describe('lançamento com data futura é agendado (D67)', () => {
+  // hoje = 17/10/2026; saldo inicial 5.000,00 em 01/10
+  const TODAY = '2026-10-17';
+  const at = (date: string) => getAccountBalance(db, accountId, date);
+
+  it('receita futura não entra no saldo de hoje, nem no "recebido"; entra sozinha no dia', async () => {
+    await createEntry(
+      ctx,
+      expense({
+        kind: 'INCOME',
+        amount: 250_000,
+        categoryId: salario,
+        description: 'Freela',
+        date: '2026-10-25',
+      }),
+    );
+    expect(await at(TODAY)).toBe(500_000); // saldo atual: só o que já aconteceu
+    expect(await at('2026-10-24')).toBe(500_000);
+    expect(await at('2026-10-25')).toBe(750_000); // no dia, entra sem dar baixa
+    expect(await at('2026-11-30')).toBe(750_000);
+
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.balanceCents).toBe(500_000);
+    expect(s.incomeReceivedCents).toBe(0); // ainda não recebido
+    expect(s.incomePendingCents).toBe(250_000); // a receber
+    expect(s.endOfMonthCents).toBe(750_000); // a previsão do fim do mês já conta com ela
+  });
+
+  it('despesa futura também espera o dia: não sai do saldo e aparece como a pagar', async () => {
+    await createEntry(ctx, expense({ amount: 80_000, date: '2026-10-28', description: 'Dentista' }));
+    expect(await at(TODAY)).toBe(500_000);
+    expect(await at('2026-10-28')).toBe(420_000);
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.outPaidCents).toBe(0);
+    expect(s.outPendingCents).toBe(80_000);
+    expect(s.endOfMonthCents).toBe(420_000);
+  });
+
+  it('lançamento de hoje ou de ontem conta como atual', async () => {
+    await createEntry(ctx, expense({ amount: 10_000, date: TODAY, description: 'Hoje' }));
+    await createEntry(ctx, expense({ amount: 5_000, date: '2026-10-16', description: 'Ontem' }));
+    expect(await at(TODAY)).toBe(500_000 - 15_000);
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.outPaidCents).toBe(15_000);
+    expect(s.outPendingCents).toBe(0);
+  });
+
+  it('agendado em mês futuro entra na projeção desse mês, e não na do mês atual', async () => {
+    await createEntry(
+      ctx,
+      expense({
+        kind: 'INCOME',
+        amount: 300_000,
+        categoryId: salario,
+        description: 'Bônus',
+        date: '2026-12-10',
+      }),
+    );
+    await createEntry(ctx, expense({ amount: 70_000, date: '2026-12-15', description: 'Viagem' }));
+    expect(await at(TODAY)).toBe(500_000);
+    const rows = await projection(db, TODAY, '2026-12-01');
+    const nov = rows.find((r) => r.month === '2026-11-01')!;
+    const dec = rows.find((r) => r.month === '2026-12-01')!;
+    expect(nov.incomeCents).toBe(0);
+    expect(dec.incomeCents).toBe(300_000);
+    expect(dec.scheduledOutCents).toBe(70_000);
+    expect(dec.resultCents).toBe(230_000);
+    expect(dec.estimatedBalanceCents).toBe(500_000 + 230_000);
+  });
+
+  it('a conferência de saldo de uma data compara só o que tinha acontecido até ela', async () => {
+    await createEntry(ctx, expense({ amount: 99_000, date: '2026-10-30', description: 'Futuro' }));
+    expect(await at('2026-10-17')).toBe(500_000);
   });
 });

@@ -65,6 +65,9 @@ function checkEditableKind(row: TxRow, opts: { allowTransfer?: boolean } = {}) {
     throw new UserError('Este tipo de lançamento não pode ser alterado por aqui.');
   }
   if (row.bankAccountId === null) throw new UserError('Compras no cartão são editadas na tela do cartão.');
+  if (row.loanId !== null) {
+    throw new UserError('Parcela e valor recebido de empréstimo são tratados na tela do empréstimo.');
+  }
 }
 
 /** Snapshot sem campos internos, para o audit_log. */
@@ -211,6 +214,8 @@ export async function confirmPayment(
         postedDate: input.date,
         estimatedAmountCents: row.amountCents,
         amountCents: input.amount,
+        // parcela de empréstimo (D66): conta no mês em que foi paga, mesmo se adiantada
+        ...(row.loanInstallmentNumber !== null ? { transactionDate: input.date } : {}),
         version: sql`${transactions.version} + 1`,
       })
       .where(eq(transactions.id, id))
@@ -241,6 +246,7 @@ export async function revertPayment(ctx: ServiceCtx, id: string, version: number
         postedDate: null,
         amountCents: row.estimatedAmountCents ?? row.amountCents,
         estimatedAmountCents: null,
+        ...(row.loanInstallmentNumber !== null && row.dueDate ? { transactionDate: row.dueDate } : {}),
         version: sql`${transactions.version} + 1`,
       })
       .where(eq(transactions.id, id))

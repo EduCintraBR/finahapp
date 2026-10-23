@@ -98,7 +98,7 @@ describe('cadastro', () => {
     const ws = await wallets();
     expect(ws['Multibenefícios']!.balanceCents).toBe(80_000);
     expect(ws['Refeição e alimentação']!.balanceCents).toBe(0);
-    expect(await getAccountBalance(db, accountId)).toBe(100_000);
+    expect(await getAccountBalance(db, accountId, '2100-01-01')).toBe(100_000);
     const summary = (await cashSummary(db, '2026-10-01', TODAY))!;
     expect(summary.incomeReceivedCents).toBe(0);
     expect(summary.balanceCents).toBe(100_000);
@@ -147,7 +147,7 @@ describe('créditos automáticos (último dia útil)', () => {
     expect(credit).toEqual({ posted: '2026-10-30', month: '2026-10-01', src: 'SYSTEM' });
 
     expect(await benefitCreditsTotal(db, '2026-10-01', '2026-10-31')).toBe(220_400);
-    expect(await getAccountBalance(db, accountId)).toBe(100_000); // o dinheiro não passa pelo banco
+    expect(await getAccountBalance(db, accountId, '2100-01-01')).toBe(100_000); // o dinheiro não passa pelo banco
     const summary = (await cashSummary(db, '2026-10-01', '2026-10-30'))!;
     expect(summary.incomeReceivedCents).toBe(0);
   });
@@ -199,7 +199,7 @@ describe('gastos', () => {
     expect(bruto.get(mercado)).toBe(4_500);
     expect(mensal.get(mercado)).toBe(4_500);
 
-    expect(await getAccountBalance(db, accountId)).toBe(100_000);
+    expect(await getAccountBalance(db, accountId, '2100-01-01')).toBe(100_000);
     const summary = (await cashSummary(db, '2026-10-01', '2026-10-30'))!;
     expect(summary.outPaidCents).toBe(0); // não saiu da conta
     expect(await listEntries(db, { month: '2026-10-01' })).toHaveLength(0); // extrato é da conta

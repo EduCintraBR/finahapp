@@ -52,6 +52,11 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 - Parcelamentos em andamento de antes do Finah, assinaturas no cartão e cartão adicional de outra pessoa.
 - **Cartão de benefícios** (multibenefícios, vale-refeição): carteiras com **crédito automático** todo mês (último dia útil), saldo por carteira, gastos que saem do saldo e entram nos relatórios, e **encerrar** sem perder o histórico. Fica fora do saldo da conta.
 
+### Empréstimos
+
+- Informe o valor recebido e o **total a pagar com juros**: o app divide em parcelas mensais, mostra o que falta e entra na projeção. O valor recebido entra no saldo, **sem contar como receita**.
+- **Pagar ou adiantar várias parcelas de uma vez**: você informa quanto pagou e quando, e o app calcula o **desconto** (ou o acréscimo por atraso) e quantos dias adiantou.
+
 ### Importação do extrato e da fatura (OFX)
 
 - Importe o **OFX ou o CSV do Nubank** (conta e cartão): cada linha é comparada com o que já está lançado.

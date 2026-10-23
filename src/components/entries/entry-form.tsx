@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
+import { formatDateBR } from '@/domain/dates';
 import { formatBRL, splitInstallments, tryParseBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -82,6 +83,7 @@ export function EntryForm({
   const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
   const [amountText, setAmountText] = useState(defaults?.amountText ?? '');
   const [installments, setInstallments] = useState('1');
+  const [date, setDate] = useState(defaults?.date ?? today);
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
   const options = categories.filter((c) => c.kind === categoryKind);
   const isCard = mode === 'CARD';
@@ -267,8 +269,20 @@ export function EntryForm({
                   : 'Data'
           }
           htmlFor="date"
+          hint={
+            !isCard && !defaults?.pending && date > today
+              ? `Data futura: fica agendado e só entra no saldo em ${formatDateBR(date)}.`
+              : undefined
+          }
         >
-          <Input id="date" name="date" type="date" required defaultValue={defaults?.date ?? today} />
+          <Input
+            id="date"
+            name="date"
+            type="date"
+            required
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
         </Field>
         {!isCard && !isBenefit && (
           <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />

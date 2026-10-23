@@ -3,7 +3,7 @@ import { Repeat } from 'lucide-react';
 import { Amount, directionOf } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import type { EntryRow } from '@/db/queries/entries';
-import { dueHighlight, DUE_HIGHLIGHT_LABEL } from '@/domain/account/rules';
+import { dueHighlight, DUE_HIGHLIGHT_LABEL, isScheduled } from '@/domain/account/rules';
 import { formatDayLabel, type ISODate } from '@/domain/dates';
 import { KIND_LABEL, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -46,6 +46,11 @@ export function EntryRowItem({ e, today, href }: { e: EntryRow; today: ISODate; 
             </>
           )}
           {pending && <Badge variant="outline">Pendente</Badge>}
+          {isScheduled(e, today) && (
+            <Badge variant="outline" className="border-warning text-warning-text">
+              Agendado
+            </Badge>
+          )}
           {e.status === 'CANCELLED' && <Badge variant="outline">Cancelado</Badge>}
           {pending && <HighlightBadge dueDate={e.dueDate} today={today} />}
         </div>

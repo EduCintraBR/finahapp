@@ -33,7 +33,7 @@ psql -v ON_ERROR_STOP=1 -d postgres -qc "drop database if exists \"$target\""
 psql -v ON_ERROR_STOP=1 -d postgres -qc "create database \"$target\""
 pg_restore --no-owner --no-privileges --exit-on-error -d "$target" "$src"
 
-TABLES="users bank_accounts categories credit_cards benefit_cards benefit_wallets invoices transactions installment_plans invoice_items anticipation_records refund_records recurring_templates balance_checkpoints audit_log"
+TABLES="users bank_accounts categories credit_cards benefit_cards benefit_wallets loans invoices transactions installment_plans invoice_items anticipation_records refund_records recurring_templates balance_checkpoints audit_log"
 status=0
 printf '%-22s %10s %10s\n' tabela atual restaurado
 for t in $TABLES; do

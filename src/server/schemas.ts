@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { isISODate, monthStart, parseMonthParam } from '@/domain/dates';
 import { MAX_BENEFIT_WALLETS } from '@/domain/benefits/credits';
+import { MAX_LOAN_INSTALLMENTS } from '@/domain/loans/loans';
 import { tryParseBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS } from '@/lib/labels';
 
@@ -366,3 +367,49 @@ export const benefitSpendInput = z.object({
 export type BenefitSpendInput = z.output<typeof benefitSpendInput>;
 
 export const endBenefitInput = z.object({ lastMonth: monthInput });
+
+// ─────────── empréstimo (D66) ───────────
+
+export const loanInput = z
+  .object({
+    name: z
+      .string({ error: 'Informe o nome do empréstimo.' })
+      .trim()
+      .min(1, { error: 'Informe o nome do empréstimo.' })
+      .max(80, { error: 'Nome muito longo (máx. 80).' }),
+    lender: optionalText(80),
+    /** quanto entrou na conta */
+    principal: money({ positive: true, label: 'o valor recebido' }),
+    /** total a pagar, já com os juros */
+    total: money({ positive: true, label: 'o total a pagar' }),
+    installments: z.coerce
+      .number({ error: 'Informe o número de parcelas.' })
+      .int({ error: 'Parcelas: número inteiro.' })
+      .min(1, { error: `Parcelas: de 1 a ${MAX_LOAN_INSTALLMENTS}.` })
+      .max(MAX_LOAN_INSTALLMENTS, { error: `Parcelas: de 1 a ${MAX_LOAN_INSTALLMENTS}.` }),
+    receivedDate: isoDate,
+    firstDueDate: isoDate,
+    notes: optionalText(2000),
+  })
+  .refine((l) => l.total >= l.principal, {
+    error: 'O total a pagar não pode ser menor que o valor recebido.',
+    path: ['total'],
+  })
+  .refine((l) => l.total >= l.installments, {
+    error: 'Cada parcela precisa ter pelo menos R$ 0,01.',
+    path: ['total'],
+  })
+  .refine((l) => l.firstDueDate >= l.receivedDate, {
+    error: 'A 1ª parcela não pode vencer antes de você receber o dinheiro.',
+    path: ['firstDueDate'],
+  });
+export type LoanInput = z.output<typeof loanInput>;
+
+export const loanPaymentInput = z.object({
+  installmentIds: z
+    .array(z.uuid({ error: 'Parcela inválida.' }))
+    .min(1, { error: 'Escolha pelo menos uma parcela.' }),
+  paid: money({ positive: true, label: 'o valor pago' }),
+  date: isoDate,
+});
+export type LoanPaymentInput = z.output<typeof loanPaymentInput>;
