@@ -50,6 +50,7 @@ de **precisão contábil**: o que o app mostra bate com o extrato do banco, cent
 - **Antecipação de parcelas** com o desconto que o banco deu contado como economia.
 - **Estorno** (parcial ou compra inteira) que abate o gasto do mês em que aconteceu.
 - Parcelamentos em andamento de antes do Finah, assinaturas no cartão e cartão adicional de outra pessoa.
+- **Cartão de benefícios** (multibenefícios, vale-refeição): carteiras com **crédito automático** todo mês (último dia útil), saldo por carteira, gastos que saem do saldo e entram nos relatórios, e **encerrar** sem perder o histórico. Fica fora do saldo da conta.
 
 ### Importação do extrato e da fatura (OFX)
 

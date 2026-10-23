@@ -75,6 +75,7 @@ Implementações de referência em SQL em `tests/acceptance/card-ledger.test.ts`
 - **Saldo da conta** = `opening_balance` + Σ entradas − Σ saídas, só `status = POSTED`, não deletadas.
 - **Limite disponível** = `limit_total` − Σ invoice_items `ACTIVE` do cartão (todas as faturas) + Σ `INVOICE_PAYMENT` POSTED do cartão. `limit_total` NULL → limite não rastreado (cartão adicional de terceiro). Pode ficar > limite total (saldo credor).
 - **Total da fatura** = Σ invoice_items `ACTIVE` da fatura.
+- **Saldo da carteira de benefícios** = Σ `INCOME` POSTED − Σ `EXPENSE` POSTED com `benefit_wallet_id`, não deletadas. Fica fora do Saldo da conta (`bank_account_id` é nulo nessas transações) e nunca é armazenado; os gastos dela contam em Gasto Bruto/Mensal.
 - **Gasto Bruto do mês** (competência) = Σ EXPENSE (conta + cartão) por `transaction_date` − Σ `refund_records.amount` por `refund_date`. Exclui `source = ONBOARDING`.
 - **Gasto Mensal do mês** (caixa) = Σ EXPENSE do lado conta (por `due_date`, ou `posted_date` se à vista) + Σ invoice_items ACTIVE das faturas com `due_date` no mês + Σ `ANTICIPATION_PAYMENT` do mês.
 - **Projeção de mês futuro** = receitas previstas (templates INCOME) − (templates FIXED + estimativas RECURRING_VARIABLE + invoice_items já agendados nas faturas que vencem no mês). Ocorrências de meses futuros são calculadas em memória, não persistidas.

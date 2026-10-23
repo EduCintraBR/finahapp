@@ -19,6 +19,7 @@ export const PAYMENT_METHOD_LABEL: Record<string, string> = {
   BANK_TRANSFER: 'Transferência',
   AUTO_DEBIT: 'Débito automático',
   CREDIT_CARD: 'Cartão de crédito',
+  BENEFIT_CARD: 'Cartão de benefícios',
   OTHER: 'Outro',
 };
 

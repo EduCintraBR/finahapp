@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { isISODate, monthStart, parseMonthParam } from '@/domain/dates';
+import { MAX_BENEFIT_WALLETS } from '@/domain/benefits/credits';
 import { tryParseBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS } from '@/lib/labels';
 
@@ -141,7 +142,7 @@ export const cardInput = z
         blankToUndefined,
         z
           .string()
-          .regex(/^d{4}$/, { error: 'Final do cartão: 4 dígitos.' })
+          .regex(/^\d{4}$/, { error: 'Final do cartão: 4 dígitos.' })
           .optional(),
       )
       .transform((v) => v ?? null),
@@ -259,3 +260,109 @@ export type RefundInput = z.output<typeof refundInput>;
 export function firstIssue(error: z.ZodError): string {
   return error.issues[0]?.message ?? 'Dados inválidos.';
 }
+
+// ─────────── cartão de benefícios (D65) ───────────
+
+const last4 = z
+  .preprocess(
+    blankToUndefined,
+    z
+      .string()
+      .regex(/^\d{4}$/, { error: 'Final do cartão: 4 dígitos.' })
+      .optional(),
+  )
+  .transform((v) => v ?? null);
+
+const creditDay = z
+  .preprocess(
+    // campo ausente do formulário (regra "último dia útil") chega como null
+    (v) => (v === null ? undefined : blankToUndefined(v)),
+    z.coerce
+      .number({ error: 'Dia do crédito inválido.' })
+      .int({ error: 'Dia do crédito inválido.' })
+      .min(1, { error: 'Dia do crédito: de 1 a 31.' })
+      .max(31, { error: 'Dia do crédito: de 1 a 31.' })
+      .optional(),
+  )
+  .transform((v) => v ?? null);
+
+const benefitName = (what: string) =>
+  z
+    .string({ error: `Informe o nome ${what}.` })
+    .trim()
+    .min(1, { error: `Informe o nome ${what}.` })
+    .max(80, { error: 'Nome muito longo (máx. 80).' });
+
+const creditRule = z.enum(['LAST_BUSINESS_DAY', 'DAY_OF_MONTH'], { error: 'Escolha quando o crédito cai.' });
+
+export const benefitWalletInput = z.object({
+  name: benefitName('da carteira'),
+  monthlyCredit: money({ positive: true, label: 'o crédito mensal' }),
+  /** saldo que a carteira já tem hoje (já contando o crédito deste mês, se ele já caiu) */
+  openingBalance: z
+    .preprocess(blankToUndefined, money({ positive: false, label: 'o saldo atual' }).optional())
+    .transform((v) => v ?? 0)
+    .refine((v) => v >= 0, { error: 'O saldo atual não pode ser negativo.' }),
+});
+
+export const benefitCardInput = z
+  .object({
+    name: benefitName('do cartão'),
+    issuer: optionalText(60),
+    last4,
+    creditRule,
+    creditDay,
+    /** primeiro mês com crédito automático */
+    startMonth: monthInput,
+    wallets: z
+      .array(benefitWalletInput)
+      .min(1, { error: 'Cadastre pelo menos uma carteira (ex.: Multibenefícios).' })
+      .max(MAX_BENEFIT_WALLETS, { error: `No máximo ${MAX_BENEFIT_WALLETS} carteiras por cartão.` }),
+  })
+  .refine((c) => c.creditRule !== 'DAY_OF_MONTH' || c.creditDay !== null, {
+    error: 'Informe o dia do crédito.',
+    path: ['creditDay'],
+  })
+  .refine((c) => new Set(c.wallets.map((w) => w.name.toLowerCase())).size === c.wallets.length, {
+    error: 'Duas carteiras com o mesmo nome.',
+    path: ['wallets'],
+  });
+export type BenefitCardInput = z.output<typeof benefitCardInput>;
+
+export const benefitCardUpdateInput = z
+  .object({
+    name: benefitName('do cartão'),
+    issuer: optionalText(60),
+    last4,
+    creditRule,
+    creditDay,
+    /** novo crédito mensal de cada carteira (vale para os créditos que ainda não caíram) */
+    wallets: z.array(
+      z.object({
+        id: uuid('Carteira inválida.'),
+        monthlyCredit: money({ positive: true, label: 'o crédito mensal' }),
+      }),
+    ),
+  })
+  .refine((c) => c.creditRule !== 'DAY_OF_MONTH' || c.creditDay !== null, {
+    error: 'Informe o dia do crédito.',
+    path: ['creditDay'],
+  });
+export type BenefitCardUpdateInput = z.output<typeof benefitCardUpdateInput>;
+
+export const benefitSpendInput = z.object({
+  walletId: uuid('Escolha a carteira.'),
+  amount: money({ positive: true }),
+  description: z
+    .string({ error: 'Informe uma descrição.' })
+    .trim()
+    .min(1, { error: 'Informe uma descrição.' })
+    .max(200, { error: 'Descrição muito longa (máx. 200).' }),
+  categoryId: uuid('Escolha uma categoria.'),
+  date: isoDate,
+  beneficiaryUserId: optionalUuid,
+  notes: optionalText(2000),
+});
+export type BenefitSpendInput = z.output<typeof benefitSpendInput>;
+
+export const endBenefitInput = z.object({ lastMonth: monthInput });

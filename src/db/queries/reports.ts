@@ -117,8 +117,9 @@ export async function grossSpend(
 }
 
 /**
- * Gasto Mensal (caixa): despesas da conta (due_date, ou posted_date se à vista) + itens ACTIVE das
- * faturas que vencem no período + antecipações pagas avulsas. INVOICE_PAYMENT nunca entra.
+ * Gasto Mensal (caixa): despesas da conta (due_date, ou posted_date se à vista) + gastos do cartão de benefícios
+ * (data do gasto) + itens ACTIVE das faturas que vencem no período + antecipações pagas avulsas.
+ * INVOICE_PAYMENT nunca entra.
  */
 export async function monthlySpend(
   db: AnyDB,
@@ -133,6 +134,15 @@ export async function monthlySpend(
         from transactions t
         where t.kind = 'EXPENSE' and t.bank_account_id is not null and t.status <> 'CANCELLED' and t.deleted_at is null
           and coalesce(t.due_date, t.posted_date) between ${from} and ${to}${personFilters(f, 't')}${accountSide(f, 't')}
+        group by 1`,
+  );
+  // gastos no cartão de benefícios (D65): saem do saldo da carteira na data do gasto
+  const benefit = await rows<{ k: string; v: string }>(
+    db,
+    sql`select ${keyExpr(key, 't.category_id', 't.posted_date')} as k, sum(t.amount_cents) as v
+        from transactions t
+        where t.kind = 'EXPENSE' and t.benefit_wallet_id is not null and t.status = 'POSTED' and t.deleted_at is null
+          and t.posted_date between ${from} and ${to}${personFilters(f, 't')}${accountSide(f, 't')}
         group by 1`,
   );
   const items = await rows<{ k: string; v: string }>(
@@ -165,6 +175,7 @@ export async function monthlySpend(
   );
   const out: Totals = new Map();
   add(out, account);
+  add(out, benefit);
   add(out, items);
   add(out, anticipations);
   return out;

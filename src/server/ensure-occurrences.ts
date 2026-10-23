@@ -1,6 +1,7 @@
 import { connection } from 'next/server';
 import { getDb } from '@/db/client';
 import { today } from '@/domain/dates';
+import { generateBenefitCredits } from './benefits';
 import { generateOccurrences } from './recurring';
 
 /**
@@ -14,5 +15,10 @@ export async function ensureOccurrences(): Promise<void> {
     await generateOccurrences(getDb(), today());
   } catch (err) {
     console.error('[ocorrências] falha ao gerar:', err);
+  }
+  try {
+    await generateBenefitCredits(getDb(), today()); // créditos dos cartões de benefícios (D65)
+  } catch (err) {
+    console.error('[benefícios] falha ao creditar:', err);
   }
 }
