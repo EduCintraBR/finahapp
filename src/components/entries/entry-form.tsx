@@ -1,6 +1,7 @@
 'use client';
 
 import { useActionState, useState } from 'react';
+import { benefitSpendAction } from '@/app/(app)/beneficios/actions';
 import { cardPurchaseAction } from '@/app/(app)/cartoes/actions';
 import { saveEntryAction } from '@/app/(app)/lancamentos/actions';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
@@ -26,8 +27,10 @@ export type EntryFormDefaults = {
   pending: boolean;
 };
 
-type Mode = 'EXPENSE' | 'INCOME' | 'CARD';
+type Mode = 'EXPENSE' | 'INCOME' | 'CARD' | 'BENEFIT';
 export type CardOption = { id: string; name: string };
+/** carteira de um cartão de benefícios; `label` já traz o saldo ("Multibenefícios · saldo R$ 800,00") */
+export type WalletOption = { id: string; label: string };
 
 /** Prévia das parcelas com a mesma regra do servidor (resto na 1ª). Só exibição. */
 function installmentPreview(amountText: string, count: number): string | null {
@@ -47,8 +50,10 @@ export function EntryForm({
   defaults,
   returnTo,
   cards = [],
+  wallets = [],
   initialMode,
   initialCardId,
+  initialWalletId,
 }: {
   categories: CategoryOption[];
   users: UserOption[];
@@ -56,14 +61,23 @@ export function EntryForm({
   defaults?: EntryFormDefaults;
   returnTo: string;
   cards?: CardOption[];
+  wallets?: WalletOption[];
   initialMode?: Mode;
   /** cartão já escolhido (quando se vem da tela de um cartão); sem isso, o primeiro da lista */
   initialCardId?: string;
+  /** carteira já escolhida (vindo da tela do cartão de benefícios) */
+  initialWalletId?: string;
 }) {
   const [entryState, entryAction, entryPending] = useActionState(saveEntryAction, null);
   const [cardState, cardAction, cardPending] = useActionState(cardPurchaseAction, null);
+  const [benefitState, benefitAction, benefitPending] = useActionState(benefitSpendAction, null);
   const [mode, setMode] = useState<Mode>(
-    defaults?.kind ?? (initialMode === 'CARD' && cards.length ? 'CARD' : 'EXPENSE'),
+    defaults?.kind ??
+      (initialMode === 'CARD' && cards.length
+        ? 'CARD'
+        : initialMode === 'BENEFIT' && wallets.length
+          ? 'BENEFIT'
+          : 'EXPENSE'),
   );
   const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
   const [amountText, setAmountText] = useState(defaults?.amountText ?? '');
@@ -71,13 +85,17 @@ export function EntryForm({
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
   const options = categories.filter((c) => c.kind === categoryKind);
   const isCard = mode === 'CARD';
-  const state = isCard ? cardState : entryState;
-  const pending = isCard ? cardPending : entryPending;
+  const isBenefit = mode === 'BENEFIT';
+  const state = isCard ? cardState : isBenefit ? benefitState : entryState;
+  const pending = isCard ? cardPending : isBenefit ? benefitPending : entryPending;
   const modes: Mode[] = defaults
     ? [defaults.kind]
-    : cards.length
-      ? ['EXPENSE', 'INCOME', 'CARD']
-      : ['EXPENSE', 'INCOME'];
+    : [
+        'EXPENSE',
+        'INCOME',
+        ...(cards.length ? (['CARD'] as const) : []),
+        ...(wallets.length ? (['BENEFIT'] as const) : []),
+      ];
 
   const pick = (m: Mode) => {
     setMode(m);
@@ -87,7 +105,7 @@ export function EntryForm({
   const preview = isCard ? installmentPreview(amountText, Number(installments)) : null;
 
   return (
-    <form action={isCard ? cardAction : entryAction} className="space-y-4">
+    <form action={isCard ? cardAction : isBenefit ? benefitAction : entryAction} className="space-y-4">
       {defaults && (
         <>
           <input type="hidden" name="id" value={defaults.id} />
@@ -95,7 +113,7 @@ export function EntryForm({
         </>
       )}
       <input type="hidden" name="returnTo" value={returnTo} />
-      {!isCard && <input type="hidden" name="kind" value={mode} />}
+      {!isCard && !isBenefit && <input type="hidden" name="kind" value={mode} />}
 
       {modes.length > 1 && (
         <div
@@ -103,7 +121,7 @@ export function EntryForm({
           aria-label="Tipo"
           className={cn(
             'grid gap-1 rounded-lg bg-muted p-1',
-            modes.length === 3 ? 'grid-cols-3' : 'grid-cols-2',
+            modes.length === 4 ? 'grid-cols-4' : modes.length === 3 ? 'grid-cols-3' : 'grid-cols-2',
           )}
         >
           {modes.map((m) => (
@@ -120,7 +138,13 @@ export function EntryForm({
                   (m === 'INCOME' ? 'text-income' : m === 'EXPENSE' ? 'text-expense' : 'text-primary'),
               )}
             >
-              {m === 'EXPENSE' ? 'Despesa' : m === 'INCOME' ? 'Receita' : 'Cartão'}
+              {m === 'EXPENSE'
+                ? 'Despesa'
+                : m === 'INCOME'
+                  ? 'Receita'
+                  : m === 'CARD'
+                    ? 'Cartão'
+                    : 'Benefício'}
             </button>
           ))}
         </div>
@@ -165,6 +189,23 @@ export function EntryForm({
         </div>
       )}
 
+      {isBenefit && (
+        <Field label="Carteira" htmlFor="walletId" hint="Cartão pré-pago: o gasto sai do saldo da carteira.">
+          <NativeSelect
+            id="walletId"
+            name="walletId"
+            required
+            defaultValue={initialWalletId ?? wallets[0]?.id}
+          >
+            {wallets.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </Field>
+      )}
+
       <Field label="Descrição" htmlFor="description">
         <Input
           id="description"
@@ -194,7 +235,7 @@ export function EntryForm({
             ))}
           </NativeSelect>
         </Field>
-        {!isCard && (
+        {!isCard && !isBenefit && (
           <Field label="Meio" htmlFor="paymentMethod">
             <NativeSelect
               id="paymentMethod"
@@ -209,14 +250,29 @@ export function EntryForm({
             </NativeSelect>
           </Field>
         )}
-        {isCard && <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />}
+        {(isCard || isBenefit) && (
+          <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />
+        )}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label={defaults?.pending ? 'Vencimento' : isCard ? 'Data da compra' : 'Data'} htmlFor="date">
+        <Field
+          label={
+            defaults?.pending
+              ? 'Vencimento'
+              : isCard
+                ? 'Data da compra'
+                : isBenefit
+                  ? 'Data do gasto'
+                  : 'Data'
+          }
+          htmlFor="date"
+        >
           <Input id="date" name="date" type="date" required defaultValue={defaults?.date ?? today} />
         </Field>
-        {!isCard && <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />}
+        {!isCard && !isBenefit && (
+          <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />
+        )}
       </div>
 
       <Field label="Observações" htmlFor="notes">

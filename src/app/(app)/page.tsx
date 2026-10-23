@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
+import { BenefitSummaryCard } from '@/components/benefits/benefit-summary';
 import { CardSummaryCard } from '@/components/cards/card-summary';
 import { CategoryDonut, MonthlyBars, type MonthBar, type Slice } from '@/components/dashboard/charts';
 import { BalanceHero, KpiGrid } from '@/components/dashboard/overview';
@@ -12,6 +13,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { getDb } from '@/db/client';
 import { getPrimaryAccount } from '@/db/queries/accounts';
 import { getAccountBalance } from '@/db/queries/balance';
+import { benefitCreditsTotal, listBenefitCards } from '@/db/queries/benefits';
 import { listCardMonthViews } from '@/db/queries/cards';
 import { listEntries, listPending } from '@/db/queries/entries';
 import { listCategories } from '@/db/queries/lookups';
@@ -83,6 +85,8 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     cards,
     entries,
     categories,
+    benefitCards,
+    benefitCredited,
   ] = await Promise.all([
     getAccountBalance(db, account.id),
     cashSummary(db, month, hoje),
@@ -94,6 +98,8 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     listCardMonthViews(db, hoje, month),
     listEntries(db, { month }),
     listCategories(db, { includeArchived: true }),
+    listBenefitCards(db, hoje, month),
+    benefitCreditsTotal(db, month, end),
   ]);
   if (!summary) return null;
 
@@ -213,6 +219,31 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
           </div>
         )}
       </section>
+
+      {benefitCards.length > 0 && (
+        <section aria-label="Cartões de benefícios" className="space-y-2">
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-sm font-medium text-muted-foreground">
+              Benefícios
+              {benefitCredited > 0 && (
+                <span className="ml-2 font-normal">
+                  · creditado em {monthLabel}: <Amount cents={benefitCredited} direction="in" />
+                </span>
+              )}
+            </h2>
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/cartoes${suffix}`}>Ver todos</Link>
+            </Button>
+          </div>
+          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">
+            {benefitCards.map((c) => (
+              <div key={c.id} className="w-[85%] shrink-0 snap-start md:w-auto">
+                <BenefitSummaryCard c={c} href={`/beneficios/${c.id}${suffix}`} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
         <Card className="min-w-0 gap-0 pb-0">

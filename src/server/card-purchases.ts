@@ -23,7 +23,7 @@ import { getPrimaryAccount } from './entries';
 import type { CardPurchaseEditInput, CardPurchaseInput, OnboardingInput } from './schemas';
 
 /** `keepId`: a categoria atual do lançamento pode continuar mesmo arquivada (D49). */
-async function checkExpenseCategory(tx: Tx, categoryId: string, keepId?: string | null) {
+export async function checkExpenseCategory(tx: Tx, categoryId: string, keepId?: string | null) {
   const [cat] = await tx
     .select({ kind: categories.kind, archivedAt: categories.archivedAt })
     .from(categories)
@@ -32,7 +32,7 @@ async function checkExpenseCategory(tx: Tx, categoryId: string, keepId?: string 
   if (cat.kind !== 'EXPENSE') throw new UserError('Escolha uma categoria de despesa.');
 }
 
-async function checkUser(tx: Tx, userId: string | null) {
+export async function checkUser(tx: Tx, userId: string | null) {
   if (!userId) return;
   const [u] = await tx.select({ id: users.id }).from(users).where(eq(users.id, userId));
   if (!u) throw new UserError('Pessoa não encontrada.');

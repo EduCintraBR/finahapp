@@ -44,6 +44,7 @@ export const transactionKind = pgEnum('transaction_kind', [
 export const transactionStatus = pgEnum('transaction_status', ['PENDING', 'POSTED', 'CANCELLED']);
 export const paymentMethod = pgEnum('payment_method', [
   'PIX', 'DEBIT', 'CASH', 'BOLETO', 'BANK_TRANSFER', 'AUTO_DEBIT', 'CREDIT_CARD', 'OTHER',
+  'BENEFIT_CARD', // cartão de benefícios (pré-pago): sai do saldo da carteira, não da conta (D65)
 ]);
 export const entrySource = pgEnum('entry_source', [
   'MANUAL', 'BOT', 'IMPORT', 'RECURRING', 'SYSTEM',
@@ -241,6 +242,45 @@ export const recurringTemplates = pgTable('recurring_templates', {
     or (${t.paymentMethod} <> 'CREDIT_CARD' and ${t.creditCardId} is null and ${t.bankAccountId} is not null)`),
 ]);
 
+// ─────────────────────────── cartões de benefícios (D65) ───────────────────────────
+/**
+ * Cartão pré-pago do empregador (multibenefícios, refeição/alimentação). Não tem fatura nem limite: o empregador
+ * credita todo mês em cada carteira e as compras saem do saldo da carteira. O saldo NUNCA é armazenado:
+ *   saldo da carteira = Σ INCOME POSTED − Σ EXPENSE POSTED da carteira (transactions.benefit_wallet_id).
+ * Encerrar = end_month (último mês com crédito); o histórico e o saldo restante continuam.
+ */
+export const benefitCards = pgTable('benefit_cards', {
+  id: pk(),
+  name: varchar('name', { length: 80 }).notNull(),
+  issuer: varchar('issuer', { length: 60 }),
+  last4: varchar('last4', { length: 4 }),
+  creditRule: varchar('credit_rule', { length: 20 }).notNull().default('LAST_BUSINESS_DAY'),
+  creditDay: smallint('credit_day'),                    // só DAY_OF_MONTH
+  startMonth: day('start_month').notNull(),             // primeiro mês com crédito (dia 1)
+  endMonth: day('end_month'),                           // último mês com crédito; null = ativo
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id), // dono dos créditos automáticos
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  check('benefit_cards_rule', sql`${t.creditRule} in ('LAST_BUSINESS_DAY','DAY_OF_MONTH')`),
+  check('benefit_cards_day', sql`(${t.creditRule} = 'DAY_OF_MONTH') = (${t.creditDay} is not null)
+    and (${t.creditDay} is null or ${t.creditDay} between 1 and 31)`),
+  check('benefit_cards_start_is_month', sql`extract(day from ${t.startMonth}) = 1`),
+  check('benefit_cards_end_after_start', sql`${t.endMonth} is null or ${t.endMonth} >= ${t.startMonth}`),
+]);
+
+export const benefitWallets = pgTable('benefit_wallets', {
+  id: pk(),
+  benefitCardId: uuid('benefit_card_id').notNull().references(() => benefitCards.id),
+  name: varchar('name', { length: 80 }).notNull(),      // "Multibenefícios", "Refeição e alimentação"
+  monthlyCreditCents: money('monthly_credit_cents').notNull(), // vale para os créditos ainda não feitos
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  check('benefit_wallets_credit_positive', sql`${t.monthlyCreditCents} > 0`),
+  unique('benefit_wallets_card_name').on(t.benefitCardId, t.name),
+]);
+
 // ─────────────────────────── transactions ───────────────────────────
 /**
  * O FATO econômico. Duas famílias:
@@ -268,6 +308,8 @@ export const transactions = pgTable('transactions', {
   paymentMethod: paymentMethod('payment_method').notNull(),
   bankAccountId: uuid('bank_account_id').references(() => bankAccounts.id),
   creditCardId: uuid('credit_card_id').references(() => creditCards.id),
+  benefitWalletId: uuid('benefit_wallet_id').references(() => benefitWallets.id), // cartão de benefícios (D65)
+  benefitCreditMonth: day('benefit_credit_month'),     // só no crédito automático do mês (idempotência)
   categoryId: uuid('category_id').references(() => categories.id),
 
   transactionDate: day('transaction_date').notNull(), // data do fato (compra/competência)
@@ -289,10 +331,21 @@ export const transactions = pgTable('transactions', {
   deletedAt: deletedAt(),
 }, (t) => [
   check('tx_amount_positive', sql`${t.amountCents} > 0`),
+  // Três famílias: compra no cartão de crédito | carteira do cartão de benefícios | lado caixa (conta).
+  // A comparação do benefício é por texto: o valor novo do enum não pode ser usado como literal na migração que o cria.
   check('tx_target', sql`
     (${t.paymentMethod} = 'CREDIT_CARD' and ${t.creditCardId} is not null and ${t.bankAccountId} is null
-       and ${t.kind} = 'EXPENSE')
-    or (${t.paymentMethod} <> 'CREDIT_CARD' and ${t.creditCardId} is null and ${t.bankAccountId} is not null)`),
+       and ${t.benefitWalletId} is null and ${t.kind} = 'EXPENSE')
+    or (${t.paymentMethod}::text = 'BENEFIT_CARD' and ${t.benefitWalletId} is not null and ${t.bankAccountId} is null
+       and ${t.creditCardId} is null and ${t.kind} in ('INCOME','EXPENSE'))
+    or (${t.paymentMethod} <> 'CREDIT_CARD' and ${t.paymentMethod}::text <> 'BENEFIT_CARD'
+       and ${t.creditCardId} is null and ${t.benefitWalletId} is null and ${t.bankAccountId} is not null)`),
+  check('tx_benefit_credit', sql`${t.benefitCreditMonth} is null
+    or (${t.benefitWalletId} is not null and ${t.kind} = 'INCOME' and extract(day from ${t.benefitCreditMonth}) = 1)`),
+  // Um crédito automático por carteira por mês → geração idempotente
+  uniqueIndex('tx_benefit_credit_month').on(t.benefitWalletId, t.benefitCreditMonth)
+    .where(sql`${t.benefitCreditMonth} is not null and ${t.deletedAt} is null`),
+  index('tx_benefit_wallet').on(t.benefitWalletId, t.postedDate).where(sql`${t.benefitWalletId} is not null`),
   check('tx_posted_has_date', sql`${t.status} <> 'POSTED' or ${t.postedDate} is not null`),
   check('tx_pending_has_due', sql`${t.status} <> 'PENDING' or ${t.dueDate} is not null`),
   check('tx_invoice_payment_link', sql`(${t.kind} = 'INVOICE_PAYMENT') = (${t.paidInvoiceId} is not null)`),

@@ -45,7 +45,9 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
     beneficiary: str(sp.dequem) === 'casal' ? 'casal' : uuid(str(sp.dequem)),
     cardId: uuid(str(sp.cartao)),
     paymentMethod:
-      meio === 'CREDIT_CARD' || ACCOUNT_PAYMENT_METHODS.includes(meio as never) ? meio : undefined,
+      meio === 'CREDIT_CARD' || meio === 'BENEFIT_CARD' || ACCOUNT_PAYMENT_METHODS.includes(meio as never)
+        ? meio
+        : undefined,
   };
   const activeFilters = Object.values(filters).filter(Boolean).length;
   const db = getDb();
@@ -167,6 +169,7 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
           <NativeSelect name="meio" defaultValue={filters.paymentMethod ?? ''} aria-label="Meio de pagamento">
             <option value="">Todos os meios</option>
             <option value="CREDIT_CARD">{PAYMENT_METHOD_LABEL.CREDIT_CARD}</option>
+            <option value="BENEFIT_CARD">{PAYMENT_METHOD_LABEL.BENEFIT_CARD}</option>
             {ACCOUNT_PAYMENT_METHODS.map((m) => (
               <option key={m} value={m}>
                 {PAYMENT_METHOD_LABEL[m]}

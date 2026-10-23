@@ -13,6 +13,7 @@ import { sendReminders } from '@/bot/reports';
 import { createRealBot } from '@/bot/runtime';
 import { createDb } from '@/db/client';
 import { DEFAULT_TZ, today } from '@/domain/dates';
+import { generateBenefitCredits } from '@/server/benefits';
 import { generateOccurrences } from '@/server/recurring';
 
 const url = process.env.DATABASE_URL;
@@ -41,6 +42,8 @@ await boss.schedule(GENERATE, '5 0 * * *', null, { tz: DEFAULT_TZ });
 await boss.work(GENERATE, async () => {
   const created = await generateOccurrences(db, today());
   console.log(`[worker] ocorrências geradas: ${created}`);
+  const credits = await generateBenefitCredits(db, today());
+  console.log(`[worker] créditos de benefícios: ${credits}`);
 });
 await boss.send(GENERATE, null);
 
