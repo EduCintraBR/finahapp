@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { type FormEvent, startTransition, useActionState, useState } from 'react';
 import { invoiceDatesAction, payInvoiceAction } from '@/app/(app)/cartoes/actions';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { FundingFields } from '@/components/forms/funding-fields';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -36,6 +37,13 @@ export function PayInvoiceDialog({
     if (r.ok) setOpen(false);
     return r;
   }, null);
+  // onSubmit (e não <form action>): o React não limpa o formulário quando o servidor pede o aporte
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(() => action(fd));
+  };
+  const fundingShort = state && !state.ok ? state.details?.fundingShortCents : undefined;
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
@@ -49,7 +57,7 @@ export function PayInvoiceDialog({
             {additionalHolder && ` · Pix para ${additionalHolder}`} · sai da conta principal
           </DialogDescription>
         </DialogHeader>
-        <form action={action} className="space-y-4">
+        <form onSubmit={submit} className="space-y-4">
           <input type="hidden" name="id" value={invoiceId} />
           <Field
             label="Valor pago"
@@ -72,6 +80,9 @@ export function PayInvoiceDialog({
               </NativeSelect>
             </Field>
           </div>
+          {fundingShort !== undefined && (
+            <FundingFields shortCents={fundingShort} idPrefix={`inv-${invoiceId}`} />
+          )}
           <FormError message={state && !state.ok ? state.error : null} />
           <DialogFooter>
             <Button type="submit" className="h-11 w-full sm:w-auto" disabled={pending}>

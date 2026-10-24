@@ -46,6 +46,9 @@ export function EntryRowItem({ e, today, href }: { e: EntryRow; today: ISODate; 
             </>
           )}
           {pending && <Badge variant="outline">Pendente</Badge>}
+          {e.kind === 'EXPENSE' && e.status === 'POSTED' && !isScheduled(e, today) && (
+            <Badge variant="secondary">Pago</Badge>
+          )}
           {isScheduled(e, today) && (
             <Badge variant="outline" className="border-warning text-warning-text">
               Agendado

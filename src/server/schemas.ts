@@ -46,7 +46,27 @@ const optionalUuid = z.preprocess(blankToUndefined, z.uuid().optional()).transfo
 const optionalText = (max: number) =>
   z.preprocess(blankToUndefined, z.string().trim().max(max).optional()).transform((v) => v ?? null);
 
+/**
+ * Aporte (D69): quando a conta não tem saldo para o pagamento, o usuário informa quanto entrou e de onde veio.
+ * Campos opcionais do formulário; o serviço decide se são exigidos.
+ */
+const fundingFields = {
+  fundingAmount: z
+    .preprocess(blankToUndefined, money({ positive: true, label: 'o valor do aporte' }).optional())
+    .optional(),
+  fundingNote: z.preprocess(blankToUndefined, z.string().trim().max(300).optional()).optional(),
+};
+
+/** "true"/"false" do formulário (a chave Já paguei); ausente = undefined (cada serviço tem seu padrão). */
+const paidFlag = z.preprocess(
+  (v) => (v === 'true' || v === true ? true : v === 'false' || v === false ? false : undefined),
+  z.boolean().optional(),
+);
+
 export const entryInput = z.object({
+  /** despesa: já foi paga? (padrão do serviço: sim; o formulário envia a chave) — receita é sempre recebida */
+  paid: paidFlag,
+  ...fundingFields,
   kind: z.enum(['INCOME', 'EXPENSE'], { error: 'Escolha receita ou despesa.' }),
   amount: money({ positive: true }),
   description: z
@@ -67,6 +87,9 @@ export const versionInput = z.coerce.number().int().min(1);
 export const confirmPaymentInput = z.object({
   date: isoDate,
   amount: money({ positive: true, label: 'o valor pago' }),
+  /** carteira de benefício que paga a conta (vazio = conta bancária) */
+  walletId: optionalUuid.optional(),
+  ...fundingFields,
 });
 export type ConfirmPaymentInput = z.output<typeof confirmPaymentInput>;
 
@@ -226,6 +249,7 @@ export const invoicePaymentInput = z.object({
   paymentMethod: z.enum(['PIX', 'BOLETO', 'AUTO_DEBIT', 'BANK_TRANSFER', 'DEBIT', 'OTHER'], {
     error: 'Escolha como pagou.',
   }),
+  ...fundingFields,
 });
 export type InvoicePaymentInput = z.output<typeof invoicePaymentInput>;
 
@@ -411,5 +435,6 @@ export const loanPaymentInput = z.object({
     .min(1, { error: 'Escolha pelo menos uma parcela.' }),
   paid: money({ positive: true, label: 'o valor pago' }),
   date: isoDate,
+  ...fundingFields,
 });
 export type LoanPaymentInput = z.output<typeof loanPaymentInput>;

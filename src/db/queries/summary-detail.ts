@@ -100,15 +100,16 @@ export async function summaryDetail(
   const posted = (e: EntryRow) => e.status === 'POSTED' && !isScheduled(e, today);
   const waiting = (e: EntryRow) => e.status === 'PENDING' || isScheduled(e, today);
   const isOut = (e: EntryRow) => OUT_KINDS.has(e.kind);
+  const notIncome = (e: EntryRow) => e.loanId !== null || e.fundingForId !== null;
 
   const entries = all.filter((e) => {
     switch (kind) {
-      case 'entrou': // o valor recebido de empréstimo entra no saldo mas não é receita
-        return e.kind === 'INCOME' && e.loanId === null && posted(e);
+      case 'entrou': // o dinheiro de empréstimo e o aporte entram no saldo mas não são receita
+        return e.kind === 'INCOME' && !notIncome(e) && posted(e);
       case 'saiu':
         return isOut(e) && posted(e);
       case 'a-receber':
-        return e.kind === 'INCOME' && e.loanId === null && waiting(e);
+        return e.kind === 'INCOME' && !notIncome(e) && waiting(e);
       case 'a-pagar': // pendentes são só despesas; agendados, qualquer saída da conta
         return (e.kind === 'EXPENSE' && e.status === 'PENDING') || (isOut(e) && isScheduled(e, today));
     }

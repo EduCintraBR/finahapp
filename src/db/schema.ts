@@ -340,6 +340,8 @@ export const transactions = pgTable('transactions', {
   benefitCreditMonth: day('benefit_credit_month'),     // só no crédito automático do mês (idempotência)
   loanId: uuid('loan_id').references(() => loans.id),  // parcela (EXPENSE) ou valor recebido (INCOME) de um empréstimo (D66)
   loanInstallmentNumber: smallint('loan_installment_number'), // só nas parcelas
+  // Aporte (D69): entrada que cobre o que faltou no saldo para pagar a transação apontada (fora das receitas)
+  fundingForTransactionId: uuid('funding_for_transaction_id').references((): AnyPgColumn => transactions.id),
   categoryId: uuid('category_id').references(() => categories.id),
 
   transactionDate: day('transaction_date').notNull(), // data do fato (compra/competência)
@@ -382,6 +384,8 @@ export const transactions = pgTable('transactions', {
   uniqueIndex('tx_loan_installment_unique').on(t.loanId, t.loanInstallmentNumber)
     .where(sql`${t.loanInstallmentNumber} is not null and ${t.deletedAt} is null`),
   index('tx_loan').on(t.loanId).where(sql`${t.loanId} is not null`),
+  check('tx_funding_is_income', sql`${t.fundingForTransactionId} is null or ${t.kind} = 'INCOME'`),
+  index('tx_funding_for').on(t.fundingForTransactionId).where(sql`${t.fundingForTransactionId} is not null`),
   check('tx_posted_has_date', sql`${t.status} <> 'POSTED' or ${t.postedDate} is not null`),
   check('tx_pending_has_due', sql`${t.status} <> 'PENDING' or ${t.dueDate} is not null`),
   check('tx_invoice_payment_link', sql`(${t.kind} = 'INVOICE_PAYMENT') = (${t.paidInvoiceId} is not null)`),

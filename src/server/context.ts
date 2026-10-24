@@ -10,6 +10,13 @@ export type Tx = Parameters<Parameters<AnyDB['transaction']>[0]>[0];
 /** Erro de regra de negócio com mensagem pronta para o usuário (pt-BR). */
 export class UserError extends Error {
   override name = 'UserError';
+  constructor(
+    message: string,
+    /** repassado à tela junto da mensagem (ver ActionFailure.details) */
+    readonly details?: Record<string, number>,
+  ) {
+    super(message);
+  }
 }
 
 /** Executa um serviço e converte em ActionResult (Server Actions nunca lançam para o cliente). */
@@ -17,7 +24,7 @@ export async function runAction<T>(fn: () => Promise<T>): Promise<ActionResult<T
   try {
     return ok(await fn());
   } catch (err) {
-    if (err instanceof UserError) return fail(err.message);
+    if (err instanceof UserError) return fail(err.message, err.details);
     console.error('[action] erro inesperado:', err);
     return fail('Não foi possível concluir agora. Tente de novo.');
   }

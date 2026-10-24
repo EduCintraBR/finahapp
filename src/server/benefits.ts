@@ -19,6 +19,7 @@ import { audit } from './audit';
 import { checkExpenseCategory, checkUser } from './card-purchases';
 import { type ServiceCtx, type Tx, UserError } from './context';
 import { getPrimaryAccount } from './entries';
+import { walletBalance } from './wallet-balance';
 import type { BenefitCardInput, BenefitCardUpdateInput, BenefitSpendInput } from './schemas';
 
 export const BENEFIT_CATEGORY_NAME = 'Benefícios';
@@ -53,23 +54,6 @@ async function loadCard(tx: Tx, id: string) {
   const [c] = await tx.select().from(benefitCards).where(eq(benefitCards.id, id)).for('update');
   if (!c) throw new UserError('Cartão de benefícios não encontrado.');
   return c;
-}
-
-/** Saldo atual da carteira dentro da transação (fórmula canônica). */
-async function walletBalance(tx: Tx, walletId: string): Promise<number> {
-  const [r] = await tx
-    .select({
-      v: sql<string>`coalesce(sum(case when ${transactions.kind} = 'INCOME' then ${transactions.amountCents} else -${transactions.amountCents} end), 0)`,
-    })
-    .from(transactions)
-    .where(
-      and(
-        eq(transactions.benefitWalletId, walletId),
-        eq(transactions.status, 'POSTED'),
-        isNull(transactions.deletedAt),
-      ),
-    );
-  return Number(r?.v ?? 0);
 }
 
 function creditSnapshot(
@@ -295,15 +279,21 @@ export async function deleteBenefitSpend(ctx: ServiceCtx, transactionId: string)
     if (!t || t.deletedAt || !t.benefitWalletId || t.kind !== 'EXPENSE') {
       throw new UserError('Gasto não encontrado.');
     }
+    // ocorrência de fixo paga com a carteira: cancela em vez de apagar, ou a geração do mês a recriaria como pendente
+    const isOccurrence = t.recurringTemplateId !== null;
     await tx
       .update(transactions)
-      .set({ deletedAt: new Date(), version: sql`${transactions.version} + 1` })
+      .set(
+        isOccurrence
+          ? { status: 'CANCELLED', version: sql`${transactions.version} + 1` }
+          : { deletedAt: new Date(), version: sql`${transactions.version} + 1` },
+      )
       .where(eq(transactions.id, transactionId));
     await audit(tx, {
       userId: ctx.userId,
       entity: 'transactions',
       entityId: transactionId,
-      action: 'DELETE',
+      action: isOccurrence ? 'CANCEL' : 'DELETE',
       before: t,
     });
   });

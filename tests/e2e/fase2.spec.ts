@@ -42,6 +42,7 @@ test('lançar uma despesa pelo botão + e ver no extrato e no saldo', async () =
   await page.getByLabel('Valor').fill('123,45');
   await page.getByLabel('Descrição').fill('Padaria');
   await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await page.getByLabel('Já paguei').check(); // sem a chave a despesa fica a pagar (D69)
   await page.getByRole('button', { name: 'Lançar' }).click();
 
   await expect(page).toHaveURL(/\/lancamentos/);

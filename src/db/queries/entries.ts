@@ -36,6 +36,8 @@ const entryColumns = {
   postedDate: transactions.postedDate,
   recurringTemplateId: transactions.recurringTemplateId,
   loanId: transactions.loanId,
+  benefitWalletId: transactions.benefitWalletId,
+  fundingForId: transactions.fundingForTransactionId,
   occurrenceMonth: transactions.occurrenceMonth,
   source: transactions.source,
   version: transactions.version,

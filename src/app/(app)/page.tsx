@@ -14,7 +14,7 @@ import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle }
 import { getDb } from '@/db/client';
 import { getPrimaryAccount } from '@/db/queries/accounts';
 import { getAccountBalance } from '@/db/queries/balance';
-import { benefitCreditsTotal, listBenefitCards } from '@/db/queries/benefits';
+import { benefitCreditsTotal, listBenefitCards, payableWallets } from '@/db/queries/benefits';
 import { listLoans } from '@/db/queries/loans';
 import { listCardMonthViews } from '@/db/queries/cards';
 import { listEntries, listPending } from '@/db/queries/entries';
@@ -281,7 +281,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
             </CardAction>
           </CardHeader>
           <CardContent className="border-t px-0">
-            <PendingList entries={pending} today={hoje} />
+            <PendingList entries={pending} today={hoje} wallets={payableWallets(benefitCards)} />
           </CardContent>
         </Card>
 

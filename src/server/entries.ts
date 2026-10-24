@@ -4,11 +4,15 @@
  * Toda escrita: db.transaction() + audit_log + lock otimista (coluna version).
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
-import { bankAccounts, categories, transactions, users } from '@/db/schema';
+import { bankAccounts, benefitWallets, categories, transactions, users } from '@/db/schema';
 import { checkNotBeforeOpening } from '@/domain/account/rules';
+import { compareDates } from '@/domain/dates';
+import { formatBRL } from '@/domain/money';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
+import { recordFunding, requireFunding } from './funding';
 import type { ConfirmPaymentInput, EntryInput } from './schemas';
+import { walletBalance } from './wallet-balance';
 
 type TxRow = typeof transactions.$inferSelect;
 
@@ -88,11 +92,20 @@ export async function createEntry(
     await checkCategory(tx, input.categoryId, input.kind);
     await checkUser(tx, input.beneficiaryUserId);
 
+    // D69: despesa lançada no app pode ficar "a pagar" (vence na data informada, vencida se já passou) até a baixa.
+    // Receita é sempre recebida; bot e importação não informam a chave e seguem já pagos.
+    const paid = input.kind === 'INCOME' ? true : (input.paid ?? true);
+    // quem marca "já paguei" no formulário está tirando dinheiro da conta agora: sem saldo, explica o aporte
+    const funding =
+      input.kind === 'EXPENSE' && input.paid === true
+        ? await requireFunding(tx, account.id, input.amount, input.date, input)
+        : null;
+
     const [row] = await tx
       .insert(transactions)
       .values({
         kind: input.kind,
-        status: 'POSTED',
+        status: paid ? 'POSTED' : 'PENDING',
         description: input.description,
         notes: input.notes,
         amountCents: input.amount,
@@ -100,7 +113,8 @@ export async function createEntry(
         bankAccountId: account.id,
         categoryId: input.categoryId,
         transactionDate: input.date,
-        postedDate: input.date,
+        dueDate: paid ? null : input.date,
+        postedDate: paid ? input.date : null,
         createdByUserId: ctx.userId,
         beneficiaryUserId: input.beneficiaryUserId,
         source,
@@ -113,6 +127,7 @@ export async function createEntry(
       action: 'CREATE',
       after: snapshot(row!),
     });
+    if (funding) await recordFunding(tx, ctx, account.id, funding, input.date, row!.id, input.description);
     return { id: row!.id };
   });
 }
@@ -207,6 +222,35 @@ export async function confirmPayment(
     const dateError = checkNotBeforeOpening(input.date, account.openingBalanceDate);
     if (dateError) throw new UserError(dateError);
 
+    // paga com a carteira do cartão de benefícios: o valor inteiro sai dela e não mexe no saldo da conta
+    let wallet: { id: string } | null = null;
+    if (input.walletId) {
+      if (row.kind !== 'EXPENSE')
+        throw new UserError('Só despesas podem ser pagas com o cartão de benefícios.');
+      if (row.loanId !== null) throw new UserError('Parcela de empréstimo é paga pela conta.');
+      if (compareDates(input.date, ctx.today) > 0) {
+        throw new UserError('Pagando com o cartão de benefícios, a data não pode estar no futuro.');
+      }
+      const [w] = await tx
+        .select()
+        .from(benefitWallets)
+        .where(eq(benefitWallets.id, input.walletId))
+        .for('update');
+      if (!w) throw new UserError('Carteira não encontrada.');
+      const balance = await walletBalance(tx, w.id);
+      if (input.amount > balance) {
+        throw new UserError(
+          `Saldo insuficiente em ${w.name}: tem ${formatBRL(balance)} e a conta é de ${formatBRL(input.amount)}. Pague com a conta.`,
+        );
+      }
+      wallet = w;
+    }
+    // sem saldo na conta: o que faltou precisa de explicação (aporte)
+    const funding =
+      !wallet && row.kind === 'EXPENSE'
+        ? await requireFunding(tx, row.bankAccountId, input.amount, input.date, input)
+        : null;
+
     const [updated] = await tx
       .update(transactions)
       .set({
@@ -216,10 +260,16 @@ export async function confirmPayment(
         amountCents: input.amount,
         // parcela de empréstimo (D66): conta no mês em que foi paga, mesmo se adiantada
         ...(row.loanInstallmentNumber !== null ? { transactionDate: input.date } : {}),
+        ...(wallet
+          ? { bankAccountId: null, benefitWalletId: wallet.id, paymentMethod: 'BENEFIT_CARD' as const }
+          : {}),
         version: sql`${transactions.version} + 1`,
       })
       .where(eq(transactions.id, id))
       .returning();
+    if (funding) {
+      await recordFunding(tx, ctx, row.bankAccountId, funding, input.date, id, row.description);
+    }
     await audit(tx, {
       userId: ctx.userId,
       entity: 'transactions',
@@ -236,13 +286,26 @@ export async function revertPayment(ctx: ServiceCtx, id: string, version: number
   return ctx.db.transaction(async (tx) => {
     const row = await loadForUpdate(tx, id);
     checkVersion(row, version);
-    if (row.status !== 'POSTED' || row.dueDate === null) {
-      throw new UserError('Só dá para estornar a baixa de uma conta que estava pendente.');
+    // D69: despesa lançada no app já paga também pode voltar a "a pagar" (vence na data em que foi lançada)
+    const reopenable =
+      row.status === 'POSTED' &&
+      (row.dueDate !== null ||
+        (row.kind === 'EXPENSE' && row.loanId === null && (row.source === 'MANUAL' || row.source === 'BOT')));
+    if (!reopenable) {
+      throw new UserError(
+        'Só dá para voltar a "a pagar" uma despesa lançada no app ou uma conta que estava pendente.',
+      );
+    }
+    if (row.benefitWalletId !== null) {
+      throw new UserError(
+        'Conta paga com o cartão de benefícios: exclua o gasto no histórico do cartão e lance de novo.',
+      );
     }
     const [updated] = await tx
       .update(transactions)
       .set({
         status: 'PENDING',
+        dueDate: row.dueDate ?? row.postedDate,
         postedDate: null,
         amountCents: row.estimatedAmountCents ?? row.amountCents,
         estimatedAmountCents: null,

@@ -1,8 +1,9 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { type FormEvent, startTransition, useActionState, useState } from 'react';
 import { createLoanAction, payLoanAction } from '@/app/(app)/emprestimos/actions';
 import { Field, FormError, MoneyInput } from '@/components/forms/fields';
+import { FundingFields } from '@/components/forms/funding-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -137,13 +138,21 @@ export function PayLoanForm({
   const paid = tryParseBRL(paidValue);
   const diff = paid.ok ? scheduledSum - paid.value : null;
 
+  // onSubmit (e não <form action>): o React não limpa o formulário quando o servidor pede o aporte
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(() => action(fd));
+  };
+  const fundingShort = state && !state.ok ? state.details?.fundingShortCents : undefined;
+
   const toggle = (id: string) => {
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
     setPaidText(null); // trocou as parcelas: volta a sugerir a soma
   };
 
   return (
-    <form action={action} className="space-y-3">
+    <form onSubmit={submit} className="space-y-3">
       <input type="hidden" name="loanId" value={loanId} />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">Parcelas</span>
@@ -217,6 +226,7 @@ export function PayLoanForm({
                 ? `Programado ${formatBRL(scheduledSum)} · acréscimo de ${formatBRL(-diff)}`
                 : `Programado ${formatBRL(scheduledSum)} · sem desconto`}
       </p>
+      {fundingShort !== undefined && <FundingFields shortCents={fundingShort} idPrefix="loan" />}
       <FormError message={state && !state.ok ? state.error : null} />
       {state?.ok && (
         <p role="status" className="text-sm text-income">

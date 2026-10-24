@@ -11,10 +11,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
+import { listBenefitCards, payableWallets } from '@/db/queries/benefits';
 import { getEntry, planIdOfTransaction } from '@/db/queries/entries';
 import { isScheduled } from '@/domain/account/rules';
 import { listCategories, listUsers } from '@/db/queries/lookups';
-import { formatDateBR, today } from '@/domain/dates';
+import { formatDateBR, monthStart, today } from '@/domain/dates';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
 import { KIND_LABEL, STATUS_LABEL } from '@/lib/labels';
 import { removeEntryAction, revertPaymentAction } from '../actions';
@@ -54,6 +55,20 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
   const isOccurrence = entry.recurringTemplateId !== null;
   const income = entry.kind === 'INCOME';
   const fields = { id: entry.id, version: entry.version, returnTo: back };
+  // despesa pendente pode ser paga com uma carteira do cartão de benefícios (D69)
+  const wallets =
+    pending && !income && entry.loanId === null
+      ? payableWallets(await listBenefitCards(db, hoje, monthStart(hoje)))
+      : [];
+  // despesa lançada no app que nasceu paga pode voltar a "a pagar" (D69)
+  const canReopen =
+    entry.status === 'POSTED' &&
+    !entry.dueDate &&
+    entry.kind === 'EXPENSE' &&
+    entry.loanId === null &&
+    entry.benefitWalletId === null &&
+    (entry.source === 'MANUAL' || entry.source === 'BOT') &&
+    editable;
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
@@ -127,6 +142,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
               income={income}
               amountText={formatDecimalBR(entry.amountCents)}
               today={hoje}
+              wallets={wallets}
               trigger={
                 <Button className="w-full sm:w-auto">
                   {income ? 'Confirmar recebimento' : 'Confirmar pagamento'}
@@ -147,6 +163,19 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                     : ''
                 } e sai do saldo.`,
                 confirmLabel: 'Estornar',
+              }}
+            />
+          )}
+          {canReopen && (
+            <ActionButton
+              action={revertPaymentAction}
+              fields={fields}
+              label="Marcar como a pagar"
+              confirm={{
+                title: 'Marcar como a pagar?',
+                description:
+                  'O lançamento volta a ficar pendente, vencendo na data em que foi lançado, e sai do saldo até você dar baixa em "Paguei".',
+                confirmLabel: 'Marcar como a pagar',
               }}
             />
           )}

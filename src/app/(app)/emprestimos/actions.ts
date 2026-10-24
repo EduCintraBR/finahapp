@@ -32,6 +32,8 @@ export async function payLoanAction(
     installmentIds: fd.getAll('installmentId').map(String),
     paid: fd.get('paid'),
     date: fd.get('date'),
+    fundingAmount: fd.get('fundingAmount') ?? undefined,
+    fundingNote: fd.get('fundingNote') ?? undefined,
   });
   if (!parsed.success) return fail(firstIssue(parsed.error));
   const r = await runAction(async () =>
