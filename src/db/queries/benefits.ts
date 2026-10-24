@@ -6,7 +6,7 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 import { creditDateFor, type CreditRule } from '@/domain/benefits/credits';
 import { addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/domain/dates';
-import type { Cents } from '@/domain/money';
+import { formatBRL, type Cents } from '@/domain/money';
 import { centsFromDb } from '@/server/context';
 import type { AnyDB } from '../client';
 import { benefitCards, benefitWallets, categories, transactions, users } from '../schema';
@@ -198,4 +198,13 @@ export async function benefitCreditsTotal(db: AnyDB, from: ISODate, to: ISODate)
       ),
     );
   return centsFromDb(r?.v);
+}
+
+/** Carteiras com saldo, para pagar uma conta com o cartão de benefícios (D69). `label` já traz o saldo. */
+export function payableWallets(cards: BenefitCardView[]): { id: string; label: string }[] {
+  return cards.flatMap((c) =>
+    c.wallets
+      .filter((w) => w.balanceCents > 0)
+      .map((w) => ({ id: w.id, label: `${c.name} · ${w.name} · saldo ${formatBRL(w.balanceCents)}` })),
+  );
 }

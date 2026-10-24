@@ -10,6 +10,7 @@ import { allocatePayment, buildLoanInstallments } from '@/domain/loans/loans';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
 import { getPrimaryAccount } from './entries';
+import { recordFunding, requireFunding } from './funding';
 import type { LoanInput, LoanPaymentInput } from './schemas';
 
 export const LOAN_CATEGORY_NAME = 'Empréstimo';
@@ -162,6 +163,9 @@ export async function payLoanInstallments(
       throw new UserError((e as Error).message);
     }
 
+    // sem saldo na conta para pagar as parcelas: o que faltou precisa de explicação (aporte, D69)
+    const funding = await requireFunding(tx, account.id, input.paid, input.date, input);
+
     let scheduled = 0;
     let savings = 0;
     let lateFees = 0;
@@ -191,6 +195,7 @@ export async function payLoanInstallments(
         after: updated,
       });
     }
+    if (funding) await recordFunding(tx, ctx, account.id, funding, input.date, rows[0]!.id, loan.name);
     return {
       scheduledCents: scheduled,
       paidCents: input.paid,

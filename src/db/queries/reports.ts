@@ -247,7 +247,7 @@ async function pendingAccount(
     db,
     sql`select sum(t.amount_cents) as v from transactions t
         where t.kind = ${kind} and t.status = 'PENDING' and t.deleted_at is null and t.bank_account_id is not null
-          and not (t.kind = 'INCOME' and t.loan_id is not null)
+          and not (t.kind = 'INCOME' and (t.loan_id is not null or t.funding_for_transaction_id is not null))
           and t.due_date <= ${to} ${from ? sql`and t.due_date >= ${from}` : sql``}`,
   );
   return centsFromDb(r?.v);
@@ -272,7 +272,7 @@ async function postedAccount(
           kinds.map((k) => sql`${k}`),
           sql`, `,
         )}) and t.status = 'POSTED' and t.deleted_at is null and t.bank_account_id is not null
-          and not (t.kind = 'INCOME' and t.loan_id is not null)
+          and not (t.kind = 'INCOME' and (t.loan_id is not null or t.funding_for_transaction_id is not null))
           and t.posted_date between ${from} and ${upTo}`,
   );
   return centsFromDb(r?.v);
@@ -295,7 +295,7 @@ async function scheduledAccount(
           kinds.map((k) => sql`${k}`),
           sql`, `,
         )}) and t.status = 'POSTED' and t.deleted_at is null and t.bank_account_id is not null
-          and not (t.kind = 'INCOME' and t.loan_id is not null)
+          and not (t.kind = 'INCOME' and (t.loan_id is not null or t.funding_for_transaction_id is not null))
           and t.posted_date between ${start} and ${to}`,
   );
   return centsFromDb(r?.v);

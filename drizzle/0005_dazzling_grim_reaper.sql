@@ -1,0 +1,4 @@
+ALTER TABLE "transactions" ADD COLUMN "funding_for_transaction_id" uuid;--> statement-breakpoint
+ALTER TABLE "transactions" ADD CONSTRAINT "transactions_funding_for_transaction_id_transactions_id_fk" FOREIGN KEY ("funding_for_transaction_id") REFERENCES "public"."transactions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "tx_funding_for" ON "transactions" USING btree ("funding_for_transaction_id") WHERE "transactions"."funding_for_transaction_id" is not null;--> statement-breakpoint
+ALTER TABLE "transactions" ADD CONSTRAINT "tx_funding_is_income" CHECK ("transactions"."funding_for_transaction_id" is null or "transactions"."kind" = 'INCOME');

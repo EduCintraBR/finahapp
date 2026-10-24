@@ -25,6 +25,7 @@ import { audit } from './audit';
 import { loadCard } from './cards';
 import { loadPlan, planItems } from './card-purchases';
 import { getPrimaryAccount } from './entries';
+import { recordFunding, requireFunding } from './funding';
 import type { AnticipationInput, InvoicePaymentInput, RefundInput } from './schemas';
 
 // ─────────── totais e situação ───────────
@@ -73,6 +74,8 @@ export async function payInvoice(ctx: ServiceCtx, invoiceId: string, input: Invo
     const account = await getPrimaryAccount(tx);
     const dateError = checkNotBeforeOpening(input.date, account.openingBalanceDate);
     if (dateError) throw new UserError(dateError);
+    // sem saldo na conta de pagamento: o que faltou precisa de explicação (aporte, D69)
+    const funding = await requireFunding(tx, card.paymentAccountId, input.amount, input.date, input);
 
     const [t] = await tx
       .insert(transactions)
@@ -96,6 +99,9 @@ export async function payInvoice(ctx: ServiceCtx, invoiceId: string, input: Invo
       action: 'CREATE',
       after: t,
     });
+    if (funding) {
+      await recordFunding(tx, ctx, card.paymentAccountId, funding, input.date, t!.id, `Fatura ${card.name}`);
+    }
     await syncInvoiceStatus(tx, inv.id, ctx.today);
     return { transactionId: t!.id };
   });

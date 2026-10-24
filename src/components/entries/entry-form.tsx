@@ -1,10 +1,11 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { type FormEvent, startTransition, useActionState, useState } from 'react';
 import { benefitSpendAction } from '@/app/(app)/beneficios/actions';
 import { cardPurchaseAction } from '@/app/(app)/cartoes/actions';
 import { saveEntryAction } from '@/app/(app)/lancamentos/actions';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { FundingFields } from '@/components/forms/funding-fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -84,6 +85,8 @@ export function EntryForm({
   const [amountText, setAmountText] = useState(defaults?.amountText ?? '');
   const [installments, setInstallments] = useState('1');
   const [date, setDate] = useState(defaults?.date ?? today);
+  // despesa nova nasce "a pagar" (D69); com a chave ligada, já saiu da conta
+  const [paid, setPaid] = useState(false);
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
   const options = categories.filter((c) => c.kind === categoryKind);
   const isCard = mode === 'CARD';
@@ -105,9 +108,22 @@ export function EntryForm({
     if (!categories.some((c) => c.id === categoryId && c.kind === kind)) setCategoryId('');
   };
   const preview = isCard ? installmentPreview(amountText, Number(installments)) : null;
+  const expenseMode = mode === 'EXPENSE' && !defaults;
+  // enviado por onSubmit (e não por <form action>) para o React não limpar o formulário quando o servidor
+  // devolve "faltam R$ X, informe o aporte"
+  const act = isCard ? cardAction : isBenefit ? benefitAction : entryAction;
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(() => act(fd));
+  };
+  const fundingShort =
+    !isCard && !isBenefit && (mode === 'INCOME' ? false : paid) && state && !state.ok
+      ? state.details?.fundingShortCents
+      : undefined;
 
   return (
-    <form action={isCard ? cardAction : isBenefit ? benefitAction : entryAction} className="space-y-4">
+    <form onSubmit={submit} className="space-y-4">
       {defaults && (
         <>
           <input type="hidden" name="id" value={defaults.id} />
@@ -260,7 +276,7 @@ export function EntryForm({
       <div className="grid grid-cols-2 gap-3">
         <Field
           label={
-            defaults?.pending
+            defaults?.pending || (expenseMode && !paid)
               ? 'Vencimento'
               : isCard
                 ? 'Data da compra'
@@ -270,7 +286,7 @@ export function EntryForm({
           }
           htmlFor="date"
           hint={
-            !isCard && !defaults?.pending && date > today
+            !isCard && !defaults?.pending && (mode === 'INCOME' || paid) && date > today
               ? `Data futura: fica agendado e só entra no saldo em ${formatDateBR(date)}.`
               : undefined
           }
@@ -289,9 +305,35 @@ export function EntryForm({
         )}
       </div>
 
+      {expenseMode && (
+        <div>
+          <input type="hidden" name="paid" value="false" />
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm">
+            <input
+              type="checkbox"
+              name="paid"
+              value="true"
+              checked={paid}
+              onChange={(e) => setPaid(e.target.checked)}
+              className="mt-0.5 size-4 accent-primary"
+            />
+            <span>
+              <span className="font-medium">Já paguei</span>
+              <span className="block text-xs text-muted-foreground">
+                {paid
+                  ? 'Sai do saldo da conta agora, na data escolhida.'
+                  : 'Fica a pagar no dia do vencimento (vencida se a data já passou) até você dar baixa em “Paguei”.'}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       <Field label="Observações" htmlFor="notes">
         <Textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={defaults?.notes ?? ''} />
       </Field>
+
+      {fundingShort !== undefined && <FundingFields shortCents={fundingShort} idPrefix="entry" />}
 
       <FormError message={state && !state.ok ? state.error : null} />
 

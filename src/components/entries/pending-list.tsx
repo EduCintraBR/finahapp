@@ -3,11 +3,19 @@ import { Amount, directionOf } from '@/components/money/amount';
 import type { EntryRow } from '@/db/queries/entries';
 import { formatDateBR, type ISODate } from '@/domain/dates';
 import { formatDecimalBR } from '@/domain/money';
-import { ConfirmPaymentDialog } from './confirm-payment-dialog';
+import { ConfirmPaymentDialog, type PayWithWallet } from './confirm-payment-dialog';
 import { HighlightBadge } from './entry-list';
 
 /** Pendentes com baixa rápida (2 toques a partir da Home: "Paguei" → "Confirmar"). */
-export function PendingList({ entries, today }: { entries: EntryRow[]; today: ISODate }) {
+export function PendingList({
+  entries,
+  today,
+  wallets = [],
+}: {
+  entries: EntryRow[];
+  today: ISODate;
+  wallets?: PayWithWallet[];
+}) {
   if (entries.length === 0) {
     return <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nada pendente. 🎉</p>;
   }
@@ -30,6 +38,7 @@ export function PendingList({ entries, today }: { entries: EntryRow[]; today: IS
             income={e.kind === 'INCOME'}
             amountText={formatDecimalBR(e.amountCents)}
             today={today}
+            wallets={e.loanId === null ? wallets : []}
           />
         </li>
       ))}

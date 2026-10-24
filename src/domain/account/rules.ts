@@ -13,7 +13,7 @@ export function checkNotBeforeOpening(date: ISODate, openingBalanceDate: ISODate
 
 export type DueHighlight = 'OVERDUE' | 'TODAY' | 'SOON';
 
-/** Destaque de pendente: atrasado (venceu), vence hoje, ou vence em até 3 dias. */
+/** Destaque de pendente: vencida (passou do vencimento), vence hoje, ou vence em até 3 dias. */
 export function dueHighlight(dueDate: ISODate, today: ISODate): DueHighlight | null {
   const days = diffDays(dueDate, today);
   if (days < 0) return 'OVERDUE';
@@ -22,7 +22,7 @@ export function dueHighlight(dueDate: ISODate, today: ISODate): DueHighlight | n
 }
 
 export const DUE_HIGHLIGHT_LABEL: Record<DueHighlight, string> = {
-  OVERDUE: 'Atrasado',
+  OVERDUE: 'Vencida',
   TODAY: 'Vence hoje',
   SOON: 'Vence em até 3 dias',
 };
@@ -33,4 +33,12 @@ export const DUE_HIGHLIGHT_LABEL: Record<DueHighlight, string> = {
  */
 export function isScheduled(e: { status: string; postedDate: ISODate | null }, today: ISODate): boolean {
   return e.status === 'POSTED' && e.postedDate !== null && compareDates(e.postedDate, today) > 0;
+}
+
+/**
+ * Aporte exigido (D69): quanto falta no saldo da conta (na data do pagamento) para pagar `amountCents` sem ficar
+ * negativo. Se o saldo já está negativo, o aporte tem que cobrir o buraco também. 0 = o saldo basta.
+ */
+export function fundingNeeded(balanceCents: number, amountCents: number): number {
+  return Math.max(0, amountCents - balanceCents);
 }
