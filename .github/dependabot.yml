@@ -1,4 +1,5 @@
 # Atualizações de segurança e de versão (o CI roda em cada PR do Dependabot; nada entra sem passar).
+# Os PRs vão para a `dev`: cada merge publica no dev (dev.finahapp.com) e só chega à produção no PR dev → main.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -12,12 +13,20 @@ updates:
       dependencias:
         patterns: ['*']
         update-types: [minor, patch]
+    ignore:
+      # o app roda em Node 24 (Dockerfile e CI): tipos de um Node mais novo aceitariam APIs que não existem em produção
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
       day: monday
     target-branch: dev
+    # todas as actions num PR só: um deploy no dev por semana, não um por action
+    groups:
+      actions:
+        patterns: ['*']
   - package-ecosystem: docker
     directory: /
     schedule:
