@@ -35,6 +35,7 @@ const entryColumns = {
   dueDate: transactions.dueDate,
   postedDate: transactions.postedDate,
   recurringTemplateId: transactions.recurringTemplateId,
+  loanId: transactions.loanId,
   occurrenceMonth: transactions.occurrenceMonth,
   source: transactions.source,
   version: transactions.version,
