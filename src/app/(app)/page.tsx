@@ -151,7 +151,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
             summary={summary}
           />
         </div>
-        <KpiGrid summary={summary} />
+        <KpiGrid summary={summary} suffix={suffix} />
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">

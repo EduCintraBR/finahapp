@@ -351,10 +351,12 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
     scheduledAccount(db, ['INCOME'], from, to, today),
     scheduledAccount(db, OUT_KINDS, from, to, today),
   ]);
-  const incomePendingCents = pendingInc + schedIn; // a receber = pendentes + agendados (D67)
   const current = monthStart(today);
   let endOfMonthCents: Cents;
   let endOfMonthKind: CashSummary['endOfMonthKind'];
+  // a receber = pendentes + agendados (D67); mês futuro soma também o que os fixos vão gerar (D68)
+  let incomePendingCents = pendingInc + schedIn;
+  let templatesOutCents = 0;
   if (from === current) {
     endOfMonthCents = await projectedEndOfCurrentMonth(db, balanceCents, today);
     endOfMonthKind = 'projected';
@@ -362,16 +364,20 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
     endOfMonthCents = await getAccountBalance(db, account.id, to);
     endOfMonthKind = 'actual';
   } else {
+    // ocorrências de meses futuros não são gravadas (CLAUDE.md): vêm da projeção, da mesma conta que o saldo estimado
     const range = await projection(db, today, from);
-    endOfMonthCents = range.at(-1)!.estimatedBalanceCents;
+    const row = range.at(-1)!;
+    endOfMonthCents = row.estimatedBalanceCents;
     endOfMonthKind = 'estimated';
+    incomePendingCents += row.templateIncomeCents;
+    templatesOutCents = row.fixedCents + row.variableCents + row.subscriptionsCents;
   }
   return {
     balanceCents,
     incomeReceivedCents,
     incomePendingCents,
     outPaidCents,
-    outPendingCents: pendingExp + pendingInv + schedOut,
+    outPendingCents: pendingExp + pendingInv + schedOut + templatesOutCents,
     endOfMonthCents,
     endOfMonthKind,
   };
@@ -381,13 +387,8 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
 
 export type ProjectionRow = MonthProjection & { estimatedBalanceCents: Cents };
 
-/** Meses do mês seguinte ao atual até `untilMonth`, com o saldo estimado acumulado (D40). */
-export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate): Promise<ProjectionRow[]> {
-  const account = await getPrimaryAccount(db);
-  if (!account) return [];
-  const balance = await getAccountBalance(db, account.id, today);
-  const start = await projectedEndOfCurrentMonth(db, balance, today);
-
+/** Fixos e recorrentes ativos no formato da projeção (D68: também alimenta o detalhe dos cards da Home). */
+export async function loadProjectionTemplates(db: AnyDB): Promise<ProjectionTemplate[]> {
   const [tpls, cards, mats] = await Promise.all([
     db.select().from(recurringTemplates).where(eq(recurringTemplates.isActive, true)),
     db.select().from(creditCards).where(isNull(creditCards.archivedAt)),
@@ -424,6 +425,18 @@ export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate)
       },
     ];
   });
+
+  return templates;
+}
+
+/** Meses do mês seguinte ao atual até `untilMonth`, com o saldo estimado acumulado (D40). */
+export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate): Promise<ProjectionRow[]> {
+  const account = await getPrimaryAccount(db);
+  if (!account) return [];
+  const balance = await getAccountBalance(db, account.id, today);
+  const start = await projectedEndOfCurrentMonth(db, balance, today);
+
+  const templates = await loadProjectionTemplates(db);
 
   const months: ISODate[] = [];
   for (

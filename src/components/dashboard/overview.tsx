@@ -1,5 +1,13 @@
 import Link from 'next/link';
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, Receipt, TrendingDown, TrendingUp } from 'lucide-react';
+import {
+  ArrowDownLeft,
+  ArrowUpRight,
+  CalendarClock,
+  ChevronRight,
+  Receipt,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -96,13 +104,35 @@ export function BalanceHero({
   );
 }
 
-/** Quatro indicadores do mês, cada um com seu ícone e cor. */
-export function KpiGrid({ summary }: { summary: CashSummary }) {
+/**
+ * Quatro indicadores do mês, cada um com seu ícone e cor. Cada card abre o detalhe (D68) com os itens que somam
+ * aquele valor. `suffix` mantém o mês escolhido (?mes=AAAA-MM).
+ */
+export function KpiGrid({ summary, suffix = '' }: { summary: CashSummary; suffix?: string }) {
   const tiles = [
-    { label: 'Entrou', cents: summary.incomeReceivedCents, Icon: ArrowDownLeft, tone: 'income' as const },
-    { label: 'Saiu', cents: summary.outPaidCents, Icon: ArrowUpRight, tone: 'expense' as const },
-    { label: 'A receber', cents: summary.incomePendingCents, Icon: CalendarClock, tone: 'muted' as const },
     {
+      slug: 'entrou',
+      label: 'Entrou',
+      cents: summary.incomeReceivedCents,
+      Icon: ArrowDownLeft,
+      tone: 'income' as const,
+    },
+    {
+      slug: 'saiu',
+      label: 'Saiu',
+      cents: summary.outPaidCents,
+      Icon: ArrowUpRight,
+      tone: 'expense' as const,
+    },
+    {
+      slug: 'a-receber',
+      label: 'A receber',
+      cents: summary.incomePendingCents,
+      Icon: CalendarClock,
+      tone: 'muted' as const,
+    },
+    {
+      slug: 'a-pagar',
       label: 'A pagar',
       cents: summary.outPendingCents,
       Icon: Receipt,
@@ -118,21 +148,31 @@ export function KpiGrid({ summary }: { summary: CashSummary }) {
   };
   return (
     <div className="grid grid-cols-2 gap-3">
-      {tiles.map(({ label, cents, Icon, tone: t, hint }) => (
-        <Card key={label} className="gap-2 py-4">
-          <CardContent className="space-y-2 px-4">
-            <span className={cn('flex size-8 items-center justify-center rounded-full', tone[t])}>
-              <Icon className="size-4" aria-hidden />
-            </span>
-            <div>
-              <div className="text-xs text-muted-foreground">
-                {label}
-                {hint && <span className="hidden sm:inline"> · {hint}</span>}
+      {tiles.map(({ slug, label, cents, Icon, tone: t, hint }) => (
+        <Link
+          key={slug}
+          href={`/resumo/${slug}${suffix}`}
+          data-testid={`kpi-${slug}`}
+          className="group block min-w-0 rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        >
+          <Card className="gap-2 py-4 transition-colors group-hover:bg-muted/40">
+            <CardContent className="space-y-2 px-4">
+              <div className="flex items-center justify-between">
+                <span className={cn('flex size-8 items-center justify-center rounded-full', tone[t])}>
+                  <Icon className="size-4" aria-hidden />
+                </span>
+                <ChevronRight className="size-4 text-muted-foreground" aria-hidden />
               </div>
-              <Amount cents={cents} className="text-base font-semibold" />
-            </div>
-          </CardContent>
-        </Card>
+              <div>
+                <div className="text-xs text-muted-foreground">
+                  {label}
+                  {hint && <span className="hidden sm:inline"> · {hint}</span>}
+                </div>
+                <Amount cents={cents} className="text-base font-semibold" />
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       ))}
     </div>
   );

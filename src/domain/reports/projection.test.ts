@@ -1,6 +1,12 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { accumulate, projectMonth, subscriptionsDueIn, type ProjectionTemplate } from './projection';
+import {
+  accumulate,
+  projectedItems,
+  projectMonth,
+  subscriptionsDueIn,
+  type ProjectionTemplate,
+} from './projection';
 
 const tpl = (over: Partial<ProjectionTemplate> = {}): ProjectionTemplate => ({
   id: 't',
@@ -34,6 +40,7 @@ describe('projectMonth (D41)', () => {
     expect(p).toEqual({
       month: '2026-12-01',
       incomeCents: 800_000,
+      templateIncomeCents: 800_000,
       fixedCents: 200_000,
       variableCents: 25_000,
       invoicesCents: 150_000,
@@ -68,6 +75,38 @@ describe('projectMonth (D41)', () => {
     expect(p.incomeCents).toBe(500_000);
     expect(p.scheduledOutCents).toBe(120_000);
     expect(p.resultCents).toBe(380_000);
+  });
+
+  it('projectedItems: a lista por trás dos totais (fixo, recorrente, receita), com o dia ajustado ao mês', () => {
+    const templates = [
+      tpl({ direction: 'INCOME', amountCents: 800_000, dayOfMonth: 5 }),
+      tpl({ amountCents: 200_000, dayOfMonth: 10 }), // aluguel
+      tpl({ type: 'RECURRING_VARIABLE', amountCents: 25_000, dayOfMonth: 31 }), // luz: dia 31 em novembro vira 30
+      tpl({ amountCents: 9_999, endMonth: '2026-10-01' }), // encerrado antes
+    ];
+    const items = projectedItems(templates, '2026-11-01', '2026-10-18');
+    expect(items.map((i) => [i.dueDate, i.direction, i.type, i.amountCents])).toEqual([
+      ['2026-11-05', 'INCOME', 'FIXED', 800_000],
+      ['2026-11-10', 'EXPENSE', 'FIXED', 200_000],
+      ['2026-11-30', 'EXPENSE', 'RECURRING_VARIABLE', 25_000],
+    ]);
+  });
+
+  it('projectedItems e projectMonth concordam: a soma dos itens é o total da projeção', () => {
+    const templates = [
+      tpl({ direction: 'INCOME', amountCents: 800_000 }),
+      tpl({ amountCents: 200_000 }),
+      tpl({ type: 'RECURRING_VARIABLE', amountCents: 25_000 }),
+      tpl({ amountCents: 5_590, dayOfMonth: 15, paymentMethod: 'CREDIT_CARD', card: nubank }),
+    ];
+    const items = projectedItems(templates, '2026-12-01', '2026-10-18');
+    const p = projectMonth({ month: '2026-12-01', today: '2026-10-18', templates, invoicesDueCents: 0 });
+    const sum = (f: (i: (typeof items)[number]) => boolean) =>
+      items.filter(f).reduce((s, i) => s + i.amountCents, 0);
+    expect(sum((i) => !i.subscription && i.direction === 'INCOME')).toBe(p.templateIncomeCents);
+    expect(sum((i) => !i.subscription && i.direction === 'EXPENSE')).toBe(p.fixedCents + p.variableCents);
+    expect(sum((i) => i.subscription)).toBe(p.subscriptionsCents);
+    expect(items.find((i) => i.subscription)!.dueDate).toBe('2026-11-15'); // dia da cobrança que cai na fatura de dezembro
   });
 
   it('template que só começa depois não entra', () => {
