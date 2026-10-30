@@ -26,6 +26,20 @@ test('cabeçalhos de segurança e CSP com nonce, sem nenhuma violação na pági
   expect(violations).toEqual([]);
 });
 
+test('botão de ver senha no login mostra e oculta o texto, sem mudar o campo "Senha"', async ({ page }) => {
+  await page.goto('/login');
+  const senha = page.getByLabel('Senha');
+  await senha.fill('segredo-de-teste');
+  await expect(senha).toHaveAttribute('type', 'password');
+  await page.getByRole('button', { name: 'Mostrar senha' }).click();
+  await expect(senha).toHaveAttribute('type', 'text');
+  await expect(senha).toHaveValue('segredo-de-teste');
+  const ocultar = page.getByRole('button', { name: 'Ocultar senha' });
+  await expect(ocultar).toHaveAttribute('aria-pressed', 'true');
+  await ocultar.click();
+  await expect(senha).toHaveAttribute('type', 'password');
+});
+
 test('senha certa não basta: código errado é recusado', async ({ page }) => {
   await page.goto('/login');
   await fillPassword(page, eduardo);

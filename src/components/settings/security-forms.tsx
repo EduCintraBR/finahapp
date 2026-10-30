@@ -13,6 +13,7 @@ import { ActionButton } from '@/components/forms/action-button';
 import { Field, FormError } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import type { ActionResult } from '@/lib/action-result';
 
 const MIN = 12;
@@ -22,31 +23,17 @@ export function ChangePasswordForm() {
   return (
     <form action={action} className="space-y-3">
       <Field label="Senha atual" htmlFor="pw-current">
-        <Input id="pw-current" name="current" type="password" autoComplete="current-password" required />
+        <PasswordInput id="pw-current" name="current" autoComplete="current-password" required />
       </Field>
       <Field
         label="Nova senha"
         htmlFor="pw-next"
         hint={`Pelo menos ${MIN} caracteres. Uma frase longa é ótima.`}
       >
-        <Input
-          id="pw-next"
-          name="next"
-          type="password"
-          autoComplete="new-password"
-          minLength={MIN}
-          required
-        />
+        <PasswordInput id="pw-next" name="next" autoComplete="new-password" minLength={MIN} required />
       </Field>
       <Field label="Repita a nova senha" htmlFor="pw-confirm">
-        <Input
-          id="pw-confirm"
-          name="confirm"
-          type="password"
-          autoComplete="new-password"
-          minLength={MIN}
-          required
-        />
+        <PasswordInput id="pw-confirm" name="confirm" autoComplete="new-password" minLength={MIN} required />
       </Field>
       <FormError message={state && !state.ok ? state.error : null} />
       <p className="text-xs text-muted-foreground">
