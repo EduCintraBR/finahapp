@@ -38,6 +38,7 @@ const entryColumns = {
   loanId: transactions.loanId,
   benefitWalletId: transactions.benefitWalletId,
   fundingForId: transactions.fundingForTransactionId,
+  anticipatesId: transactions.anticipatesTransactionId,
   occurrenceMonth: transactions.occurrenceMonth,
   source: transactions.source,
   version: transactions.version,
@@ -122,6 +123,38 @@ export async function planIdOfTransaction(db: AnyDB, transactionId: string) {
 export async function getEntry(db: AnyDB, id: string) {
   const [row] = await baseSelect(db).where(and(eq(transactions.id, id), isNull(transactions.deletedAt)));
   return row ?? null;
+}
+
+/**
+ * Pagamento antecipado (D70): o outro lado do vínculo. Da conta original (ANTICIPATED) devolve o pagamento; do
+ * pagamento devolve a conta original (vencimento e valor previstos).
+ */
+export async function getAnticipationLink(
+  db: AnyDB,
+  entry: { id: string; status: string; anticipatesId: string | null },
+) {
+  const cols = {
+    id: transactions.id,
+    description: transactions.description,
+    amountCents: transactions.amountCents,
+    dueDate: transactions.dueDate,
+    postedDate: transactions.postedDate,
+  };
+  if (entry.anticipatesId) {
+    const [parent] = await db
+      .select(cols)
+      .from(transactions)
+      .where(and(eq(transactions.id, entry.anticipatesId), isNull(transactions.deletedAt)));
+    return parent ? { role: 'payment' as const, other: parent } : null;
+  }
+  if (entry.status === 'ANTICIPATED') {
+    const [payment] = await db
+      .select(cols)
+      .from(transactions)
+      .where(and(eq(transactions.anticipatesTransactionId, entry.id), isNull(transactions.deletedAt)));
+    return payment ? { role: 'original' as const, other: payment } : null;
+  }
+  return null;
 }
 
 export async function listTemplates(db: AnyDB) {

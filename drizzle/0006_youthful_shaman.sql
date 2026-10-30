@@ -1,0 +1,5 @@
+ALTER TYPE "public"."transaction_status" ADD VALUE 'ANTICIPATED';--> statement-breakpoint
+ALTER TABLE "transactions" ADD COLUMN "anticipates_transaction_id" uuid;--> statement-breakpoint
+ALTER TABLE "transactions" ADD CONSTRAINT "transactions_anticipates_transaction_id_transactions_id_fk" FOREIGN KEY ("anticipates_transaction_id") REFERENCES "public"."transactions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "tx_anticipates_unique" ON "transactions" USING btree ("anticipates_transaction_id") WHERE "transactions"."anticipates_transaction_id" is not null and "transactions"."deleted_at" is null;--> statement-breakpoint
+ALTER TABLE "transactions" ADD CONSTRAINT "tx_anticipates_is_expense" CHECK ("transactions"."anticipates_transaction_id" is null or "transactions"."kind" = 'EXPENSE');

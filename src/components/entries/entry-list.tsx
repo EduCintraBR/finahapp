@@ -55,6 +55,8 @@ export function EntryRowItem({ e, today, href }: { e: EntryRow; today: ISODate; 
             </Badge>
           )}
           {e.status === 'CANCELLED' && <Badge variant="outline">Cancelado</Badge>}
+          {e.status === 'ANTICIPATED' && <Badge variant="outline">Pago antes · fora das somas</Badge>}
+          {e.anticipatesId && !isScheduled(e, today) && <Badge variant="outline">Antecipado</Badge>}
           {pending && <HighlightBadge dueDate={e.dueDate} today={today} />}
         </div>
       </div>
@@ -65,6 +67,7 @@ export function EntryRowItem({ e, today, href }: { e: EntryRow; today: ISODate; 
           'text-sm font-medium',
           pending && 'opacity-60',
           e.status === 'CANCELLED' && 'line-through opacity-50',
+          e.status === 'ANTICIPATED' && 'line-through opacity-50', // não soma: o dinheiro está no pagamento ligado
         )}
       />
     </Link>

@@ -102,7 +102,7 @@ export async function grossSpend(
     db,
     sql`select ${keyExpr(key, 't.category_id', 't.transaction_date')} as k, sum(t.amount_cents) as v
         from transactions t
-        where t.kind = 'EXPENSE' and t.status <> 'CANCELLED' and t.deleted_at is null and t.source <> 'ONBOARDING'
+        where t.kind = 'EXPENSE' and t.status not in ('CANCELLED', 'ANTICIPATED') and t.deleted_at is null and t.source <> 'ONBOARDING'
           and t.transaction_date between ${from} and ${to}${personFilters(f, 't')}${sideFilter}
         group by 1`,
   );
@@ -137,7 +137,7 @@ export async function monthlySpend(
     db,
     sql`select ${keyExpr(key, 't.category_id', CASH_DATE_SQL)} as k, sum(t.amount_cents) as v
         from transactions t
-        where t.kind = 'EXPENSE' and t.bank_account_id is not null and t.status <> 'CANCELLED' and t.deleted_at is null
+        where t.kind = 'EXPENSE' and t.bank_account_id is not null and t.status not in ('CANCELLED', 'ANTICIPATED') and t.deleted_at is null
           and ${cashDate} between ${from} and ${to}${personFilters(f, 't')}${accountSide(f, 't')}
         group by 1`,
   );
