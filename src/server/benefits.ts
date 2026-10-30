@@ -18,7 +18,7 @@ import { formatBRL } from '@/domain/money';
 import { audit } from './audit';
 import { checkExpenseCategory, checkUser } from './card-purchases';
 import { type ServiceCtx, type Tx, UserError } from './context';
-import { getPrimaryAccount } from './entries';
+import { getPrimaryAccount, undoAnticipation } from './entries';
 import { walletBalance } from './wallet-balance';
 import type { BenefitCardInput, BenefitCardUpdateInput, BenefitSpendInput } from './schemas';
 
@@ -278,6 +278,11 @@ export async function deleteBenefitSpend(ctx: ServiceCtx, transactionId: string)
     const [t] = await tx.select().from(transactions).where(eq(transactions.id, transactionId)).for('update');
     if (!t || t.deletedAt || !t.benefitWalletId || t.kind !== 'EXPENSE') {
       throw new UserError('Gasto não encontrado.');
+    }
+    if (t.anticipatesTransactionId !== null) {
+      // pagamento antecipado (D70) feito com a carteira: a conta original volta para "a pagar"
+      await undoAnticipation(ctx, tx, t, 'DELETE');
+      return;
     }
     // ocorrência de fixo paga com a carteira: cancela em vez de apagar, ou a geração do mês a recriaria como pendente
     const isOccurrence = t.recurringTemplateId !== null;

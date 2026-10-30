@@ -41,7 +41,10 @@ export const transactionKind = pgEnum('transaction_kind', [
   'ADJUSTMENT_IN',        // + caixa  | acerto de saldo após conciliação
   'ADJUSTMENT_OUT',       // - caixa
 ]);
-export const transactionStatus = pgEnum('transaction_status', ['PENDING', 'POSTED', 'CANCELLED']);
+export const transactionStatus = pgEnum('transaction_status', [
+  'PENDING', 'POSTED', 'CANCELLED',
+  'ANTICIPATED', // conta paga em mês anterior ao do vencimento (D70): fica de registro; o dinheiro está no pagamento ligado
+]);
 export const paymentMethod = pgEnum('payment_method', [
   'PIX', 'DEBIT', 'CASH', 'BOLETO', 'BANK_TRANSFER', 'AUTO_DEBIT', 'CREDIT_CARD', 'OTHER',
   'BENEFIT_CARD', // cartão de benefícios (pré-pago): sai do saldo da carteira, não da conta (D65)
@@ -342,6 +345,9 @@ export const transactions = pgTable('transactions', {
   loanInstallmentNumber: smallint('loan_installment_number'), // só nas parcelas
   // Aporte (D69): entrada que cobre o que faltou no saldo para pagar a transação apontada (fora das receitas)
   fundingForTransactionId: uuid('funding_for_transaction_id').references((): AnyPgColumn => transactions.id),
+  // Pagamento antecipado (D70): este lançamento é o pagamento (no mês em que saiu o dinheiro) da conta apontada,
+  // que fica ANTICIPATED e fora das somas
+  anticipatesTransactionId: uuid('anticipates_transaction_id').references((): AnyPgColumn => transactions.id),
   categoryId: uuid('category_id').references(() => categories.id),
 
   transactionDate: day('transaction_date').notNull(), // data do fato (compra/competência)
@@ -386,6 +392,10 @@ export const transactions = pgTable('transactions', {
   index('tx_loan').on(t.loanId).where(sql`${t.loanId} is not null`),
   check('tx_funding_is_income', sql`${t.fundingForTransactionId} is null or ${t.kind} = 'INCOME'`),
   index('tx_funding_for').on(t.fundingForTransactionId).where(sql`${t.fundingForTransactionId} is not null`),
+  check('tx_anticipates_is_expense', sql`${t.anticipatesTransactionId} is null or ${t.kind} = 'EXPENSE'`),
+  // Um pagamento antecipado por conta
+  uniqueIndex('tx_anticipates_unique').on(t.anticipatesTransactionId)
+    .where(sql`${t.anticipatesTransactionId} is not null and ${t.deletedAt} is null`),
   check('tx_posted_has_date', sql`${t.status} <> 'POSTED' or ${t.postedDate} is not null`),
   check('tx_pending_has_due', sql`${t.status} <> 'PENDING' or ${t.dueDate} is not null`),
   check('tx_invoice_payment_link', sql`(${t.kind} = 'INVOICE_PAYMENT') = (${t.paidInvoiceId} is not null)`),

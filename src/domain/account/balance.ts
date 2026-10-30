@@ -16,7 +16,7 @@ export const OUTFLOW_KINDS = [
 ] as const;
 
 export type TransactionKind = (typeof INFLOW_KINDS)[number] | (typeof OUTFLOW_KINDS)[number];
-export type TransactionStatus = 'PENDING' | 'POSTED' | 'CANCELLED';
+export type TransactionStatus = 'PENDING' | 'POSTED' | 'CANCELLED' | 'ANTICIPATED';
 
 const INFLOW = new Set<TransactionKind>(INFLOW_KINDS);
 

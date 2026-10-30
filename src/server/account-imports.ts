@@ -315,22 +315,25 @@ export async function acceptAccountMatch(ctx: ServiceCtx, lineId: string, candid
         'O lançamento escolhido não corresponde a esta linha (valor, direção ou conta diferentes).',
       );
     }
+    // pago antes do vencimento (D70), a linha do extrato passa a apontar para o pagamento, que é onde está o dinheiro
+    let matchedId = id;
     if (t.status === 'PENDING') {
-      await confirmPayment({ ...ctx, db: asTx(tx) }, t.id, t.version, {
+      const paid = await confirmPayment({ ...ctx, db: asTx(tx) }, t.id, t.version, {
         date: payload.date,
         amount: payload.amountCents,
       });
+      matchedId = paid.id;
     }
     await tx
       .update(importLines)
-      .set({ status: 'MATCHED', matchedTransactionId: id, ...reviewed(ctx) })
+      .set({ status: 'MATCHED', matchedTransactionId: matchedId, ...reviewed(ctx) })
       .where(eq(importLines.id, lineId));
     await audit(tx, {
       userId: ctx.userId,
       entity: 'import_lines',
       entityId: lineId,
       action: 'UPDATE',
-      after: { status: 'MATCHED', id },
+      after: { status: 'MATCHED', id: matchedId },
     });
     await closeIfDone(tx, line.batchId);
   });

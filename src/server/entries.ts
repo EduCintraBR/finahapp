@@ -5,6 +5,7 @@
  */
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { bankAccounts, benefitWallets, categories, transactions, users } from '@/db/schema';
+import { isEarlyPayment } from '@/domain/account/early-payment';
 import { checkNotBeforeOpening } from '@/domain/account/rules';
 import { compareDates } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
@@ -142,6 +143,9 @@ export async function updateEntry(ctx: ServiceCtx, id: string, version: number, 
     checkVersion(row, version);
     checkEditableKind(row);
     if (row.status === 'CANCELLED') throw new UserError('Lançamento cancelado não pode ser editado.');
+    if (row.status === 'ANTICIPATED') {
+      throw new UserError('Esta conta foi paga antes do vencimento: edite o pagamento ligado a ela.');
+    }
     const account = await getPrimaryAccount(tx);
     const dateError = checkNotBeforeOpening(input.date, account.openingBalanceDate);
     if (dateError) throw new UserError(dateError);
@@ -185,6 +189,16 @@ export async function removeEntry(ctx: ServiceCtx, id: string, version: number) 
     const row = await loadForUpdate(tx, id);
     checkVersion(row, version);
     checkEditableKind(row, { allowTransfer: true }); // transferência pode ser excluída, não editada
+    if (row.status === 'ANTICIPATED') {
+      throw new UserError(
+        'Esta conta foi paga antes do vencimento: estorne ou exclua o pagamento ligado a ela.',
+      );
+    }
+    if (row.anticipatesTransactionId !== null) {
+      // excluir o pagamento antecipado devolve a conta original para "a pagar"
+      await undoAnticipation(ctx, tx, row, 'DELETE');
+      return;
+    }
     const isOccurrence = row.recurringTemplateId !== null;
     const [updated] = await tx
       .update(transactions)
@@ -251,6 +265,63 @@ export async function confirmPayment(
         ? await requireFunding(tx, row.bankAccountId, input.amount, input.date, input)
         : null;
 
+    // D70: conta paga em mês anterior ao do vencimento → o dinheiro vai para um lançamento novo, no mês do pagamento,
+    // ligado a esta conta, que fica como "paga antes" e sai das somas do mês original. Parcela de empréstimo já
+    // conta no mês do pagamento (D66) e não precisa do desvio.
+    const early =
+      row.kind === 'EXPENSE' &&
+      row.loanId === null &&
+      row.dueDate !== null &&
+      isEarlyPayment(row.dueDate, input.date);
+
+    if (early) {
+      const [payment] = await tx
+        .insert(transactions)
+        .values({
+          kind: 'EXPENSE',
+          status: 'POSTED',
+          description: row.description,
+          notes: row.notes,
+          amountCents: input.amount,
+          estimatedAmountCents: row.amountCents, // o previsto: a diferença para o pago é o desconto/acréscimo
+          paymentMethod: wallet ? 'BENEFIT_CARD' : row.paymentMethod,
+          bankAccountId: wallet ? null : row.bankAccountId,
+          benefitWalletId: wallet ? wallet.id : null,
+          categoryId: row.categoryId,
+          transactionDate: input.date,
+          postedDate: input.date,
+          createdByUserId: ctx.userId,
+          beneficiaryUserId: row.beneficiaryUserId,
+          source: 'MANUAL',
+          anticipatesTransactionId: row.id,
+        })
+        .returning();
+      const [parent] = await tx
+        .update(transactions)
+        .set({ status: 'ANTICIPATED', version: sql`${transactions.version} + 1` })
+        .where(eq(transactions.id, id))
+        .returning();
+      await audit(tx, {
+        userId: ctx.userId,
+        entity: 'transactions',
+        entityId: payment!.id,
+        action: 'CREATE',
+        after: snapshot(payment!),
+      });
+      if (funding) {
+        await recordFunding(tx, ctx, row.bankAccountId, funding, input.date, payment!.id, row.description);
+      }
+      await audit(tx, {
+        userId: ctx.userId,
+        entity: 'transactions',
+        entityId: id,
+        action: 'ANTICIPATE',
+        before: snapshot(row),
+        after: snapshot(parent!),
+      });
+      return { id: payment!.id };
+    }
+
     const [updated] = await tx
       .update(transactions)
       .set({
@@ -278,7 +349,53 @@ export async function confirmPayment(
       before: snapshot(row),
       after: snapshot(updated!),
     });
+    return { id };
   });
+}
+
+/**
+ * Desfaz um pagamento antecipado (D70): o lançamento do pagamento sai (delete lógico) e a conta original volta a
+ * ficar pendente, no vencimento e valor de antes. Usado por "Estornar" e por "Excluir" no pagamento.
+ */
+export async function undoAnticipation(
+  ctx: ServiceCtx,
+  tx: Tx,
+  payment: TxRow,
+  action: 'DELETE' | 'REVERT_PAYMENT',
+) {
+  const [parent] = await tx
+    .select()
+    .from(transactions)
+    .where(and(eq(transactions.id, payment.anticipatesTransactionId!), isNull(transactions.deletedAt)))
+    .for('update');
+  const [deleted] = await tx
+    .update(transactions)
+    .set({ deletedAt: new Date(), version: sql`${transactions.version} + 1` })
+    .where(eq(transactions.id, payment.id))
+    .returning();
+  await audit(tx, {
+    userId: ctx.userId,
+    entity: 'transactions',
+    entityId: payment.id,
+    action,
+    before: snapshot(payment),
+    after: snapshot(deleted!),
+  });
+  if (parent && parent.status === 'ANTICIPATED') {
+    const [reopened] = await tx
+      .update(transactions)
+      .set({ status: 'PENDING', version: sql`${transactions.version} + 1` })
+      .where(eq(transactions.id, parent.id))
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'transactions',
+      entityId: parent.id,
+      action: 'REVERT_PAYMENT',
+      before: snapshot(parent),
+      after: snapshot(reopened!),
+    });
+  }
 }
 
 /** Estornar baixa (D16): volta a PENDING, valor volta ao estimado, posted_date limpo. */
@@ -286,6 +403,13 @@ export async function revertPayment(ctx: ServiceCtx, id: string, version: number
   return ctx.db.transaction(async (tx) => {
     const row = await loadForUpdate(tx, id);
     checkVersion(row, version);
+    if (row.status === 'ANTICIPATED') {
+      throw new UserError('Esta conta foi paga antes do vencimento: estorne o pagamento ligado a ela.');
+    }
+    if (row.anticipatesTransactionId !== null) {
+      await undoAnticipation(ctx, tx, row, 'REVERT_PAYMENT');
+      return;
+    }
     // D69: despesa lançada no app já paga também pode voltar a "a pagar" (vence na data em que foi lançada)
     const reopenable =
       row.status === 'POSTED' &&

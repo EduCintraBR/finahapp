@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { listBenefitCards, payableWallets } from '@/db/queries/benefits';
-import { getEntry, planIdOfTransaction } from '@/db/queries/entries';
+import { getAnticipationLink, getEntry, planIdOfTransaction } from '@/db/queries/entries';
+import { paymentAdjustment } from '@/domain/account/early-payment';
 import { isScheduled } from '@/domain/account/rules';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { formatDateBR, monthStart, today } from '@/domain/dates';
@@ -50,7 +51,17 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
       ? voltar
       : '/lancamentos';
   const hoje = today();
-  const editable = (entry.kind === 'INCOME' || entry.kind === 'EXPENSE') && entry.status !== 'CANCELLED';
+  const editable =
+    (entry.kind === 'INCOME' || entry.kind === 'EXPENSE') &&
+    entry.status !== 'CANCELLED' &&
+    entry.status !== 'ANTICIPATED';
+  // pagamento antecipado (D70): o vínculo entre a conta original (vencimento) e o pagamento (mês em que saiu o dinheiro)
+  const link = await getAnticipationLink(db, entry);
+  const isPayment = entry.anticipatesId !== null;
+  const adjustment =
+    isPayment && entry.estimatedAmountCents !== null
+      ? paymentAdjustment(entry.estimatedAmountCents, entry.amountCents)
+      : null;
   const pending = entry.status === 'PENDING';
   const isOccurrence = entry.recurringTemplateId !== null;
   const income = entry.kind === 'INCOME';
@@ -67,6 +78,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
     entry.kind === 'EXPENSE' &&
     entry.loanId === null &&
     entry.benefitWalletId === null &&
+    !isPayment &&
     (entry.source === 'MANUAL' || entry.source === 'BOT') &&
     editable;
 
@@ -82,7 +94,11 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={pending ? 'outline' : entry.status === 'CANCELLED' ? 'destructive' : 'secondary'}>
-              {isScheduled(entry, today()) ? 'Agendado' : STATUS_LABEL[entry.status]}
+              {isScheduled(entry, today())
+                ? 'Agendado'
+                : isPayment
+                  ? 'Pago antecipado'
+                  : STATUS_LABEL[entry.status]}
             </Badge>
             {pending && <HighlightBadge dueDate={entry.dueDate} today={hoje} />}
             {isOccurrence && (
@@ -121,8 +137,56 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
             )}
             {entry.estimatedAmountCents !== null && entry.estimatedAmountCents !== entry.amountCents && (
               <>
-                <dt className="text-muted-foreground">Estimado</dt>
+                <dt className="text-muted-foreground">{isPayment ? 'Previsto' : 'Estimado'}</dt>
                 <dd>{formatBRL(entry.estimatedAmountCents)}</dd>
+              </>
+            )}
+            {adjustment && adjustment.discountCents > 0 && (
+              <>
+                <dt className="text-muted-foreground">Desconto</dt>
+                <dd data-testid="entry-discount" className="text-income">
+                  {formatBRL(adjustment.discountCents)}
+                </dd>
+              </>
+            )}
+            {adjustment && adjustment.surchargeCents > 0 && (
+              <>
+                <dt className="text-muted-foreground">Acréscimo</dt>
+                <dd data-testid="entry-surcharge">{formatBRL(adjustment.surchargeCents)}</dd>
+              </>
+            )}
+            {link?.role === 'payment' && (
+              <>
+                <dt className="text-muted-foreground">Conta paga</dt>
+                <dd>
+                  <Link
+                    href={`/lancamentos/${link.other.id}`}
+                    data-testid="anticipation-link"
+                    className="text-primary hover:underline"
+                  >
+                    vencia em {link.other.dueDate ? formatDateBR(link.other.dueDate) : '—'} · ver conta
+                    original
+                  </Link>
+                </dd>
+              </>
+            )}
+            {link?.role === 'original' && (
+              <>
+                <dt className="text-muted-foreground">Paga antes</dt>
+                <dd>
+                  <Link
+                    href={`/lancamentos/${link.other.id}`}
+                    data-testid="anticipation-link"
+                    className="text-primary hover:underline"
+                  >
+                    {link.other.postedDate ? formatDateBR(link.other.postedDate) : ''} ·{' '}
+                    {formatBRL(link.other.amountCents)} · ver pagamento
+                  </Link>
+                  <span className="block text-xs text-muted-foreground">
+                    Fica de registro: não entra nas somas de{' '}
+                    {entry.dueDate ? formatDateBR(entry.dueDate) : 'seu mês'}.
+                  </span>
+                </dd>
               </>
             )}
             <dt className="text-muted-foreground">Lançado</dt>
@@ -179,7 +243,23 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
               }}
             />
           )}
-          {editable && (
+          {isPayment && editable && (
+            <ActionButton
+              action={revertPaymentAction}
+              fields={fields}
+              label="Estornar pagamento"
+              confirm={{
+                title: 'Estornar o pagamento antecipado?',
+                description: `O pagamento sai do saldo e a conta original volta para "a pagar"${
+                  link?.role === 'payment' && link.other.dueDate
+                    ? `, vencendo em ${formatDateBR(link.other.dueDate)}`
+                    : ''
+                }.`,
+                confirmLabel: 'Estornar',
+              }}
+            />
+          )}
+          {editable && !isPayment && (
             <ActionButton
               action={removeEntryAction}
               fields={fields}
@@ -212,6 +292,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
           </CardHeader>
           <CardContent>
             <EntryForm
+              key={entry.version} // depois de uma baixa o formulário recomeça com os valores novos, não os de antes
               categories={categories}
               users={users}
               today={hoje}

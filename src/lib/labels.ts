@@ -38,6 +38,7 @@ export const STATUS_LABEL: Record<string, string> = {
   PENDING: 'Pendente',
   POSTED: 'Pago',
   CANCELLED: 'Cancelado',
+  ANTICIPATED: 'Pago antes',
 };
 
 export const RECURRING_TYPE_LABEL: Record<string, string> = {
