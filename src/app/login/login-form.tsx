@@ -5,6 +5,7 @@ import { RecoveryCodesList } from '@/components/auth/recovery-codes-list';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { PasswordInput } from '@/components/ui/password-input';
 import type { ActionResult } from '@/lib/action-result';
 import { login, type LoginStep } from './actions';
 
@@ -43,10 +44,9 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
       </div>
       <div className="space-y-2">
         <Label htmlFor="password">Senha</Label>
-        <Input
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           autoComplete="current-password"
           required
           readOnly={flow !== null}
