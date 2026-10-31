@@ -13,7 +13,13 @@ import {
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import { formatBRL } from '@/domain/money';
 
-export type EvolutionPoint = { month: string; label: string; monthlyCents: number; grossCents: number };
+/** null = mês antes do primeiro lançamento (sem dado, não é zero): a linha só começa onde há histórico. */
+export type EvolutionPoint = {
+  month: string;
+  label: string;
+  monthlyCents: number | null;
+  grossCents: number | null;
+};
 
 const SERIES = [
   { key: 'monthlyCents', name: 'Mensal', color: 'var(--series-1)' },
@@ -40,7 +46,9 @@ function ChartTooltip({ active, payload, label }: TooltipContentProps<ValueType,
           <div key={s.key} className="flex items-center gap-2">
             <span className="size-2 rounded-full" style={{ background: s.color }} aria-hidden />
             <span className="text-muted-foreground">{s.name}</span>
-            <span className="ml-auto font-medium tabular-nums">{formatBRL(Number(p?.value ?? 0))}</span>
+            <span className="ml-auto font-medium tabular-nums">
+              {p?.value == null ? '—' : formatBRL(Number(p.value))}
+            </span>
           </div>
         );
       })}
@@ -48,8 +56,17 @@ function ChartTooltip({ active, payload, label }: TooltipContentProps<ValueType,
   );
 }
 
-/** Evolução dos últimos 12 meses: Gasto Mensal (caixa) × Gasto Bruto (competência), mesmo eixo. */
-export function EvolutionChart({ data }: { data: EvolutionPoint[] }) {
+/**
+ * Evolução dos últimos 12 meses: Gasto Mensal (caixa) × Gasto Bruto (competência), mesmo eixo. A visão escolhida
+ * na tela fica em destaque; a outra segue visível, mais leve, para comparar.
+ */
+export function EvolutionChart({
+  data,
+  active = 'monthlyCents',
+}: {
+  data: EvolutionPoint[];
+  active?: 'monthlyCents' | 'grossCents';
+}) {
   return (
     <div className="space-y-3">
       <div className="flex gap-4 text-xs text-muted-foreground" aria-hidden>
@@ -61,7 +78,7 @@ export function EvolutionChart({ data }: { data: EvolutionPoint[] }) {
         ))}
       </div>
       <div
-        className="h-56 w-full"
+        className="h-56 w-full md:h-72"
         role="img"
         aria-label="Gráfico de Gasto Mensal e Bruto nos últimos 12 meses"
       >
@@ -94,8 +111,12 @@ export function EvolutionChart({ data }: { data: EvolutionPoint[] }) {
                 dataKey={s.key}
                 name={s.name}
                 stroke={s.color}
-                strokeWidth={2}
-                dot={{ r: 4, fill: s.color, stroke: 'var(--card)', strokeWidth: 2 }}
+                strokeWidth={s.key === active ? 2.5 : 1.5}
+                strokeOpacity={s.key === active ? 1 : 0.55}
+                connectNulls={false}
+                dot={
+                  s.key === active ? { r: 3.5, fill: s.color, stroke: 'var(--card)', strokeWidth: 2 } : false
+                }
                 activeDot={{ r: 6, fill: s.color, stroke: 'var(--card)', strokeWidth: 2 }}
                 isAnimationActive={false}
               />
@@ -117,8 +138,10 @@ export function EvolutionChart({ data }: { data: EvolutionPoint[] }) {
             {data.map((d) => (
               <tr key={d.month} className="border-t">
                 <td className="py-1 first-letter:uppercase">{d.label}</td>
-                <td className="py-1 text-right">{formatBRL(d.monthlyCents)}</td>
-                <td className="py-1 text-right">{formatBRL(d.grossCents)}</td>
+                <td className="py-1 text-right">
+                  {d.monthlyCents == null ? '—' : formatBRL(d.monthlyCents)}
+                </td>
+                <td className="py-1 text-right">{d.grossCents == null ? '—' : formatBRL(d.grossCents)}</td>
               </tr>
             ))}
           </tbody>
