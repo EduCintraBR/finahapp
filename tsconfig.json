@@ -37,7 +37,9 @@
     ".next-build/types/**/*.ts",
     ".next-build/dev/types/**/*.ts",
     ".next-check/types/**/*.ts",
-    ".next-check/dev/types/**/*.ts"
+    ".next-check/dev/types/**/*.ts",
+    ".next-shots/types/**/*.ts",
+    ".next-shots/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".next", ".next-e2e", "dist"]
+  "exclude": ["node_modules", ".next", ".next-e2e", ".next-shots", "dist"]
 }

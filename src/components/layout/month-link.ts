@@ -7,8 +7,10 @@ export function monthSuffix(month: ISODate, currentMonth: ISODate): string {
   return month === currentMonth ? '' : `?${MONTH_PARAM}=${toMonthParam(month)}`;
 }
 
-/** Mantém o mês selecionado (?mes=AAAA-MM) ao navegar entre as telas. */
+/** Mantém o mês selecionado (?mes=AAAA-MM) ao navegar entre as telas (o #âncora continua no fim). */
 export function withMonth(href: string, params: Pick<URLSearchParams, 'get'>): string {
   const month = params.get(MONTH_PARAM);
-  return month && parseMonthParam(month) ? `${href}?${MONTH_PARAM}=${month}` : href;
+  if (!month || !parseMonthParam(month)) return href;
+  const [path, hash] = href.split('#');
+  return `${path}?${MONTH_PARAM}=${month}${hash ? `#${hash}` : ''}`;
 }

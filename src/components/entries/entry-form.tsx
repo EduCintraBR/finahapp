@@ -79,7 +79,9 @@ export function EntryForm({
         ? 'CARD'
         : initialMode === 'BENEFIT' && wallets.length
           ? 'BENEFIT'
-          : 'EXPENSE'),
+          : initialMode === 'INCOME'
+            ? 'INCOME'
+            : 'EXPENSE'),
   );
   const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
   const [amountText, setAmountText] = useState(defaults?.amountText ?? '');

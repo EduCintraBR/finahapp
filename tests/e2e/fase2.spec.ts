@@ -37,8 +37,14 @@ test('Home mostra o saldo inicial', async () => {
 });
 
 test('lançar uma despesa pelo botão + e ver no extrato e no saldo', async () => {
-  await page.getByRole('link', { name: 'Novo lançamento' }).click();
-  await expect(page.getByRole('heading', { name: 'Novo lançamento' })).toBeVisible();
+  // o + abre o painel de tipos (U2); Despesa leva ao formulário
+  await page.getByRole('button', { name: 'Novo lançamento' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('link', { name: /Despesa/ })
+    .click();
+  await expect(page).toHaveURL(/\/lancamentos\/novo$/);
+  await expect(page.getByRole('heading', { name: 'Novo lançamento', level: 1 })).toBeVisible();
   await page.getByLabel('Valor').fill('123,45');
   await page.getByLabel('Descrição').fill('Padaria');
   await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });

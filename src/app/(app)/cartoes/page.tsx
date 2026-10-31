@@ -54,7 +54,8 @@ export default async function CardsPage({ searchParams }: PageProps<'/cartoes'>)
         </div>
       )}
 
-      <section aria-label="Cartões de benefícios" className="space-y-2">
+      {/* #beneficios: destino do item "Benefícios" do Mais e da sidebar */}
+      <section id="beneficios" aria-label="Cartões de benefícios" className="scroll-mt-20 space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="min-w-0 text-lg font-semibold tracking-tight">Cartões de benefícios</h2>
           <div className="flex gap-1">

@@ -27,8 +27,10 @@ test('importar o extrato da conta: criar em lote, pagamento de fatura e transfer
   await page.getByRole('button', { name: 'Salvar saldo inicial' }).click();
   await expect(page.getByText('Saldo inicial atualizado.')).toBeVisible();
 
-  await page.goto('/lancamentos');
-  await page.getByRole('link', { name: 'Importar extrato (OFX)' }).click();
+  // importar fica no "Mais" (U1)
+  await page.getByRole('link', { name: 'Mais' }).click();
+  await page.getByRole('link', { name: /Importar extrato/ }).click();
+  await expect(page).toHaveURL(/\/lancamentos\/importar$/);
   await page.getByLabel('Arquivo do extrato (OFX ou CSV)').setInputFiles({
     name: 'NU_conta.ofx',
     mimeType: 'application/x-ofx',
