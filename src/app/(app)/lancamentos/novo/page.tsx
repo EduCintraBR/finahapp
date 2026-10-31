@@ -30,13 +30,23 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
       <Card>
         <CardContent>
           <EntryForm
+            // escolher outro tipo no (+) já estando aqui muda só a URL: a key recria o formulário no tipo novo
+            key={`${tipo ?? ''}:${cartao ?? ''}:${carteira ?? ''}`}
             categories={categories}
             users={users}
             today={hoje}
             returnTo="/lancamentos"
             cards={cards.map((c) => ({ id: c.id, name: c.name }))}
             wallets={wallets}
-            initialMode={tipo === 'cartao' ? 'CARD' : tipo === 'beneficio' ? 'BENEFIT' : undefined}
+            initialMode={
+              tipo === 'cartao'
+                ? 'CARD'
+                : tipo === 'beneficio'
+                  ? 'BENEFIT'
+                  : tipo === 'receita'
+                    ? 'INCOME'
+                    : undefined
+            }
             initialWalletId={wallets.find((w) => w.id === carteira)?.id}
             // vindo da tela de um cartão, a compra já vem nesse cartão (e não no primeiro da lista)
             initialCardId={cards.find((c) => c.id === cartao)?.id}

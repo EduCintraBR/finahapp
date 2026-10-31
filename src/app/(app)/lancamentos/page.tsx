@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { isScheduled } from '@/domain/account/rules';
-import { FileUp, Landmark, Repeat, Scale, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import { EntryList } from '@/components/entries/entry-list';
+import { PageHeader } from '@/components/layout/page-header';
 import { NativeSelect } from '@/components/forms/fields';
 import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
@@ -61,35 +62,8 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Lançamentos</h1>
-        <div className="flex gap-1">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/fixos" aria-label="Fixos">
-              <Repeat aria-hidden />
-              <span className="hidden sm:inline">Fixos</span>
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/emprestimos" aria-label="Empréstimos">
-              <Landmark aria-hidden />
-              <span className="hidden sm:inline">Empréstimos</span>
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/lancamentos/importar" aria-label="Importar extrato (OFX)">
-              <FileUp aria-hidden />
-              <span className="hidden sm:inline">Importar</span>
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/conta/conferencia" aria-label="Conferir">
-              <Scale aria-hidden />
-              <span className="hidden sm:inline">Conferir</span>
-            </Link>
-          </Button>
-        </div>
-      </div>
+      {/* Fixos, Empréstimos, Importar e Conferir ficam no "Mais" (celular) e na sidebar (desktop) */}
+      <PageHeader title="Lançamentos" />
 
       <Card className="py-3">
         <CardContent className="grid grid-cols-2 gap-3 px-4 text-sm sm:grid-cols-4">

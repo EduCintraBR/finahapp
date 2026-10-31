@@ -29,9 +29,12 @@ export function AppShell({
             <div className="md:hidden">
               <Logo />
             </div>
-            <Suspense fallback={<div className="h-9" />}>
-              <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
-            </Suspense>
+            {/* o meio do cabeçalho existe mesmo nas telas sem seletor de mês: tema e perfil ficam sempre à direita */}
+            <div className="flex min-w-0 flex-1 justify-center md:justify-start">
+              <Suspense fallback={<div className="h-9" />}>
+                <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
+              </Suspense>
+            </div>
             <div className="flex items-center gap-1">
               <ThemeQuickToggle />
               <Link
