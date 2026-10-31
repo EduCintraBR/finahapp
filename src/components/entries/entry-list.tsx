@@ -79,10 +79,13 @@ export function EntryList({
   entries,
   today,
   returnTo,
+  flat = false,
 }: {
   entries: EntryRow[];
   today: ISODate;
   returnTo: string;
+  /** dentro de um painel (Home): uma lista só, com o dia como subtítulo, sem caixas por dia */
+  flat?: boolean;
 }) {
   if (entries.length === 0) {
     return <p className="py-10 text-center text-sm text-muted-foreground">Nenhum lançamento neste mês.</p>;
@@ -90,6 +93,24 @@ export function EntryList({
   const groups = new Map<string, EntryRow[]>();
   for (const e of entries) groups.set(e.date, [...(groups.get(e.date) ?? []), e]);
   const qs = `?voltar=${encodeURIComponent(returnTo)}`;
+  if (flat) {
+    return (
+      <div>
+        {[...groups].map(([date, items]) => (
+          <section key={date} aria-label={formatDayLabel(date)}>
+            <h3 className="border-y bg-muted/30 px-5 py-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+              {formatDayLabel(date)}
+            </h3>
+            <div className="divide-y [&>a]:px-5">
+              {items.map((e) => (
+                <EntryRowItem key={e.id} e={e} today={today} href={`/lancamentos/${e.id}${qs}`} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
   return (
     <div className="space-y-4">
       {[...groups].map(([date, items]) => (

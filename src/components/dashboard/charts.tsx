@@ -4,6 +4,7 @@ import {
   Bar,
   BarChart,
   Cell,
+  LabelList,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -24,12 +25,23 @@ const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part * 100
  * (CVD e contraste nos dois temas); no tema claro três delas têm contraste baixo com o fundo, por isso há sempre
  * a legenda com nome, valor e percentual (identidade nunca só pela cor) e um vão entre as fatias.
  */
-export function CategoryDonut({ slices, totalCents }: { slices: Slice[]; totalCents: number }) {
+export function CategoryDonut({
+  slices,
+  totalCents,
+  centerLabel = 'Compras do mês',
+  legend = true,
+}: {
+  slices: Slice[];
+  totalCents: number;
+  centerLabel?: string;
+  /** false quando a tela mostra a sua própria lista ao lado (Relatórios) */
+  legend?: boolean;
+}) {
   if (slices.length === 0 || totalCents <= 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">Sem gastos neste mês ainda.</p>;
   }
   return (
-    <div className="flex flex-col items-center gap-4 sm:flex-row">
+    <div className="flex flex-col items-center gap-5 sm:flex-row sm:gap-6">
       <div
         className="relative h-44 w-44 shrink-0"
         role="img"
@@ -56,23 +68,31 @@ export function CategoryDonut({ slices, totalCents }: { slices: Slice[]; totalCe
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-          <span className="text-[11px] text-muted-foreground">Compras do mês</span>
+          <span className="text-[11px] text-muted-foreground">{centerLabel}</span>
           <span className="text-sm font-semibold tabular-nums">{formatBRL(totalCents)}</span>
         </div>
       </div>
-      <ul className="w-full min-w-0 flex-1 space-y-2" aria-label="Legenda das categorias">
-        {slices.map((s) => (
-          <li key={s.key} className="flex items-center gap-2 text-sm">
-            <span className="size-2.5 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
-            <span className="min-w-0 flex-1 truncate">{s.name}</span>
-            <span className="text-xs text-muted-foreground tabular-nums">{pct(s.cents, totalCents)}%</span>
-            <span className="w-24 text-right font-medium tabular-nums">{formatBRL(s.cents)}</span>
-          </li>
-        ))}
-      </ul>
+      {legend && (
+        <ul className="w-full min-w-0 flex-1 space-y-2.5" aria-label="Legenda das categorias">
+          {slices.map((s) => (
+            <li key={s.key} className="flex items-center gap-2 text-sm">
+              <span className="size-2.5 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
+              <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              <span className="w-9 text-right text-xs text-muted-foreground tabular-nums">
+                {pct(s.cents, totalCents)}%
+              </span>
+              <span className="w-24 text-right font-medium tabular-nums">{formatBRL(s.cents)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
+
+/** Valor curto para rótulos de gráfico ("4,2 mil"); o valor exato fica no tooltip. */
+const compact = new Intl.NumberFormat('pt-BR', { notation: 'compact', maximumFractionDigits: 1 });
+const compactBRL = (cents: number) => compact.format(Math.trunc(cents / 100));
 
 function DonutTooltip({
   active,
@@ -105,7 +125,7 @@ export function MonthlyBars({ bars }: { bars: MonthBar[] }) {
       aria-label={`Saídas por mês: ${bars.map((b) => `${b.label} ${formatBRL(b.cents)}`).join(', ')}`}
     >
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={bars} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
+        <BarChart data={bars} margin={{ top: 20, right: 4, bottom: 0, left: 4 }}>
           <XAxis
             dataKey="label"
             tickLine={false}
@@ -116,10 +136,17 @@ export function MonthlyBars({ bars }: { bars: MonthBar[] }) {
             cursor={{ fill: 'var(--muted)', opacity: 0.5 }}
             content={(props) => <BarTooltip {...props} />}
           />
-          <Bar dataKey="cents" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+          <Bar dataKey="cents" radius={[4, 4, 0, 0]} maxBarSize={44} isAnimationActive={false}>
             {bars.map((b) => (
-              <Cell key={b.month} fill="var(--series-1)" fillOpacity={b.selected ? 1 : 0.4} />
+              <Cell key={b.month} fill="var(--series-1)" fillOpacity={b.selected ? 1 : 0.35} />
             ))}
+            <LabelList
+              dataKey="cents"
+              position="top"
+              formatter={(v) => (Number(v) > 0 ? compactBRL(Number(v)) : '')}
+              fill="var(--muted-foreground)"
+              fontSize={10}
+            />
           </Bar>
         </BarChart>
       </ResponsiveContainer>

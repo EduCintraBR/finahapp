@@ -1,16 +1,15 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
-import { BenefitSummaryCard } from '@/components/benefits/benefit-summary';
-import { LoanSummaryCard } from '@/components/loans/loan-summary';
-import { CardSummaryCard } from '@/components/cards/card-summary';
-import { CategoryDonut, MonthlyBars, type MonthBar, type Slice } from '@/components/dashboard/charts';
-import { BalanceHero, KpiGrid } from '@/components/dashboard/overview';
+import { CategoryDonut, MonthlyBars, type MonthBar } from '@/components/dashboard/charts';
+import { BenefitRow, CardRow, LoanRow, Panel } from '@/components/dashboard/home-panels';
+import { BalanceHero, PendingTotals } from '@/components/dashboard/overview';
+import { buildSlices } from '@/components/dashboard/slices';
 import { EntryList } from '@/components/entries/entry-list';
 import { PendingList } from '@/components/entries/pending-list';
 import { monthSuffix } from '@/components/layout/month-link';
 import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { getPrimaryAccount } from '@/db/queries/accounts';
 import { getAccountBalance } from '@/db/queries/balance';
@@ -37,18 +36,24 @@ import {
   today,
   toMonthParam,
 } from '@/domain/dates';
+import { formatBRL } from '@/domain/money';
 import { resolveMonth } from '@/lib/month';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
 
-/** Cores das fatias: a paleta validada (slots 1 a 5) e um neutro para "Outras". */
-const SLICE_COLORS = [
-  'var(--series-1)',
-  'var(--series-2)',
-  'var(--series-3)',
-  'var(--series-4)',
-  'var(--series-5)',
-];
-const TOP_SLICES = 5;
+/**
+ * No celular os blocos seguem a ordem de prioridade (saldo → pendentes → gastos → cartões → extrato); no desktop
+ * viram duas colunas: o mês à esquerda e os compromissos à direita. As colunas usam `contents` no celular para
+ * que a ordem (`order-*`) valha entre blocos das duas colunas.
+ */
+const MOBILE_ORDER = {
+  hero: 'order-1',
+  pending: 'order-2',
+  spend: 'order-3',
+  cards: 'order-4',
+  benefits: 'order-5',
+  loans: 'order-6',
+  recent: 'order-7',
+} as const;
 
 export default async function HomePage({ searchParams }: PageProps<'/'>) {
   await ensureOccurrences();
@@ -114,190 +119,168 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
       : key === NO_CATEGORY_KEY
         ? 'Sem categoria'
         : (categories.find((c) => c.id === key)?.name ?? 'Outra');
-  const ranked = [...gross.entries()].filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
-  const slices: Slice[] = ranked.slice(0, TOP_SLICES).map(([key, cents], i) => ({
-    key,
-    name: nameOf(key),
-    cents,
-    color: SLICE_COLORS[i]!,
-  }));
-  const rest = ranked.slice(TOP_SLICES).reduce((sum, [, v]) => sum + v, 0);
-  if (rest > 0) slices.push({ key: 'outras', name: 'Outras', cents: rest, color: 'var(--series-other)' });
+  const slices = buildSlices(
+    [...gross.entries()]
+      .map(([key, cents]) => ({ key, name: nameOf(key), cents }))
+      .sort((a, b) => b.cents - a.cents),
+  );
 
   const bars: MonthBar[] = Array.from({ length: 6 }, (_, i) => {
     const m = addMonths(sixMonthsAgo, i);
     return { month: m, label: formatMonthShort(m), cents: monthlyByMonth.get(m) ?? 0, selected: m === month };
   });
+  const withData = bars.filter((b) => b.cents > 0);
+  const average =
+    withData.length > 1 ? Math.round(withData.reduce((s, b) => s + b.cents, 0) / withData.length) : null;
 
-  const recent = entries.filter((e) => e.status === 'POSTED').slice(0, 5);
+  const recent = entries.filter((e) => e.status === 'POSTED').slice(0, 6);
   const suffix = monthSuffix(month, current);
   const monthLabel = formatMonthLabel(month);
+  const mes = toMonthParam(month);
+  const activeLoans = loans.filter((l) => !l.summary.settled);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Olá, {firstName}</h1>
         <p className="text-sm text-muted-foreground first-letter:uppercase">{monthLabel}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
-          <BalanceHero
-            month={month}
-            isCurrentMonth={isCurrentMonth}
-            accountName={account.name}
-            startDate={account.openingBalanceDate}
-            balanceCents={balance}
-            summary={summary}
-          />
-        </div>
-        <KpiGrid summary={summary} suffix={suffix} />
-      </div>
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:items-start lg:gap-5">
+        {/* coluna principal: o mês */}
+        <div className="contents lg:col-span-2 lg:flex lg:flex-col lg:gap-5">
+          <div className={`${MOBILE_ORDER.hero} lg:order-none`}>
+            <BalanceHero
+              month={month}
+              isCurrentMonth={isCurrentMonth}
+              accountName={account.name}
+              startDate={account.openingBalanceDate}
+              balanceCents={balance}
+              summary={summary}
+              suffix={suffix}
+            />
+          </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-        <Card className="min-w-0 lg:col-span-3">
-          <CardHeader>
-            <CardTitle>Gastos do mês</CardTitle>
-            <CardDescription>
-              Mensal: o que sai da conta no mês. Bruto: o que foi comprado no mês.
-            </CardDescription>
-            <CardAction>
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/relatorios?mes=${toMonthParam(month)}`}>Detalhes</Link>
+          <Card className={`${MOBILE_ORDER.spend} min-w-0 gap-0 py-0 lg:order-none`}>
+            <div className="flex items-start justify-between gap-3 px-5 pt-4 sm:px-6">
+              <h2 className="font-semibold">Gastos do mês</h2>
+              <Button asChild variant="ghost" size="sm" className="-mt-1 -mr-2 text-primary">
+                <Link href={`/relatorios?mes=${mes}`}>Detalhes</Link>
               </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="text-xs text-muted-foreground">Mensal</div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 px-5 pt-3 sm:px-6">
+              <div className="rounded-lg bg-muted/50 px-3 py-2.5">
+                <div className="text-xs text-muted-foreground">Mensal · saiu da conta</div>
                 <Amount
                   cents={total(monthlyTotals)}
                   className="text-lg font-semibold"
                   data-testid="spend-monthly"
                 />
               </div>
-              <div>
-                <div className="text-xs text-muted-foreground">Bruto</div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2.5">
+                <div className="text-xs text-muted-foreground">Bruto · comprado</div>
                 <Amount cents={total(gross)} className="text-lg font-semibold" data-testid="spend-gross" />
               </div>
-              {savings > 0 && (
-                <p className="col-span-2 text-xs text-muted-foreground">
-                  Economia com antecipação: <Amount cents={savings} direction="in" className="font-medium" />
+            </div>
+            {savings > 0 && (
+              <p className="px-5 pt-2 text-xs text-muted-foreground sm:px-6">
+                Economia com antecipação: <Amount cents={savings} direction="in" className="font-medium" />
+              </p>
+            )}
+            <div className="px-5 py-5 sm:px-6">
+              <CategoryDonut slices={slices} totalCents={total(gross)} />
+            </div>
+            <div className="border-t px-5 pt-4 pb-3 sm:px-6">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-sm font-medium">Saídas por mês</h3>
+                {average !== null && (
+                  <span className="text-xs text-muted-foreground">média {formatBRL(average)}</span>
+                )}
+              </div>
+              <MonthlyBars bars={bars} />
+            </div>
+          </Card>
+
+          <Panel
+            title="Últimos lançamentos"
+            action={{ href: `/lancamentos?mes=${mes}`, label: 'Ver todos' }}
+            className={`${MOBILE_ORDER.recent} lg:order-none`}
+          >
+            <EntryList entries={recent} today={hoje} returnTo={`/${suffix}`} flat />
+          </Panel>
+        </div>
+
+        {/* coluna lateral: compromissos */}
+        <div className="contents lg:flex lg:flex-col lg:gap-5">
+          <Panel
+            title="Pendentes"
+            description={`Até o fim de ${monthLabel}, incluindo atrasados`}
+            action={{ href: `/lancamentos?status=PENDING&mes=${mes}`, label: 'Ver todos' }}
+            className={`${MOBILE_ORDER.pending} lg:order-none`}
+          >
+            <div className="border-t px-5 py-4">
+              <PendingTotals summary={summary} suffix={suffix} />
+            </div>
+            <div className="border-t">
+              <PendingList entries={pending} today={hoje} wallets={payableWallets(benefitCards)} />
+            </div>
+          </Panel>
+
+          <div className={`${MOBILE_ORDER.cards} lg:order-none`}>
+            <Panel
+              region
+              title="Cartões"
+              action={{ href: `/cartoes${suffix}`, label: cards.length > 0 ? 'Ver todos' : 'Cadastrar' }}
+            >
+              {cards.length > 0 ? (
+                <div className="divide-y border-t">
+                  {cards.map((c) => (
+                    <CardRow key={c.card.id} s={c} href={`/cartoes/${c.card.id}${suffix}`} />
+                  ))}
+                </div>
+              ) : (
+                <p className="border-t px-5 py-6 text-center text-sm text-muted-foreground">
+                  Nenhum cartão cadastrado ainda.
                 </p>
               )}
-            </div>
-            <CategoryDonut slices={slices} totalCents={total(gross)} />
-          </CardContent>
-        </Card>
+            </Panel>
+          </div>
 
-        <Card className="min-w-0 lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Saídas por mês</CardTitle>
-            <CardDescription>Últimos 6 meses (o que saiu da conta)</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <MonthlyBars bars={bars} />
-          </CardContent>
-        </Card>
-      </div>
-
-      <section aria-label="Cartões" className="space-y-2">
-        <div className="flex items-center justify-between px-1">
-          <h2 className="text-sm font-medium text-muted-foreground">Cartões</h2>
-          <Button asChild variant="ghost" size="sm">
-            <Link href={`/cartoes${suffix}`}>{cards.length > 0 ? 'Ver todos' : 'Cadastrar'}</Link>
-          </Button>
-        </div>
-        {cards.length > 0 ? (
-          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">
-            {cards.map((c) => (
-              <div key={c.card.id} className="w-[85%] shrink-0 snap-start md:w-auto">
-                <CardSummaryCard s={c} href={`/cartoes/${c.card.id}${suffix}`} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="rounded-xl border border-dashed bg-card px-4 py-6 text-center text-sm text-muted-foreground">
-            Nenhum cartão cadastrado ainda.
-          </div>
-        )}
-      </section>
-
-      {benefitCards.length > 0 && (
-        <section aria-label="Cartões de benefícios" className="space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="text-sm font-medium text-muted-foreground">
-              Benefícios
-              {benefitCredited > 0 && (
-                <span className="ml-2 font-normal">
-                  · creditado em {monthLabel}: <Amount cents={benefitCredited} direction="in" />
-                </span>
-              )}
-            </h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href={`/cartoes${suffix}`}>Ver todos</Link>
-            </Button>
-          </div>
-          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">
-            {benefitCards.map((c) => (
-              <div key={c.id} className="w-[85%] shrink-0 snap-start md:w-auto">
-                <BenefitSummaryCard c={c} href={`/beneficios/${c.id}${suffix}`} />
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {loans.some((l) => !l.summary.settled) && (
-        <section aria-label="Empréstimos" className="space-y-2">
-          <div className="flex items-center justify-between px-1">
-            <h2 className="text-sm font-medium text-muted-foreground">Empréstimos</h2>
-            <Button asChild variant="ghost" size="sm">
-              <Link href="/emprestimos">Ver todos</Link>
-            </Button>
-          </div>
-          <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 lg:grid-cols-3">
-            {loans
-              .filter((l) => !l.summary.settled)
-              .map((l) => (
-                <div key={l.id} className="w-[85%] shrink-0 snap-start md:w-auto">
-                  <LoanSummaryCard l={l} href={`/emprestimos/${l.id}`} />
+          {benefitCards.length > 0 && (
+            <div className={`${MOBILE_ORDER.benefits} lg:order-none`}>
+              <Panel
+                region
+                title="Benefícios"
+                description={
+                  benefitCredited > 0 ? (
+                    <>
+                      Creditado em {monthLabel}: <Amount cents={benefitCredited} direction="in" />
+                    </>
+                  ) : undefined
+                }
+                action={{ href: `/cartoes${suffix}`, label: 'Ver todos' }}
+              >
+                <div className="divide-y border-t">
+                  {benefitCards.map((c) => (
+                    <BenefitRow key={c.id} c={c} href={`/beneficios/${c.id}${suffix}`} />
+                  ))}
                 </div>
-              ))}
-          </div>
-        </section>
-      )}
+              </Panel>
+            </div>
+          )}
 
-      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
-        <Card className="min-w-0 gap-0 pb-0">
-          <CardHeader className="pb-3">
-            <CardTitle>Pendentes</CardTitle>
-            <CardDescription>Até o fim de {monthLabel}, incluindo atrasados</CardDescription>
-            <CardAction>
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/lancamentos?status=PENDING&mes=${toMonthParam(month)}`}>Ver todos</Link>
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="border-t px-0">
-            <PendingList entries={pending} today={hoje} wallets={payableWallets(benefitCards)} />
-          </CardContent>
-        </Card>
-
-        <Card className="min-w-0 gap-0 pb-0">
-          <CardHeader className="pb-3">
-            <CardTitle>Últimos lançamentos</CardTitle>
-            <CardAction>
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/lancamentos?mes=${toMonthParam(month)}`}>Ver todos</Link>
-              </Button>
-            </CardAction>
-          </CardHeader>
-          <CardContent className="border-t px-0">
-            <EntryList entries={recent} today={hoje} returnTo={`/${suffix}`} />
-          </CardContent>
-        </Card>
+          {activeLoans.length > 0 && (
+            <div className={`${MOBILE_ORDER.loans} lg:order-none`}>
+              <Panel region title="Empréstimos" action={{ href: '/emprestimos', label: 'Ver todos' }}>
+                <div className="divide-y border-t">
+                  {activeLoans.map((l) => (
+                    <LoanRow key={l.id} l={l} href={`/emprestimos/${l.id}`} />
+                  ))}
+                </div>
+              </Panel>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
