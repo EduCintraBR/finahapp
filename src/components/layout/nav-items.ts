@@ -32,7 +32,7 @@ export const NAV_ITEMS = {
     href: '/cartoes',
     label: 'Cartões',
     icon: CreditCard,
-    description: 'Faturas, compras parceladas e limite',
+    description: 'Faturas, compras parceladas, limite e crediários',
   },
   benefits: {
     href: '/cartoes#beneficios',

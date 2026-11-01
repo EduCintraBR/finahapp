@@ -42,11 +42,19 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
   ]);
   if (!s) notFound();
   const c = s.card;
+  const store = c.kind === 'STORE_CREDIT';
   const viewing = month !== monthStart(hoje); // o mês do seletor, quando não é o atual
   const monthInvoice = invoices.find((i) => i.referenceMonth === month);
   const activePlans = plans.filter((p) => p.status === 'ACTIVE' && p.remainingCount > 0 && p.count > 1);
   // faixa de faturas: passadas à esquerda, a atual no meio (em destaque), futuras à direita
-  const timeline = [...invoices].sort((a, b) => compareDates(a.referenceMonth, b.referenceMonth));
+  // crediário sem ciclo ativo (D73): a fatura "atual" ainda não existe, não entra na faixa
+  const timeline = [...invoices]
+    .filter((i) => !store || i.id)
+    .sort((a, b) => compareDates(a.referenceMonth, b.referenceMonth));
+  // D73: juros embutidos nas compras do crediário (total − valor original), sem as canceladas
+  const interestCents = plans
+    .filter((p) => p.status !== 'CANCELLED' && p.original !== null)
+    .reduce((sum, p) => sum + (p.total - p.original!), 0);
   const currentRef = s.currentInvoice.referenceMonth;
   const focusRef = viewing && monthInvoice ? month : currentRef;
 
@@ -55,11 +63,18 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
       <PageHeader
         title={c.name}
         description={
-          <>
-            {c.issuer ?? 'Cartão'}
-            {c.last4 && ` · final ${c.last4}`} · fecha dia {c.closingDay} · vence dia {c.dueDay}
-            {c.isAdditional && ` · adicional de ${c.holderName}`}
-          </>
+          store ? (
+            <>
+              Crediário · 1ª fatura vence {c.firstDueDays} dias após a compra · fecha {c.closeBeforeDays} dias
+              antes do vencimento
+            </>
+          ) : (
+            <>
+              {c.issuer ?? 'Cartão'}
+              {c.last4 && ` · final ${c.last4}`} · fecha dia {c.closingDay} · vence dia {c.dueDay}
+              {c.isAdditional && ` · adicional de ${c.holderName}`}
+            </>
+          )
         }
         back={{ href: '/cartoes', label: 'Cartões' }}
       />
@@ -67,6 +82,11 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
       <Card className="py-4">
         <CardContent className="space-y-4 px-4 sm:px-6">
           <LimitBar s={s} />
+          {store && interestCents > 0 && (
+            <div className="text-xs text-muted-foreground">
+              Juros nas compras <Amount cents={interestCents} className="font-medium text-foreground" />
+            </div>
+          )}
           {/* ações do cartão em barra: a principal cheia, as outras lado a lado */}
           <div className="space-y-2">
             <Button asChild className="w-full">
@@ -74,7 +94,7 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
                 <Plus aria-hidden /> Nova compra
               </Link>
             </Button>
-            <div className="grid grid-cols-2 gap-2">
+            <div className={cn('grid gap-2', !store && 'grid-cols-2')}>
               <Button
                 asChild
                 variant="outline"
@@ -83,14 +103,16 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
               >
                 <Link href={`/cartoes/${c.id}/em-andamento`}>Parcelamento em andamento</Link>
               </Button>
-              <Button
-                asChild
-                variant="outline"
-                size="sm"
-                className="h-auto min-h-9 py-2 text-xs leading-tight whitespace-normal"
-              >
-                <Link href={`/cartoes/${c.id}/importar`}>Importar fatura (OFX)</Link>
-              </Button>
+              {!store && (
+                <Button
+                  asChild
+                  variant="outline"
+                  size="sm"
+                  className="h-auto min-h-9 py-2 text-xs leading-tight whitespace-normal"
+                >
+                  <Link href={`/cartoes/${c.id}/importar`}>Importar fatura (OFX)</Link>
+                </Button>
+              )}
             </div>
           </div>
         </CardContent>
@@ -98,7 +120,7 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
 
       {viewing && !monthInvoice?.id && (
         <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
-          Nenhuma fatura lançada para {formatMonthLabel(month)} neste cartão.
+          Nenhuma fatura lançada para {formatMonthLabel(month)} neste {store ? 'crediário' : 'cartão'}.
         </p>
       )}
 
@@ -186,11 +208,16 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
         </CardContent>
       </Card>
 
-      <SheetAction label="Editar cartão" variant="ghost" className="text-muted-foreground">
+      <SheetAction
+        label={store ? 'Editar crediário' : 'Editar cartão'}
+        variant="ghost"
+        className="text-muted-foreground"
+      >
         <div className="space-y-6">
           <CardForm
             defaults={{
               id: c.id,
+              kind: c.kind,
               name: c.name,
               issuer: c.issuer,
               last4: c.last4,
@@ -199,6 +226,8 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
               limitText: c.limitTotalCents !== null ? formatDecimalBR(c.limitTotalCents) : '',
               closingDay: c.closingDay,
               dueDay: c.dueDay,
+              firstDueDays: c.firstDueDays,
+              closeBeforeDays: c.closeBeforeDays,
               botAliases: c.botAliases,
             }}
           />
@@ -206,9 +235,9 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
             action={archiveCardAction}
             fields={{ id: c.id }}
             variant="destructive"
-            label="Arquivar cartão"
+            label={store ? 'Arquivar crediário' : 'Arquivar cartão'}
             confirm={{
-              title: 'Arquivar este cartão?',
+              title: store ? 'Arquivar este crediário?' : 'Arquivar este cartão?',
               description:
                 'Ele some das listas e do bot. Só é possível sem parcelas em faturas abertas ou futuras.',
               confirmLabel: 'Arquivar',

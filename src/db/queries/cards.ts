@@ -291,6 +291,7 @@ export async function listCardPlans(db: AnyDB, cardId: string, today: ISODate) {
       planId: installmentPlans.id,
       status: installmentPlans.status,
       total: installmentPlans.totalAmountCents,
+      original: installmentPlans.originalAmountCents,
       count: installmentPlans.installmentCount,
       firstTracked: installmentPlans.firstTrackedInstallment,
       purchaseDate: installmentPlans.purchaseDate,

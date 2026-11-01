@@ -44,6 +44,7 @@ export default async function OnboardingPage({ params }: PageProps<'/cartoes/[id
             categories={categories}
             users={users}
             currentMonth={toMonthParam(s.currentInvoice.referenceMonth)}
+            storeCreditDue={s.card.kind === 'STORE_CREDIT' ? s.currentInvoice.dueDate : undefined}
           />
         </CardContent>
       </FormCard>
