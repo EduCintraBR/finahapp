@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Ellipsis, Pencil } from 'lucide-react';
+import { DetailColumns } from '@/components/layout/detail-columns';
 import { EntryRowItem } from '@/components/entries/entry-list';
 import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
@@ -39,7 +40,7 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
   const effectiveDefault = compareDates(t.startMonth, month) > 0 ? t.startMonth : month;
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className="mx-auto max-w-2xl space-y-4 lg:max-w-5xl">
       <PageHeader
         title={t.description}
         description={t.direction === 'INCOME' ? 'Receita prevista' : 'Conta a pagar'}
@@ -75,90 +76,98 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
         }
       />
 
-      <Card className="gap-3 py-4">
-        <CardContent className="space-y-2 px-4 sm:px-6">
-          <Amount
-            cents={t.amountCents}
-            direction={t.direction === 'INCOME' ? 'in' : 'out'}
-            className="block text-3xl font-semibold tracking-tight"
-          />
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm">
-            <dt className="text-muted-foreground">Tipo</dt>
-            <dd>{RECURRING_TYPE_LABEL[t.type]}</dd>
-            <dt className="text-muted-foreground">Vencimento</dt>
-            <dd>todo dia {t.dayOfMonth}</dd>
-            <dt className="text-muted-foreground">Categoria</dt>
-            <dd>
-              {t.categoryName} · {PAYMENT_METHOD_LABEL[t.paymentMethod]}
-            </dd>
-            <dt className="text-muted-foreground">Período</dt>
-            <dd className="first-letter:uppercase">
-              {formatMonthLabel(t.startMonth)}
-              {t.endMonth ? ` até ${formatMonthLabel(t.endMonth)}` : ' em diante'}
-              {!t.isActive && ' (desativado)'}
-            </dd>
-          </dl>
-        </CardContent>
-      </Card>
+      <DetailColumns
+        aside={
+          <>
+            <Card className="gap-3 py-4">
+              <CardContent className="space-y-2 px-4 sm:px-6">
+                <Amount
+                  cents={t.amountCents}
+                  direction={t.direction === 'INCOME' ? 'in' : 'out'}
+                  className="block text-3xl font-semibold tracking-tight"
+                />
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm">
+                  <dt className="text-muted-foreground">Tipo</dt>
+                  <dd>{RECURRING_TYPE_LABEL[t.type]}</dd>
+                  <dt className="text-muted-foreground">Vencimento</dt>
+                  <dd>todo dia {t.dayOfMonth}</dd>
+                  <dt className="text-muted-foreground">Categoria</dt>
+                  <dd>
+                    {t.categoryName} · {PAYMENT_METHOD_LABEL[t.paymentMethod]}
+                  </dd>
+                  <dt className="text-muted-foreground">Período</dt>
+                  <dd className="first-letter:uppercase">
+                    {formatMonthLabel(t.startMonth)}
+                    {t.endMonth ? ` até ${formatMonthLabel(t.endMonth)}` : ' em diante'}
+                    {!t.isActive && ' (desativado)'}
+                  </dd>
+                </dl>
+              </CardContent>
+            </Card>
 
-      {/* só leitura; mudar e encerrar abrem painel (o vermelho cheio só dentro do "Encerrar") */}
-      {!ended && (
-        <div className="grid grid-cols-2 gap-2">
-          <SheetAction
-            label="Editar"
-            title="Alterar a partir de um mês"
-            description="Reajuste de aluguel, mudança de vencimento etc. Os meses anteriores ficam como estão."
-            icon={<Pencil aria-hidden />}
-          >
-            <TemplateForm
-              categories={categories}
-              users={users}
-              currentMonth={toMonthParam(effectiveDefault)}
-              cards={cards.map((c) => ({ id: c.id, name: c.name }))}
-              defaults={{
-                id: t.id,
-                direction: t.direction,
-                type: t.type,
-                description: t.description,
-                categoryId: t.categoryId,
-                amountText: formatDecimalBR(t.amountCents),
-                dayOfMonth: t.dayOfMonth,
-                paymentMethod: t.paymentMethod,
-                creditCardId: t.creditCardId,
-                beneficiaryUserId: t.beneficiaryUserId,
-              }}
-            />
-          </SheetAction>
-          <SheetAction
-            label="Encerrar"
-            title="Encerrar este fixo"
-            description="Para de gerar contas depois do mês escolhido (por exemplo, o mês atual). O que já foi gerado até lá continua no histórico."
-          >
-            <EndTemplateForm id={t.id} defaultMonth={toMonthParam(month)} />
-          </SheetAction>
-        </div>
-      )}
-
-      <Card className="gap-0 pb-0">
-        <CardHeader className="pb-3">
-          <CardTitle>Histórico</CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y border-t px-0">
-          {occurrences.length === 0 ? (
-            <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhuma conta gerada ainda.</p>
-          ) : (
-            occurrences.map((e) => (
-              <EntryRowItem
-                key={e.id}
-                e={e}
-                today={hoje}
-                href={`/lancamentos/${e.id}?voltar=/fixos/${t.id}`}
-                showDate
-              />
-            ))
-          )}
-        </CardContent>
-      </Card>
+            {/* só leitura; mudar e encerrar abrem painel (o vermelho cheio só dentro do "Encerrar") */}
+            {!ended && (
+              <div className="grid grid-cols-2 gap-2">
+                <SheetAction
+                  label="Editar"
+                  title="Alterar a partir de um mês"
+                  description="Reajuste de aluguel, mudança de vencimento etc. Os meses anteriores ficam como estão."
+                  icon={<Pencil aria-hidden />}
+                >
+                  <TemplateForm
+                    categories={categories}
+                    users={users}
+                    currentMonth={toMonthParam(effectiveDefault)}
+                    cards={cards.map((c) => ({ id: c.id, name: c.name }))}
+                    defaults={{
+                      id: t.id,
+                      direction: t.direction,
+                      type: t.type,
+                      description: t.description,
+                      categoryId: t.categoryId,
+                      amountText: formatDecimalBR(t.amountCents),
+                      dayOfMonth: t.dayOfMonth,
+                      paymentMethod: t.paymentMethod,
+                      creditCardId: t.creditCardId,
+                      beneficiaryUserId: t.beneficiaryUserId,
+                    }}
+                  />
+                </SheetAction>
+                <SheetAction
+                  label="Encerrar"
+                  title="Encerrar este fixo"
+                  description="Para de gerar contas depois do mês escolhido (por exemplo, o mês atual). O que já foi gerado até lá continua no histórico."
+                >
+                  <EndTemplateForm id={t.id} defaultMonth={toMonthParam(month)} />
+                </SheetAction>
+              </div>
+            )}
+          </>
+        }
+      >
+        <Card className="gap-0 pb-0">
+          <CardHeader className="pb-3">
+            <CardTitle>Histórico</CardTitle>
+          </CardHeader>
+          <CardContent className="divide-y border-t px-0">
+            {occurrences.length === 0 ? (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                Nenhuma conta gerada ainda.
+              </p>
+            ) : (
+              occurrences.map((e) => (
+                <EntryRowItem
+                  key={e.id}
+                  e={e}
+                  today={hoje}
+                  href={`/lancamentos/${e.id}?voltar=/fixos/${t.id}`}
+                  showDate
+                />
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </DetailColumns>
     </div>
   );
 }

@@ -45,7 +45,7 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] `CategoryPicker` (grade com ícone + busca) no novo lançamento (Fase D)
 - [x] `CategoryPicker` nos outros formulários, `MonthField` e `FilePicker` em pt-BR (Fase E4). O `Select` próprio não foi necessário: o select nativo fica (no celular abre o seletor do sistema)
 - [x] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) — Fase E1: `FilterChip` em Lançamentos
-- [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) → **Fase F**. Sem card dentro de card no celular: feito nas telas de cadastro (`FormCard`, Fase E4)
+- [x] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) — Fase F. Sem card dentro de card no celular: feito nas telas de cadastro (`FormCard`, Fase E4)
 - [x] Confirmações (`AlertDialog`) também como painel inferior no celular (Fase D)
 
 **Pronto quando:** o script de capturas roda com um comando. ✅ 31/10/2026
@@ -142,11 +142,12 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Fase F — Desktop
 
-- [ ] Lançamentos em tabela (data, descrição, categoria, meio, quem, status, valor) com filtros em barra lateral
-- [ ] Larguras máximas padronizadas por tipo de tela; detalhes em 2 colunas quando couber
-- [ ] Relatórios: barras de categoria com largura limitada
+- [x] Lançamentos em **tabela** no desktop (descrição, categoria, meio, de quem, situação, valor), agrupada por dia, com cabeçalho de colunas; no celular continua a lista. Uma lista só no HTML (a linha muda de forma com `lg:grid` e `lg:contents`), sem duplicar texto. Resumo do topo numa linha (4 números) + Saídas
+- [x] Filtros: **ficaram em linha acima da tabela**, não em barra lateral (decisão de execução: com uma coluna lateral, a tabela teria ~680px em 1280px, pouco para 6 colunas)
+- [x] Larguras padronizadas: painéis (Início, Lançamentos, Relatórios, Cartões) na largura toda; **listas** em 768px (`max-w-3xl`: Fixos, Empréstimos, Mais, Resumo, Ajustes, Categorias, revisão da importação, cartão); **detalhes** em 1024px com 2 colunas (`DetailColumns`: compra, fatura, empréstimo, fixo, benefício; resumo e ações à esquerda, listas à direita); detalhe do lançamento em 672px com os dados em 2 colunas; **formulários** em 512px
+- [x] Relatórios: a lista de categorias (barras) tem largura limitada (640px), centrada ao lado da rosca
 
-**Pronto quando:** as capturas em 1280px não têm espaços vazios largos nem valores longe do nome.
+**Pronto quando:** as capturas em 1280px não têm espaços vazios largos nem valores longe do nome. ✅ 01/11/2026
 
 ---
 

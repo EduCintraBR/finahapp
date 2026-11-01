@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { Ellipsis } from 'lucide-react';
+import { DetailColumns } from '@/components/layout/detail-columns';
 import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
 import { LoanInstallments } from '@/components/loans/loan-forms';
@@ -28,7 +29,7 @@ export default async function LoanPage({ params }: PageProps<'/emprestimos/[id]'
   const canDelete = s.paidCount === 0;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-2xl space-y-4 lg:max-w-5xl">
       <PageHeader
         title={loan.name}
         back={{ href: '/emprestimos', label: 'Empréstimos' }}
@@ -66,58 +67,71 @@ export default async function LoanPage({ params }: PageProps<'/emprestimos/[id]'
         }
       />
 
-      <Card className="gap-3 py-4">
-        <CardContent className="space-y-3 px-4 sm:px-6">
-          <div className="flex flex-wrap items-center gap-2">
-            {s.settled ? (
-              <Badge variant="outline">Quitado</Badge>
-            ) : s.overdueCount > 0 ? (
-              <Badge variant="destructive">
-                {plural(s.overdueCount, 'parcela atrasada', 'parcelas atrasadas')}
-              </Badge>
-            ) : (
-              <Badge variant="secondary">Em andamento</Badge>
-            )}
-            {loan.lender && <Badge variant="outline">{loan.lender}</Badge>}
-          </div>
-          <div>
-            <div className="text-xs text-muted-foreground">Falta pagar</div>
-            <Amount
-              cents={s.remainingCents}
-              className="block text-3xl font-semibold tracking-tight"
-              data-testid="loan-remaining"
-            />
-            <p className="text-sm text-muted-foreground">
-              {s.paidCount} de {loan.installmentCount} parcelas pagas
-              {s.nextDueDate ? ` · próxima em ${formatDateBR(s.nextDueDate)}` : ''}
-            </p>
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-sm">
-            <Stat label="Recebido" cents={loan.principalCents} />
-            <Stat label="Total a pagar" cents={loan.totalCents} />
-            <Stat label="Juros embutidos" cents={loan.interestCents} />
-            <Stat label="Já pago" cents={s.paidCents} testId="loan-paid" />
-            <Stat label="Economia com desconto" cents={s.savingsCents} tone="in" testId="loan-savings" />
-            {s.lateFeesCents > 0 && <Stat label="Acréscimo por atraso" cents={s.lateFeesCents} tone="out" />}
-          </div>
-        </CardContent>
-      </Card>
+      <DetailColumns
+        aside={
+          <>
+            <Card className="gap-3 py-4">
+              <CardContent className="space-y-3 px-4 sm:px-6">
+                <div className="flex flex-wrap items-center gap-2">
+                  {s.settled ? (
+                    <Badge variant="outline">Quitado</Badge>
+                  ) : s.overdueCount > 0 ? (
+                    <Badge variant="destructive">
+                      {plural(s.overdueCount, 'parcela atrasada', 'parcelas atrasadas')}
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary">Em andamento</Badge>
+                  )}
+                  {loan.lender && <Badge variant="outline">{loan.lender}</Badge>}
+                </div>
+                <div>
+                  <div className="text-xs text-muted-foreground">Falta pagar</div>
+                  <Amount
+                    cents={s.remainingCents}
+                    className="block text-3xl font-semibold tracking-tight"
+                    data-testid="loan-remaining"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    {s.paidCount} de {loan.installmentCount} parcelas pagas
+                    {s.nextDueDate ? ` · próxima em ${formatDateBR(s.nextDueDate)}` : ''}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-sm">
+                  <Stat label="Recebido" cents={loan.principalCents} />
+                  <Stat label="Total a pagar" cents={loan.totalCents} />
+                  <Stat label="Juros embutidos" cents={loan.interestCents} />
+                  <Stat label="Já pago" cents={s.paidCents} testId="loan-paid" />
+                  <Stat
+                    label="Economia com desconto"
+                    cents={s.savingsCents}
+                    tone="in"
+                    testId="loan-savings"
+                  />
+                  {s.lateFeesCents > 0 && (
+                    <Stat label="Acréscimo por atraso" cents={s.lateFeesCents} tone="out" />
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </>
+        }
+      >
+        {/* uma lista só: as pagas e as pendentes, que você marca e paga com o botão que fica à vista */}
+        <LoanInstallments
+          loanId={loan.id}
+          installments={loan.installments}
+          total={loan.installmentCount}
+          today={hoje}
+        />
 
-      {/* uma lista só: as pagas e as pendentes, que você marca e paga com o botão que fica à vista */}
-      <LoanInstallments
-        loanId={loan.id}
-        installments={loan.installments}
-        total={loan.installmentCount}
-        today={hoje}
-      />
-
-      {loan.notes && (
-        <Card>
-          <CardContent className="text-sm whitespace-pre-line text-muted-foreground">
-            {loan.notes}
-          </CardContent>
-        </Card>
-      )}
+        {loan.notes && (
+          <Card>
+            <CardContent className="text-sm whitespace-pre-line text-muted-foreground">
+              {loan.notes}
+            </CardContent>
+          </Card>
+        )}
+      </DetailColumns>
     </div>
   );
 }

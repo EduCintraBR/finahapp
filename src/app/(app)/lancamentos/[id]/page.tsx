@@ -100,7 +100,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
   const hasMore = canReopen || canRemove;
 
   return (
-    <div className="mx-auto max-w-lg space-y-4">
+    <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
         title={entry.description}
         back={{ href: back, label: 'Voltar' }}
@@ -167,7 +167,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
             direction={directionOf(entry.kind)}
             className="block text-3xl font-semibold tracking-tight"
           />
-          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr] sm:gap-x-4">
             <dt className="text-muted-foreground">Tipo</dt>
             <dd>
               {entry.categoryName

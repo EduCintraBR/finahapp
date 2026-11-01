@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export default async function LoansPage() {
   const loans = await listLoans(getDb(), today());
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">Empréstimos</h1>
         <Button asChild size="sm">

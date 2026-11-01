@@ -86,6 +86,31 @@ function StatusLine({ e, today }: { e: EntryRow; today: ISODate }) {
   );
 }
 
+/** Colunas da tabela de lançamentos no desktop (a mesma grade no cabeçalho e nas linhas). */
+const TABLE_COLS =
+  'lg:grid lg:grid-cols-[2.25rem_minmax(0,1fr)_8.5rem_7.5rem_6rem_9.5rem_7rem] lg:items-center lg:gap-x-4';
+
+/** Cabeçalho da tabela de lançamentos (só no desktop). */
+function TableHeader() {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        'hidden px-4 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase',
+        TABLE_COLS,
+      )}
+    >
+      <span />
+      <span>Descrição</span>
+      <span>Categoria</span>
+      <span>Meio</span>
+      <span>De quem</span>
+      <span>Situação</span>
+      <span className="text-right">Valor</span>
+    </div>
+  );
+}
+
 /**
  * Linha de lançamento (ListRow): ícone da categoria, descrição, categoria · meio · de quem e, só quando não foi você,
  * quem lançou; o valor à direita. Nada é cortado além da descrição (que tem a tela inteira para ela).
@@ -96,6 +121,7 @@ export function EntryRowItem({
   href,
   viewerId,
   showDate = false,
+  table = false,
 }: {
   e: EntryRow;
   today: ISODate;
@@ -103,6 +129,8 @@ export function EntryRowItem({
   viewerId?: string;
   /** fora da lista agrupada por dia (ex.: histórico do fixo), a data vai na linha */
   showDate?: boolean;
+  /** no desktop, vira linha de tabela (categoria, meio, de quem e situação em colunas) */
+  table?: boolean;
 }) {
   const pending = e.status === 'PENDING';
   const details = [
@@ -113,25 +141,51 @@ export function EntryRowItem({
     viewerId && e.createdById !== viewerId && `lançado por ${e.createdByName}`,
   ].filter(Boolean);
   return (
-    <Link href={href} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50">
+    <Link
+      href={href}
+      className={cn(
+        'flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50',
+        table && TABLE_COLS,
+      )}
+    >
       <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
         <CategoryIcon name={e.categoryIcon} className="size-4" />
       </span>
-      <div className="min-w-0 flex-1 space-y-0.5">
-        <div className="flex items-center gap-1.5">
+      {/* na tabela, os filhos deste bloco viram células da grade (lg:contents): a situação vai para a coluna dela */}
+      <div className={cn('min-w-0 flex-1 space-y-0.5', table && 'lg:contents')}>
+        <div className={cn('flex items-center gap-1.5', table && 'lg:col-start-2 lg:min-w-0')}>
           <span className="truncate font-medium">{e.description}</span>
           {e.recurringTemplateId && (
             <Repeat className="size-3.5 shrink-0 text-muted-foreground" aria-label="Fixo" />
           )}
         </div>
-        <div className="text-xs text-muted-foreground">{details.join(' · ')}</div>
-        <StatusLine e={e} today={today} />
+        <div className={cn('text-xs text-muted-foreground', table && 'lg:hidden')}>{details.join(' · ')}</div>
+        {table && (
+          <>
+            <span className="hidden truncate text-sm lg:col-start-3 lg:block">
+              {e.categoryName ?? KIND_LABEL[e.kind]}
+            </span>
+            <span className="hidden truncate text-sm text-muted-foreground lg:col-start-4 lg:block">
+              {PAYMENT_METHOD_LABEL[e.paymentMethod]}
+            </span>
+            <span className="hidden truncate text-sm text-muted-foreground lg:col-start-5 lg:block">
+              {e.beneficiaryName ?? 'Casal'}
+              {viewerId && e.createdById !== viewerId && (
+                <span className="block text-xs">por {e.createdByName}</span>
+              )}
+            </span>
+          </>
+        )}
+        <div className={cn(table && 'lg:col-start-6')}>
+          <StatusLine e={e} today={today} />
+        </div>
       </div>
       <Amount
         cents={e.amountCents}
         direction={directionOf(e.kind)}
         className={cn(
           'shrink-0 text-sm font-medium whitespace-nowrap',
+          table && 'lg:col-start-7 lg:text-right',
           pending && 'opacity-60',
           e.status === 'CANCELLED' && 'line-through opacity-50',
           e.status === 'ANTICIPATED' && 'line-through opacity-50', // não soma: o dinheiro está no pagamento ligado
@@ -154,12 +208,15 @@ export function EntryList({
   month,
   viewerId,
   flat = false,
+  table = false,
 }: {
   entries: EntryRow[];
   today: ISODate;
   returnTo: string;
   month?: ISODate;
   viewerId?: string;
+  /** no desktop, mostra como tabela (tela de Lançamentos) */
+  table?: boolean;
   /** dentro de um painel (Home): uma lista só, com o dia como subtítulo, sem caixas por dia */
   flat?: boolean;
 }) {
@@ -180,7 +237,14 @@ export function EntryList({
   const label = (key: string) => (key === CARRIED ? 'De meses anteriores · sem baixa' : formatDayLabel(key));
   const qs = `?voltar=${encodeURIComponent(returnTo)}`;
   const row = (e: EntryRow) => (
-    <EntryRowItem key={e.id} e={e} today={today} href={`/lancamentos/${e.id}${qs}`} viewerId={viewerId} />
+    <EntryRowItem
+      key={e.id}
+      e={e}
+      today={today}
+      href={`/lancamentos/${e.id}${qs}`}
+      viewerId={viewerId}
+      table={table}
+    />
   );
   if (flat) {
     return (
@@ -198,6 +262,7 @@ export function EntryList({
   }
   return (
     <div className="space-y-4">
+      {table && <TableHeader />}
       {[...groups].map(([key, items]) => (
         <section key={key} aria-label={label(key)}>
           {/* o dia fica preso no topo enquanto a lista dele rola (logo abaixo do cabeçalho do app) */}

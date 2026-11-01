@@ -162,13 +162,16 @@ export function MonthKpis({
   summary,
   suffix = '',
   className,
+  wide = false,
 }: {
   summary: CashSummary;
   suffix?: string;
   className?: string;
+  /** no desktop, os quatro numa linha só */
+  wide?: boolean;
 }) {
   return (
-    <div className={cn('grid grid-cols-2 gap-x-4 px-4 sm:px-6', className)}>
+    <div className={cn('grid grid-cols-2 gap-x-4 px-4 sm:px-6', wide && 'lg:grid-cols-4', className)}>
       <div className="py-3">
         <KpiLink
           slug="entrou"
@@ -189,7 +192,7 @@ export function MonthKpis({
           suffix={suffix}
         />
       </div>
-      <div className="border-t border-dashed py-3">
+      <div className={cn('border-t border-dashed py-3', wide && 'lg:border-t-0')}>
         <KpiLink
           slug="a-receber"
           label="A receber"
@@ -200,7 +203,7 @@ export function MonthKpis({
           suffix={suffix}
         />
       </div>
-      <div className="border-t border-dashed py-3">
+      <div className={cn('border-t border-dashed py-3', wide && 'lg:border-t-0')}>
         <KpiLink
           slug="a-pagar"
           label="A pagar"

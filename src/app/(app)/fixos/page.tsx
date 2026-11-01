@@ -38,7 +38,7 @@ export default async function TemplatesPage() {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <PageHeader
         title="Fixos e recorrentes"
         actions={

@@ -140,7 +140,7 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
 
       {summary && (
         <Card className="gap-0 py-0" aria-label="Resumo do mês">
-          <MonthKpis summary={summary} suffix={suffix} />
+          <MonthKpis summary={summary} suffix={suffix} wide />
           <div
             className="flex items-baseline justify-between gap-3 border-t px-4 py-3 text-sm sm:px-6"
             data-testid="kpi-saidas"
@@ -203,6 +203,7 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
         returnTo={returnTo}
         month={month}
         viewerId={session?.user?.id}
+        table
       />
     </div>
   );

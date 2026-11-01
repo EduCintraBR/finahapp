@@ -51,7 +51,7 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
   const focusRef = viewing && monthInvoice ? month : currentRef;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <PageHeader
         title={c.name}
         description={
