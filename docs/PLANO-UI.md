@@ -41,11 +41,12 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] Painel inferior: o próprio `Dialog` (`src/components/ui/dialog.tsx`) virou painel que sobe de baixo no celular (com `safe-area`) e continua janela no desktop, sem dependência nova — "Paguei", "Pagar fatura" etc. já usam
 - [x] Script versionado `pnpm ui:shots [nome] [filtro]` (`scripts/ui-shots.ts`): banco fictício separado `finah_shots` com dados relativos a hoje + capturas 375/1280 de todas as rotas e do (+), "Paguei" e filtros, em `tmp/ui-shots/<nome>/`
 - [ ] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha → **Fase E**
-- [ ] `StickyActions`: barra fixa no rodapé dos formulários, acima da navegação inferior e do indicador do iPhone → **Fase D**
-- [ ] `Select` e `CategoryPicker` próprios (categorias em grade com ícone + busca), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase D/E**
+- [x] `StickyActions` (`src/components/forms/sticky-actions.tsx`): no novo lançamento (Fase D); os outros formulários adotam na Fase E
+- [x] `CategoryPicker` (grade com ícone + busca) no novo lançamento (Fase D)
+- [ ] `Select` próprio, `CategoryPicker` nos outros formulários (fixo, compra parcelada, importação), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase E**
 - [ ] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) → **Fase E**
 - [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) e sem card dentro de card no celular → **Fase E/F**
-- [ ] Confirmações (`AlertDialog`) também como painel inferior no celular → **Fase D**
+- [x] Confirmações (`AlertDialog`) também como painel inferior no celular (Fase D)
 
 **Pronto quando:** o script de capturas roda com um comando. ✅ 31/10/2026
 
@@ -82,11 +83,15 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Fase D — Ações frequentes
 
-- [ ] Novo lançamento: valor grande no topo (`inputmode="decimal"`), categoria por grade de ícones, "Lançar" sempre visível (`StickyActions`)
-- [ ] "Paguei", "Recebi", "Pagar fatura", "Pagar parcelas" em painel inferior
-- [ ] Confirmação de exclusão em painel, com o botão destrutivo só dentro dela
+- [x] Novo lançamento: valor grande no topo (máscara de centavos, teclado numérico), categoria em **grade de ícones num painel com busca sem acento** (`CategoryPicker`), observação recolhida em "+ Adicionar observação", sem card em volta no celular; "Lançar" sempre à vista (`StickyActions`: acima da barra inferior e, com o teclado aberto, acima do teclado). Na edição continua o botão comum (a tela de detalhe é revista na Fase E)
+- [x] Teclado do iPhone: `useKeyboardInset` (via `visualViewport`, função pura testada) sobe a barra de ações e os painéis (`Dialog`, `AlertDialog`) pela altura do teclado
+- [x] "Paguei", "Recebi" e "Pagar fatura" já eram painel (Fase A); **"Pagar parcelas"** do empréstimo saiu do bloco aberto na página e virou painel
+- [x] Confirmação (`AlertDialog`) também é painel inferior no celular; no `ActionButton`, o gatilho de ação destrutiva é contorno com texto vermelho e o vermelho cheio fica só dentro da confirmação
+- [x] `pnpm ui:shots` captura também o painel de categorias, "Pagar parcelas" e a confirmação de exclusão; o filtro vale para essas interações
+- [x] E2E `acoes.spec.ts` (formulário inteiro e "Lançar" na 1ª tela; grade de categorias com busca; aviso sem categoria); helpers `pickCategory`/`categoryOffered` (select ou grade) nos testes
+- [ ] Confirmar num iPhone real que o teclado não cobre "Lançar" nem "Confirmar" → **Fase G** (aparelhos reais)
 
-**Pronto quando:** lançar uma despesa em 375×812 não exige rolar, e o teclado do iPhone não cobre o botão.
+**Pronto quando:** lançar uma despesa em 375×812 não exige rolar, e o teclado do iPhone não cobre o botão. ✅ 31/10/2026 (no navegador; aparelho real na Fase G)
 
 ---
 

@@ -6,6 +6,7 @@ import { XIcon } from 'lucide-react';
 import { Dialog as DialogPrimitive } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
 function Dialog({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -44,6 +45,8 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
 }) {
+  // iPhone: o teclado não encolhe a página; o painel sobe junto para o botão de confirmar não ficar coberto
+  const kb = useKeyboardInset();
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay />
@@ -51,12 +54,13 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           // celular: painel que sobe de baixo (alcançável com o polegar, acima do indicador do iPhone)
-          'fixed inset-x-0 bottom-0 z-50 grid max-h-[90dvh] w-full gap-4 overflow-y-auto rounded-t-2xl border-t bg-background p-6 pt-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom',
+          'fixed inset-x-0 bottom-(--kb) z-50 grid max-h-[calc(90dvh-var(--kb))] w-full gap-4 overflow-y-auto rounded-t-2xl border-t bg-background p-6 pt-8 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-lg duration-200 outline-none data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom',
           // desktop: janela no centro
           'sm:inset-x-auto sm:top-[50%] sm:bottom-auto sm:left-[50%] sm:max-w-lg sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border sm:pt-6 sm:pb-6 sm:data-[state=closed]:fade-out-0 sm:data-[state=closed]:slide-out-to-bottom-2 sm:data-[state=open]:fade-in-0 sm:data-[state=open]:slide-in-from-bottom-2',
           className,
         )}
         {...props}
+        style={{ '--kb': `${kb}px`, ...props.style } as React.CSSProperties}
       >
         <div
           aria-hidden

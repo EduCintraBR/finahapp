@@ -8,6 +8,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { addMonths, monthStart, toMonthParam, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -43,7 +44,7 @@ test('paga hoje, com desconto, uma conta que vence no mês que vem', async () =>
   await page.getByRole('radio', { name: 'Receita' }).click();
   await page.getByLabel('Valor').fill('100000');
   await page.getByLabel('Descrição').fill('Receita para antecipar');
-  await page.getByLabel('Categoria').selectOption({ label: 'Salário CLT' });
+  await pickCategory(page, 'Salário CLT');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos/);
 
@@ -51,7 +52,7 @@ test('paga hoje, com desconto, uma conta que vence no mês que vem', async () =>
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('21780');
   await page.getByLabel('Descrição').fill('Parcela antecipada');
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   await page.locator('#date').fill(nextMonth);
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos/);

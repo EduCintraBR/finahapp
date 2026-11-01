@@ -4,8 +4,10 @@ import { type FormEvent, startTransition, useActionState, useState } from 'react
 import { benefitSpendAction } from '@/app/(app)/beneficios/actions';
 import { cardPurchaseAction } from '@/app/(app)/cartoes/actions';
 import { saveEntryAction } from '@/app/(app)/lancamentos/actions';
+import { CategoryPicker } from '@/components/categories/category-picker';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { FundingFields } from '@/components/forms/funding-fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -89,6 +91,8 @@ export function EntryForm({
   const [date, setDate] = useState(defaults?.date ?? today);
   // despesa nova nasce "a pagar" (D69); com a chave ligada, já saiu da conta
   const [paid, setPaid] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(!!defaults?.notes);
+  const [categoryMissing, setCategoryMissing] = useState(false);
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
   const options = categories.filter((c) => c.kind === categoryKind);
   const isCard = mode === 'CARD';
@@ -108,6 +112,7 @@ export function EntryForm({
     setMode(m);
     const kind = m === 'INCOME' ? 'INCOME' : 'EXPENSE';
     if (!categories.some((c) => c.id === categoryId && c.kind === kind)) setCategoryId('');
+    setCategoryMissing(false);
   };
   const preview = isCard ? installmentPreview(amountText, Number(installments)) : null;
   const expenseMode = mode === 'EXPENSE' && !defaults;
@@ -116,6 +121,11 @@ export function EntryForm({
   const act = isCard ? cardAction : isBenefit ? benefitAction : entryAction;
   const submit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    // a categoria é um campo oculto (CategoryPicker): o navegador não a exige sozinho
+    if (!categoryId) {
+      setCategoryMissing(true);
+      return;
+    }
     const fd = new FormData(e.currentTarget);
     startTransition(() => act(fd));
   };
@@ -178,7 +188,11 @@ export function EntryForm({
           autoFocus={!defaults}
           value={amountText}
           onChange={(e) => setAmountText(e.target.value)}
-          className="h-12 text-xl"
+          className={cn(
+            'h-14 pl-12 text-3xl font-semibold tracking-tight md:text-3xl',
+            mode === 'INCOME' ? 'text-income' : mode === 'EXPENSE' ? 'text-expense' : undefined,
+          )}
+          prefixClassName="text-lg"
         />
       </Field>
 
@@ -237,23 +251,22 @@ export function EntryForm({
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Categoria" htmlFor="categoryId">
-          <NativeSelect
+        <Field
+          label="Categoria"
+          htmlFor="categoryId"
+          error={categoryMissing ? 'Escolha uma categoria.' : null}
+        >
+          <CategoryPicker
             id="categoryId"
             name="categoryId"
-            required
+            options={options}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-          >
-            <option value="" disabled>
-              Escolha…
-            </option>
-            {options.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </NativeSelect>
+            invalid={categoryMissing}
+            onChange={(id) => {
+              setCategoryId(id);
+              setCategoryMissing(false);
+            }}
+          />
         </Field>
         {!isCard && !isBenefit && (
           <Field label="Meio" htmlFor="paymentMethod">
@@ -310,7 +323,7 @@ export function EntryForm({
       {expenseMode && (
         <div>
           <input type="hidden" name="paid" value="false" />
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3 text-sm">
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
             <input
               type="checkbox"
               name="paid"
@@ -324,24 +337,50 @@ export function EntryForm({
               <span className="block text-xs text-muted-foreground">
                 {paid
                   ? 'Sai do saldo da conta agora, na data escolhida.'
-                  : 'Fica a pagar no dia do vencimento (vencida se a data já passou) até você dar baixa em “Paguei”.'}
+                  : 'Fica a pagar no dia do vencimento até a baixa em “Paguei”.'}
               </span>
             </span>
           </label>
         </div>
       )}
 
-      <Field label="Observações" htmlFor="notes">
-        <Textarea id="notes" name="notes" rows={2} maxLength={2000} defaultValue={defaults?.notes ?? ''} />
-      </Field>
+      {notesOpen ? (
+        <Field label="Observações" htmlFor="notes">
+          <Textarea
+            id="notes"
+            name="notes"
+            rows={2}
+            maxLength={2000}
+            autoFocus={!defaults?.notes}
+            defaultValue={defaults?.notes ?? ''}
+          />
+        </Field>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setNotesOpen(true)}
+          className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+        >
+          + Adicionar observação
+        </button>
+      )}
 
       {fundingShort !== undefined && <FundingFields shortCents={fundingShort} idPrefix="entry" />}
 
       <FormError message={state && !state.ok ? state.error : null} />
 
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : defaults ? 'Salvar alterações' : 'Lançar'}
-      </Button>
+      {defaults ? (
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
+          {pending ? 'Salvando…' : 'Salvar alterações'}
+        </Button>
+      ) : (
+        // lançar novo: o botão fica sempre à vista, acima da barra inferior e do teclado
+        <StickyActions>
+          <Button type="submit" className="h-11" disabled={pending}>
+            {pending ? 'Salvando…' : 'Lançar'}
+          </Button>
+        </StickyActions>
+      )}
     </form>
   );
 }

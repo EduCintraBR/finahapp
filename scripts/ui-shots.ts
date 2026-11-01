@@ -481,29 +481,53 @@ async function capture(browser: Browser, routes: [string, string][]) {
   }
 }
 
-/** estados que só aparecem com toque: painel do (+), "Paguei", filtros */
-async function captureInteractions(browser: Browser) {
+/** estados que só aparecem com toque (painéis e diálogos); o filtro também vale para eles, pelo nome */
+async function captureInteractions(browser: Browser, ids: Awaited<ReturnType<typeof detailIds>>) {
   mkdirSync(`${OUT}/i`, { recursive: true });
   const context = await browser.newContext({ ...MOBILE, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
   const page = await context.newPage();
   await login(page);
-  const shot = async (name: string) => {
+  const open = async (path: string, click: () => Promise<void>) => {
+    await page.goto(BASE + path, { waitUntil: 'networkidle', timeout: 120_000 });
+    await click();
+  };
+  const steps: [string, () => Promise<void>][] = [
+    [
+      'novo-lancamento-painel',
+      () => open('/', () => page.getByRole('button', { name: 'Novo lançamento' }).click()),
+    ],
+    [
+      'paguei',
+      () =>
+        open('/', () =>
+          page
+            .getByRole('button', { name: /Paguei|Recebi/ })
+            .first()
+            .click(),
+        ),
+    ],
+    ['lancamentos-filtros', () => open('/lancamentos', () => page.getByText('Filtros').first().click())],
+    [
+      'categoria-painel',
+      () => open('/lancamentos/novo', () => page.getByLabel('Categoria', { exact: true }).click()),
+    ],
+    [
+      'pagar-parcelas',
+      () =>
+        open(`/emprestimos/${ids.loan}`, () => page.getByRole('button', { name: 'Pagar parcelas' }).click()),
+    ],
+    [
+      'excluir-confirmacao',
+      () => open(`/fixos/${ids.template}`, () => page.getByRole('button', { name: 'Excluir fixo' }).click()),
+    ],
+  ];
+  for (const [name, step] of steps) {
+    if (filter && !name.includes(filter)) continue;
+    await step();
     await page.waitForTimeout(400);
     await page.screenshot({ path: `${OUT}/i/${name}.png` });
     console.log(`i ${name}`);
-  };
-  await page.getByRole('button', { name: 'Novo lançamento' }).click();
-  await shot('novo-lancamento-painel');
-  await page.keyboard.press('Escape');
-  await page
-    .getByRole('button', { name: /Paguei|Recebi/ })
-    .first()
-    .click();
-  await shot('paguei');
-  await page.keyboard.press('Escape');
-  await page.goto(`${BASE}/lancamentos`);
-  await page.getByText('Filtros').first().click();
-  await shot('lancamentos-filtros');
+  }
   await context.close();
 }
 
@@ -554,7 +578,7 @@ async function main() {
     await page.screenshot({ path: (mkdirSync(`${OUT}/m`, { recursive: true }), `${OUT}/m/login.png`) });
     await page.close();
     await capture(browser, routes);
-    if (!filter) await captureInteractions(browser);
+    await captureInteractions(browser, ids);
   } finally {
     await browser.close();
     // o next dev abre processos filhos: no Windows, derruba a árvore inteira

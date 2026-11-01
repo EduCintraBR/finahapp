@@ -13,6 +13,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import type { ActionResult } from '@/lib/action-result';
+import { cn } from '@/lib/utils';
 import { FormError } from './fields';
 
 type Action = (prev: ActionResult<null> | null, fd: FormData) => Promise<ActionResult<null>>;
@@ -71,7 +72,15 @@ export function ActionButton({
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button variant={variant} className="w-full sm:w-auto">
+        {/* o vermelho cheio fica só no botão de dentro da confirmação; fora dela, contorno com texto vermelho */}
+        <Button
+          variant={variant === 'destructive' ? 'outline' : variant}
+          className={cn(
+            'w-full sm:w-auto',
+            variant === 'destructive' &&
+              'border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive',
+          )}
+        >
           {label}
         </Button>
       </AlertDialogTrigger>

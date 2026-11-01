@@ -9,6 +9,7 @@ import { expect, test } from '@playwright/test';
 import { addDays, addMonths, diffMonths, monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 function previousMonthFixture(): Buffer {
   const shift = Math.max(0, diffMonths(today(), '2026-10-18'));
@@ -34,7 +35,7 @@ test('importar o mês anterior ao início: mostra o recuo, confirma, ignora em l
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('2.000,00');
   await page.getByLabel('Descrição').fill('Aluguel já lançado');
-  await page.getByLabel('Categoria').selectOption({ label: 'Moradia' });
+  await pickCategory(page, 'Moradia');
   await page.locator('#date').fill(addDays(opening, 1));
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos/);

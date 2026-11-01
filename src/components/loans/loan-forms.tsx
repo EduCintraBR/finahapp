@@ -5,6 +5,14 @@ import { createLoanAction, payLoanAction } from '@/app/(app)/emprestimos/actions
 import { Field, FormError, MoneyInput } from '@/components/forms/fields';
 import { FundingFields } from '@/components/forms/funding-fields';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { buildLoanInstallments, MAX_LOAN_INSTALLMENTS } from '@/domain/loans/loans';
@@ -239,5 +247,25 @@ export function PayLoanForm({
         {pending ? 'Registrando…' : 'Registrar pagamento'}
       </Button>
     </form>
+  );
+}
+
+/** "Pagar parcelas" num painel inferior (ação frequente: um toque abre, sem bloco de formulário aberto na página). */
+export function PayLoanSheet(props: React.ComponentProps<typeof PayLoanForm>) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button className="w-full sm:w-auto">Pagar parcelas</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Pagar parcelas</DialogTitle>
+          <DialogDescription>
+            Marque as parcelas que você pagou e informe o valor: o desconto (ou acréscimo) é calculado.
+          </DialogDescription>
+        </DialogHeader>
+        <PayLoanForm {...props} />
+      </DialogContent>
+    </Dialog>
   );
 }

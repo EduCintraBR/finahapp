@@ -6,6 +6,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { addMonths, monthStart, toMonthParam, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -35,9 +36,7 @@ test('cada card da Home abre o detalhe do mês com o mesmo total', async () => {
     await page.getByRole('radio', { name: kind }).click();
     await page.getByLabel('Valor').fill(amount.replace(',', ''));
     await page.getByLabel('Descrição').fill(desc);
-    await page
-      .getByLabel('Categoria')
-      .selectOption({ label: kind === 'Receita' ? 'Salário CLT' : 'Mercado' });
+    await pickCategory(page, kind === 'Receita' ? 'Salário CLT' : 'Mercado');
     await page.locator('#date').fill(date);
     if (desc === 'Despesa paga resumo') await page.getByLabel('Já paguei').check();
     await page.getByRole('button', { name: 'Lançar' }).click();
@@ -70,7 +69,7 @@ test('o detalhe do mês seguinte mostra o fixo mensal como despesa prevista, que
   await page.getByLabel('Descrição').fill('Internet resumo');
   await page.getByLabel('Valor').fill('9990');
   await page.getByLabel('Dia do vencimento').fill('15');
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   await page.getByRole('button', { name: 'Cadastrar' }).click();
   await expect(page.getByText('Histórico', { exact: true })).toBeVisible();
 
@@ -102,7 +101,7 @@ test('a fatura que ainda falta pagar é uma linha só e leva para a fatura detal
   await page.getByLabel('Cartão', { exact: true }).selectOption({ label: 'Cartão Resumo' });
   await page.getByLabel('Valor total da compra').fill('12000');
   await page.getByLabel('Descrição').fill('Compra do resumo');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await pickCategory(page, 'Mercado');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/cartoes\/faturas\//);
 
