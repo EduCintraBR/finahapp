@@ -5,18 +5,45 @@
 import { addDays, addMonths, compareDates, dateInMonth, monthStart, type ISODate } from '../dates';
 import { assertCents, type Cents } from '../money';
 
-export type InvoiceRule = { closingDay: number; dueDay: number };
+/**
+ * Cartão: dia do fechamento e dia do vencimento (D29). Crediário (D73): vencimento no `dueDay` (o dia da 1ª
+ * fatura do ciclo) e fechamento `closeBeforeDays` dias antes do vencimento.
+ */
+export type InvoiceRule =
+  { closingDay: number; dueDay: number } | { dueDay: number; closeBeforeDays: number };
 export type InvoiceWindow = { referenceMonth: ISODate; closingDate: ISODate; dueDate: ISODate };
+
+/** Os campos do cadastro que definem as datas das faturas (cartão ou crediário). */
+export type CardTerms = {
+  kind: 'CARD' | 'STORE_CREDIT';
+  closingDay: number | null;
+  dueDay: number;
+  closeBeforeDays: number | null;
+  firstDueDays: number | null;
+};
+
+/** Regra das faturas do cadastro. No crediário vale para o ciclo atual (dia do vencimento em `dueDay`). */
+export function cardRule(c: CardTerms): InvoiceRule {
+  if (c.kind === 'STORE_CREDIT') {
+    if (c.closeBeforeDays === null) throw new Error('Crediário sem dias de fechamento.');
+    return { dueDay: c.dueDay, closeBeforeDays: c.closeBeforeDays };
+  }
+  if (c.closingDay === null) throw new Error('Cartão sem dia de fechamento.');
+  return { closingDay: c.closingDay, dueDay: c.dueDay };
+}
 
 /**
  * Fatura que vence no mês `referenceMonth` (D29): vencimento no `dueDay` desse mês;
  * fechamento no `closingDay` do mesmo mês se closingDay < dueDay, senão do mês anterior.
  * Dia inexistente → último dia do mês. Se o ajuste fizer o fechamento colar no vencimento,
- * o fechamento fica um dia antes.
+ * o fechamento fica um dia antes. No crediário, o fechamento é o vencimento − `closeBeforeDays`.
  */
 export function ruleInvoice(referenceMonth: ISODate, rule: InvoiceRule): InvoiceWindow {
   const ref = monthStart(referenceMonth);
   const dueDate = dateInMonth(ref, rule.dueDay);
+  if ('closeBeforeDays' in rule) {
+    return { referenceMonth: ref, closingDate: addDays(dueDate, -rule.closeBeforeDays), dueDate };
+  }
   const closingMonth = rule.closingDay < rule.dueDay ? ref : addMonths(ref, -1);
   let closingDate = dateInMonth(closingMonth, rule.closingDay);
   if (compareDates(closingDate, dueDate) >= 0) closingDate = addDays(dueDate, -1);

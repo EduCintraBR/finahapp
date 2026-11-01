@@ -5,7 +5,7 @@ import { FormCard } from '@/components/forms/form-card';
 import { CardContent } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { listBenefitCards } from '@/db/queries/benefits';
-import { listActiveCards } from '@/db/queries/cards';
+import { listActiveCards, listCardSummaries } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { monthStart, today } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
@@ -22,6 +22,10 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
     listActiveCards(db),
     listBenefitCards(db, hoje, monthStart(hoje)),
   ]);
+  // crediário (D73): quando vence a fatura de uma compra feita hoje, para a prévia dos juros
+  const nextDue = cards.some((c) => c.kind === 'STORE_CREDIT')
+    ? new Map((await listCardSummaries(db, hoje)).map((s) => [s.card.id, s.currentInvoice.dueDate]))
+    : new Map<string, string>();
   // carteiras de cartões de benefícios (inclusive encerrados: o saldo que sobrou ainda pode ser gasto)
   const wallets = benefitCards.flatMap((c) =>
     c.wallets.map((w) => ({ id: w.id, label: `${c.name} · ${w.name} · saldo ${formatBRL(w.balanceCents)}` })),
@@ -38,7 +42,12 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
             users={users}
             today={hoje}
             returnTo="/lancamentos"
-            cards={cards.map((c) => ({ id: c.id, name: c.name }))}
+            cards={cards.map((c) => ({
+              id: c.id,
+              name: c.name,
+              kind: c.kind,
+              nextDueDate: nextDue.get(c.id),
+            }))}
             wallets={wallets}
             initialMode={
               tipo === 'cartao'

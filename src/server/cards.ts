@@ -4,15 +4,17 @@
  */
 import { and, asc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import { creditCards, installmentPlans, invoiceItems, invoices, transactions } from '@/db/schema';
+import { invoiceRows } from '@/db/queries/cards';
 import {
+  cardRule,
   ruleInvoice,
   windowFor,
-  resolveInvoice,
   type InvoiceRule,
   type InvoiceWindow,
 } from '@/domain/card/invoices';
+import { placePurchase } from '@/domain/card/store-credit';
 import { planClosingChange, type PlanPlacement } from '@/domain/card/reallocation';
-import { addMonths, compareDates, monthStart, type ISODate } from '@/domain/dates';
+import { addDays, addMonths, compareDates, monthStart, type ISODate } from '@/domain/dates';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
 import { getPrimaryAccount } from './entries';
@@ -21,10 +23,7 @@ import type { CardInput, InvoiceDatesInput } from './schemas';
 export type CardRow = typeof creditCards.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
 
-const rule = (c: Pick<CardRow, 'closingDay' | 'dueDay'>): InvoiceRule => ({
-  closingDay: c.closingDay,
-  dueDay: c.dueDay,
-});
+const rule = (c: CardRow): InvoiceRule => cardRule(c);
 
 export async function loadCard(
   tx: Tx,
@@ -78,15 +77,38 @@ export async function ensureInvoice(tx: Tx, card: CardRow, referenceMonth: ISODa
   return raced;
 }
 
-/** Invariante 5 + parcelas em faturas consecutivas, materializando o que faltar. */
+/**
+ * Invariante 5 + parcelas em faturas consecutivas, materializando o que faltar. No crediário (D73), a compra
+ * fora de um ciclo ativo abre um ciclo novo: o dia do vencimento do cadastro passa a ser o da nova fatura.
+ */
 export async function invoicesForPurchase(
   tx: Tx,
   card: CardRow,
   purchaseDate: ISODate,
   count: number,
 ): Promise<InvoiceRow[]> {
-  const first = resolveInvoice(purchaseDate, await materialized(tx, card.id), rule(card));
-  return invoicesFrom(tx, card, first.referenceMonth, count);
+  const placed = placePurchase(card, purchaseDate, await invoiceRows(tx, [card.id]));
+  const terms = placed.newCycle ? await startCycle(tx, card, placed.anchorDay) : card;
+  return invoicesFrom(tx, terms, placed.window.referenceMonth, count);
+}
+
+/** Crediário (D73): ciclo novo; as faturas dele vencem no `anchorDay`, mês a mês. */
+export async function startCycle(tx: Tx, card: CardRow, anchorDay: number): Promise<CardRow> {
+  if (anchorDay === card.dueDay) return card;
+  const [after] = await tx
+    .update(creditCards)
+    .set({ dueDay: anchorDay })
+    .where(eq(creditCards.id, card.id))
+    .returning();
+  await audit(tx, {
+    userId: null,
+    entity: 'credit_cards',
+    entityId: card.id,
+    action: 'UPDATE',
+    before: { dueDay: card.dueDay },
+    after: { dueDay: anchorDay, reason: 'ciclo novo do crediário' },
+  });
+  return after!;
 }
 
 export async function invoicesFrom(tx: Tx, card: CardRow, firstRef: ISODate, count: number) {
@@ -103,24 +125,47 @@ export async function currentOpenInvoice(tx: Tx, card: CardRow, today: ISODate) 
 
 // ─────────── CRUD de cartões ───────────
 
-const cardValues = (input: CardInput) => ({
-  name: input.name,
-  issuer: input.issuer,
-  last4: input.last4,
-  isAdditional: input.isAdditional,
-  holderName: input.isAdditional ? input.holderName : null,
-  limitTotalCents: input.limitTotal,
-  closingDay: input.closingDay,
-  dueDay: input.dueDay,
-  botAliases: input.botAliases,
-});
+/**
+ * Campos do cadastro (o schema já garante os de cada tipo). O crediário (D73) não tem dia de fechamento nem
+ * de vencimento fixos: o dia do vencimento do ciclo (`dueDay`) é definido pela compra que abre o ciclo.
+ */
+const cardValues = (input: CardInput, kind: CardRow['kind']) => {
+  const common = { name: input.name, limitTotalCents: input.limitTotal, botAliases: input.botAliases };
+  if (kind === 'STORE_CREDIT') {
+    return {
+      ...common,
+      issuer: null,
+      last4: null,
+      isAdditional: false,
+      holderName: null,
+      closingDay: null,
+      firstDueDays: input.firstDueDays!,
+      closeBeforeDays: input.closeBeforeDays!,
+    };
+  }
+  return {
+    ...common,
+    issuer: input.issuer,
+    last4: input.last4,
+    isAdditional: input.isAdditional,
+    holderName: input.isAdditional ? input.holderName : null,
+    closingDay: input.closingDay!,
+    dueDay: input.dueDay!,
+    firstDueDays: null,
+    closeBeforeDays: null,
+  };
+};
 
 export async function createCard(ctx: ServiceCtx, input: CardInput): Promise<{ id: string }> {
   return ctx.db.transaction(async (tx) => {
     const account = await getPrimaryAccount(tx);
+    const kind = input.kind ?? 'CARD';
+    // crediário: o dia de verdade vem da 1ª compra (ciclo novo); até lá, o do prazo contado de hoje
+    const dueDay =
+      kind === 'STORE_CREDIT' ? Number(addDays(ctx.today, input.firstDueDays!).slice(8)) : input.dueDay!;
     const [card] = await tx
       .insert(creditCards)
-      .values({ ...cardValues(input), paymentAccountId: account.id })
+      .values({ dueDay, ...cardValues(input, kind), kind, paymentAccountId: account.id })
       .returning();
     await audit(tx, {
       userId: ctx.userId,
@@ -137,9 +182,11 @@ export async function createCard(ctx: ServiceCtx, input: CardInput): Promise<{ i
 export async function updateCard(ctx: ServiceCtx, id: string, input: CardInput) {
   return ctx.db.transaction(async (tx) => {
     const before = await loadCard(tx, id, { forUpdate: true });
+    if ((input.kind ?? 'CARD') !== before.kind)
+      throw new UserError('Não dá para transformar cartão em crediário (ou o contrário). Cadastre outro.');
     const [after] = await tx
       .update(creditCards)
-      .set(cardValues(input))
+      .set(cardValues(input, before.kind))
       .where(eq(creditCards.id, id))
       .returning();
     await audit(tx, {

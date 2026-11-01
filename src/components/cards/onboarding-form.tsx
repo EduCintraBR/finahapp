@@ -16,15 +16,19 @@ export function OnboardingForm({
   categories,
   users,
   currentMonth,
+  storeCreditDue,
 }: {
   cardId: string;
   categories: CategoryOption[];
   users: UserOption[];
   /** 'AAAA-MM' da fatura aberta atual */
   currentMonth: string;
+  /** crediário (D73): vencimento sugerido da fatura atual; pede a data em vez do mês */
+  storeCreditDue?: string;
 }) {
   const [state, action, pending] = useActionState(onboardingAction, null);
   const [categoryId, setCategoryId] = useState('');
+  const [due, setDue] = useState(storeCreditDue ?? '');
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="cardId" value={cardId} />
@@ -63,19 +67,37 @@ export function OnboardingForm({
           />
         </Field>
       </div>
-      <Field
-        label="Fatura em que a parcela atual cai"
-        htmlFor="ob-invoice"
-        hint="Mês de vencimento da fatura. As próximas parcelas vão nas faturas seguintes."
-      >
-        <MonthField
-          id="ob-invoice"
-          name="currentInvoiceMonth"
-          required
-          around={currentMonth}
-          defaultValue={currentMonth}
-        />
-      </Field>
+      {storeCreditDue !== undefined ? (
+        <Field
+          label="Vencimento da parcela atual"
+          htmlFor="ob-due"
+          hint="A data em que vence a fatura da parcela atual. As próximas vencem no mesmo dia dos meses seguintes."
+        >
+          <input type="hidden" name="currentInvoiceMonth" value={due.slice(0, 7)} />
+          <Input
+            id="ob-due"
+            name="currentInvoiceDue"
+            type="date"
+            required
+            value={due}
+            onChange={(e) => setDue(e.target.value)}
+          />
+        </Field>
+      ) : (
+        <Field
+          label="Fatura em que a parcela atual cai"
+          htmlFor="ob-invoice"
+          hint="Mês de vencimento da fatura. As próximas parcelas vão nas faturas seguintes."
+        >
+          <MonthField
+            id="ob-invoice"
+            name="currentInvoiceMonth"
+            required
+            around={currentMonth}
+            defaultValue={currentMonth}
+          />
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="ob-cat">
           <CategoryPicker

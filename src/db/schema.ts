@@ -57,6 +57,8 @@ export const entrySource = pgEnum('entry_source', [
 export const recurringType = pgEnum('recurring_type', ['FIXED', 'RECURRING_VARIABLE']);
 export const recurringDirection = pgEnum('recurring_direction', ['INCOME', 'EXPENSE']);
 
+/** CARD = cartão de crédito; STORE_CREDIT = crediário de loja (D73), com ciclo próprio de fatura. */
+export const creditKind = pgEnum('credit_kind', ['CARD', 'STORE_CREDIT']);
 export const invoiceStatus = pgEnum('invoice_status', ['OPEN', 'CLOSED', 'PAID']);
 export const installmentPlanStatus = pgEnum('installment_plan_status', [
   'ACTIVE', 'FINISHED', 'CANCELLED', 'FULLY_ANTICIPATED',
@@ -160,17 +162,22 @@ export const categories = pgTable('categories', {
  *  - limit_total_cents = sub-limite definido pelo titular, ou NULL = limite não rastreado
  *    (o limite real é compartilhado com o titular e não é calculável pelo app).
  *  - INVOICE_PAYMENT = o que o casal efetivamente paga (ex.: Pix ao titular).
+ * Crediário (kind = STORE_CREDIT, D73): sem dia de fechamento; a 1ª compra de um ciclo abre a fatura que vence
+ * `first_due_days` depois e fecha `close_before_days` antes do vencimento; `due_day` guarda o dia do ciclo atual.
  */
 export const creditCards = pgTable('credit_cards', {
   id: pk(),
+  kind: creditKind('kind').notNull().default('CARD'),
   name: varchar('name', { length: 80 }).notNull(),   // "Nubank Eduardo"
   issuer: varchar('issuer', { length: 60 }),          // "Nubank"
   last4: varchar('last4', { length: 4 }),            // só identificação visual
   isAdditional: boolean('is_additional').notNull().default(false),
   holderName: varchar('holder_name', { length: 80 }), // titular quando is_additional (ex.: "Mãe")
   limitTotalCents: money('limit_total_cents'),         // NULL = não rastrear limite
-  closingDay: smallint('closing_day').notNull(),      // padrão; a data real fica em invoices
-  dueDay: smallint('due_day').notNull(),
+  closingDay: smallint('closing_day'),                // padrão (só cartão); a data real fica em invoices
+  dueDay: smallint('due_day').notNull(),              // crediário: dia do vencimento do ciclo atual
+  firstDueDays: smallint('first_due_days'),          // crediário: prazo da 1ª fatura (ex.: 40 dias)
+  closeBeforeDays: smallint('close_before_days'),    // crediário: fecha N dias antes do vencimento
   paymentAccountId: uuid('payment_account_id').notNull().references(() => bankAccounts.id),
   botAliases: text('bot_aliases').array().notNull().default(sql`'{}'::text[]`), // "itaú","roxinho"
   archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -180,6 +187,10 @@ export const creditCards = pgTable('credit_cards', {
   check('credit_cards_limit_positive', sql`${t.limitTotalCents} is null or ${t.limitTotalCents} >= 0`),
   check('credit_cards_additional_holder', sql`not ${t.isAdditional} or ${t.holderName} is not null`),
   check('credit_cards_closing_day', sql`${t.closingDay} between 1 and 31`),
+  check('credit_cards_kind_rule', sql`case ${t.kind}
+    when 'CARD' then ${t.closingDay} is not null and ${t.firstDueDays} is null and ${t.closeBeforeDays} is null
+    else ${t.closingDay} is null and ${t.firstDueDays} between 2 and 120
+      and ${t.closeBeforeDays} between 1 and ${t.firstDueDays} - 1 end`),
   check('credit_cards_due_day', sql`${t.dueDay} between 1 and 31`),
 ]);
 
@@ -425,6 +436,7 @@ export const installmentPlans = pgTable('installment_plans', {
   transactionId: uuid('transaction_id').notNull().unique().references(() => transactions.id),
   creditCardId: uuid('credit_card_id').notNull().references(() => creditCards.id),
   totalAmountCents: money('total_amount_cents').notNull(),
+  originalAmountCents: money('original_amount_cents'), // D73: valor sem juros (null = sem acréscimo informado)
   installmentCount: smallint('installment_count').notNull(),
   firstTrackedInstallment: smallint('first_tracked_installment').notNull().default(1),
   purchaseDate: day('purchase_date').notNull(),
@@ -434,6 +446,8 @@ export const installmentPlans = pgTable('installment_plans', {
   updatedAt: updatedAt(),
 }, (t) => [
   check('plan_total_positive', sql`${t.totalAmountCents} > 0`),
+  check('plan_original_le_total', sql`${t.originalAmountCents} is null or
+    (${t.originalAmountCents} > 0 and ${t.originalAmountCents} <= ${t.totalAmountCents})`),
   check('plan_count', sql`${t.installmentCount} between 1 and 72`),
   check('plan_total_divisible', sql`${t.totalAmountCents} >= ${t.installmentCount}`),
   check('plan_first_tracked',

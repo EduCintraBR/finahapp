@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CreditCard, Landmark, Utensils } from 'lucide-react';
+import { CreditCard, Landmark, ShoppingBag, Utensils } from 'lucide-react';
 import { InvoiceStateBadge, LimitBar } from '@/components/cards/card-summary';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
@@ -88,7 +88,11 @@ export function CardStrip({
 
 /** Um cartão de crédito: a fatura do mês escolhido, o que falta pagar e o limite. O nome usa a linha toda. */
 export function CardTile({ s, href }: { s: CardMonthView; href: string }) {
-  const shown = s.isCurrentMonth ? s.currentInvoice : s.monthInvoice;
+  const store = s.card.kind === 'STORE_CREDIT';
+  // crediário sem ciclo ativo (D73): ainda não há fatura
+  const idle = store && s.isCurrentMonth && !s.currentInvoice.id;
+  const shown = idle ? null : s.isCurrentMonth ? s.currentInvoice : s.monthInvoice;
+  const Icon = store ? ShoppingBag : CreditCard;
   const alsoThisMonth =
     s.isCurrentMonth && s.monthInvoice && s.monthInvoice.referenceMonth !== s.currentInvoice.referenceMonth
       ? s.monthInvoice
@@ -101,17 +105,20 @@ export function CardTile({ s, href }: { s: CardMonthView; href: string }) {
     >
       <div className="flex items-start gap-3">
         <span className={iconBox}>
-          <CreditCard className="size-4" aria-hidden />
+          <Icon className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium break-words">
             {s.card.name}
             {s.card.isAdditional && <span className="font-normal text-muted-foreground"> · adicional</span>}
+            {store && <span className="font-normal text-muted-foreground"> · crediário</span>}
           </div>
           <div className="text-xs text-muted-foreground">
             {shown
               ? `Fatura ${formatMonthShort(shown.referenceMonth)} · vence ${formatDateBR(shown.dueDate).slice(0, 5)}`
-              : `Nada em ${formatMonthShort(s.viewMonth)}`}
+              : idle
+                ? 'Nenhuma fatura em aberto'
+                : `Nada em ${formatMonthShort(s.viewMonth)}`}
           </div>
         </div>
       </div>

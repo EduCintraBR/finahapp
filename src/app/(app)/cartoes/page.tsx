@@ -23,6 +23,8 @@ export default async function CardsPage({ searchParams }: PageProps<'/cartoes'>)
     listBenefitCards(getDb(), hoje, month),
   ]);
   const suffix = monthSuffix(month, monthStart(hoje));
+  const cards = summaries.filter((s) => s.card.kind === 'CARD');
+  const stores = summaries.filter((s) => s.card.kind === 'STORE_CREDIT');
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
@@ -42,17 +44,41 @@ export default async function CardsPage({ searchParams }: PageProps<'/cartoes'>)
           </Button>
         </div>
       </div>
-      {summaries.length === 0 && benefits.length === 0 ? (
+      {cards.length === 0 && benefits.length === 0 && stores.length === 0 ? (
         <div className="rounded-xl border bg-card px-4 py-10 text-center text-sm text-muted-foreground">
           Nenhum cartão cadastrado. Cadastre o primeiro com os dias de fechamento e vencimento da fatura.
         </div>
-      ) : summaries.length === 0 ? null : (
+      ) : cards.length === 0 ? null : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {summaries.map((s) => (
+          {cards.map((s) => (
             <CardSummaryCard key={s.card.id} s={s} href={`/cartoes/${s.card.id}${suffix}`} />
           ))}
         </div>
       )}
+
+      {/* #crediarios: crédito de loja (D73) */}
+      <section id="crediarios" aria-label="Crediários" className="scroll-mt-20 space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="min-w-0 text-lg font-semibold tracking-tight">Crediários</h2>
+          <Button asChild size="sm" variant="outline">
+            <Link href="/cartoes/novo?tipo=crediario">
+              <Plus aria-hidden /> Crediário
+            </Link>
+          </Button>
+        </div>
+        {stores.length === 0 ? (
+          <p className="rounded-xl border border-dashed bg-card px-4 py-6 text-center text-sm text-muted-foreground">
+            Shopee Parcelado, carnê Magalu… Cadastre o crédito da loja: o app monta as faturas, acompanha o
+            limite e mostra os juros de cada compra.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {stores.map((s) => (
+              <CardSummaryCard key={s.card.id} s={s} href={`/cartoes/${s.card.id}${suffix}`} />
+            ))}
+          </div>
+        )}
+      </section>
 
       {/* #beneficios: destino do item "Benefícios" do Mais e da sidebar */}
       <section id="beneficios" aria-label="Cartões de benefícios" className="scroll-mt-20 space-y-2">

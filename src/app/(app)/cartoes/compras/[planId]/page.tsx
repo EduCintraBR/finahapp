@@ -13,12 +13,13 @@ import { getDb } from '@/db/client';
 import { getPlanDetail } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { INVOICE_STATE_LABEL } from '@/domain/card/invoices';
+import { formatPercent } from '@/domain/card/store-credit';
 import { compareDates, formatDateBR, formatMonthLabel, today } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import { cn } from '@/lib/utils';
 import { deletePurchaseAction } from '../../actions';
 
-export const metadata: Metadata = { title: 'Compra no cartão' };
+export const metadata: Metadata = { title: 'Compra' };
 
 const PLAN_STATUS: Record<string, string> = {
   ACTIVE: 'Ativa',
@@ -107,6 +108,27 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
                   {plan.installmentCount === 1 ? 'À vista' : `${plan.installmentCount}x`} · comprado em{' '}
                   {formatDateBR(plan.purchaseDate)} · {d.categoryName} · por {d.createdByName}
                 </p>
+                {d.interest && plan.originalAmountCents !== null && (
+                  <dl
+                    data-testid="purchase-interest"
+                    className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1 border-t pt-2 text-sm"
+                  >
+                    <dt className="text-muted-foreground">Valor da compra</dt>
+                    <dd className="text-right tabular-nums">{formatBRL(plan.originalAmountCents)}</dd>
+                    <dt className="text-muted-foreground">Acréscimo (juros)</dt>
+                    <dd className="text-right tabular-nums">
+                      {formatBRL(d.interest.extraCents)} · {formatPercent(d.interest.percent)}
+                    </dd>
+                    {d.interest.monthlyRate !== null && (
+                      <>
+                        <dt className="text-muted-foreground">Taxa equivalente</dt>
+                        <dd className="text-right tabular-nums">
+                          ~{formatPercent(d.interest.monthlyRate)} ao mês
+                        </dd>
+                      </>
+                    )}
+                  </dl>
+                )}
               </CardContent>
             </Card>
 
@@ -140,6 +162,7 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
                       beneficiaryUserId: purchase.beneficiaryUserId,
                       notes: purchase.notes,
                       amountCents: plan.totalAmountCents,
+                      ...(card.kind === 'STORE_CREDIT' ? { originalCents: plan.originalAmountCents } : {}),
                     }}
                     amountEditable={deletable}
                   />

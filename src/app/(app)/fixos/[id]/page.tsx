@@ -118,7 +118,7 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
                     categories={categories}
                     users={users}
                     currentMonth={toMonthParam(effectiveDefault)}
-                    cards={cards.map((c) => ({ id: c.id, name: c.name }))}
+                    cards={cards.filter((c) => c.kind === 'CARD').map((c) => ({ id: c.id, name: c.name }))}
                     defaults={{
                       id: t.id,
                       direction: t.direction,

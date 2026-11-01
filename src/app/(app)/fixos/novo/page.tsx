@@ -25,7 +25,7 @@ export default async function NewTemplatePage() {
             categories={categories}
             users={users}
             currentMonth={toMonthParam(today())}
-            cards={cards.map((c) => ({ id: c.id, name: c.name }))}
+            cards={cards.filter((c) => c.kind === 'CARD').map((c) => ({ id: c.id, name: c.name }))}
           />
         </CardContent>
       </FormCard>
