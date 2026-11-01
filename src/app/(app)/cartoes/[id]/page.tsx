@@ -1,17 +1,27 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { CardForm } from '@/components/cards/card-form';
 import { InvoiceStateBadge, LimitBar } from '@/components/cards/card-summary';
 import { ActionButton } from '@/components/forms/action-button';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollStrip } from '@/components/ui/scroll-strip';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { listCardInvoices, listCardPlans, listCardSummaries } from '@/db/queries/cards';
-import { formatDateBR, formatMonthLabel, monthStart, today } from '@/domain/dates';
+import {
+  compareDates,
+  formatDateBR,
+  formatMonthLabel,
+  formatMonthShort,
+  monthStart,
+  today,
+} from '@/domain/dates';
 import { resolveMonth } from '@/lib/month';
 import { cn } from '@/lib/utils';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
@@ -35,110 +45,111 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
   const viewing = month !== monthStart(hoje); // o mês do seletor, quando não é o atual
   const monthInvoice = invoices.find((i) => i.referenceMonth === month);
   const activePlans = plans.filter((p) => p.status === 'ACTIVE' && p.remainingCount > 0 && p.count > 1);
+  // faixa de faturas: passadas à esquerda, a atual no meio (em destaque), futuras à direita
+  const timeline = [...invoices].sort((a, b) => compareDates(a.referenceMonth, b.referenceMonth));
+  const currentRef = s.currentInvoice.referenceMonth;
+  const focusRef = viewing && monthInvoice ? month : currentRef;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/cartoes">
-          <ArrowLeft aria-hidden /> Cartões
-        </Link>
-      </Button>
-
-      <Card>
-        <CardHeader>
-          <CardDescription>
+      <PageHeader
+        title={c.name}
+        description={
+          <>
             {c.issuer ?? 'Cartão'}
             {c.last4 && ` · final ${c.last4}`} · fecha dia {c.closingDay} · vence dia {c.dueDay}
             {c.isAdditional && ` · adicional de ${c.holderName}`}
-          </CardDescription>
-          <CardTitle className="text-xl">{c.name}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+          </>
+        }
+        back={{ href: '/cartoes', label: 'Cartões' }}
+      />
+
+      <Card className="py-4">
+        <CardContent className="space-y-4 px-4 sm:px-6">
           <LimitBar s={s} />
-          <div className="flex flex-wrap gap-2">
-            <Button asChild size="sm">
+          {/* ações do cartão em barra: a principal cheia, as outras lado a lado */}
+          <div className="space-y-2">
+            <Button asChild className="w-full">
               <Link href={`/lancamentos/novo?tipo=cartao&cartao=${c.id}`}>
                 <Plus aria-hidden /> Nova compra
               </Link>
             </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/cartoes/${c.id}/em-andamento`}>Parcelamento em andamento</Link>
-            </Button>
-            <Button asChild size="sm" variant="outline">
-              <Link href={`/cartoes/${c.id}/importar`}>Importar fatura (OFX)</Link>
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-9 py-2 text-xs leading-tight whitespace-normal"
+              >
+                <Link href={`/cartoes/${c.id}/em-andamento`}>Parcelamento em andamento</Link>
+              </Button>
+              <Button
+                asChild
+                variant="outline"
+                size="sm"
+                className="h-auto min-h-9 py-2 text-xs leading-tight whitespace-normal"
+              >
+                <Link href={`/cartoes/${c.id}/importar`}>Importar fatura (OFX)</Link>
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {viewing && (
-        <div
-          className={cn(
-            'rounded-xl border px-4 py-3 text-sm',
-            monthInvoice?.id ? 'bg-card' : 'border-dashed text-muted-foreground',
-          )}
-        >
-          {monthInvoice?.id ? (
-            <Link
-              href={`/cartoes/faturas/${monthInvoice.id}`}
-              className="flex items-center justify-between gap-3"
-            >
-              <span>
-                Fatura de <span className="font-medium">{formatMonthLabel(month)}</span> (mês escolhido)
-              </span>
-              <span className="flex items-center gap-2">
-                <Amount cents={monthInvoice.totalCents} className="font-semibold" />
-                <InvoiceStateBadge state={monthInvoice.state} />
-              </span>
-            </Link>
-          ) : (
-            <>Nenhuma fatura lançada para {formatMonthLabel(month)} neste cartão.</>
-          )}
-        </div>
+      {viewing && !monthInvoice?.id && (
+        <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+          Nenhuma fatura lançada para {formatMonthLabel(month)} neste cartão.
+        </p>
       )}
 
-      <Card className="gap-0 pb-0">
-        <CardHeader className="pb-3">
-          <CardTitle>Faturas</CardTitle>
-        </CardHeader>
-        <CardContent className="divide-y border-t px-0">
-          {invoices.map((inv) => {
+      <section aria-label="Faturas" className="space-y-2">
+        <h2 className="font-semibold">Faturas</h2>
+        <ScrollStrip className="-mx-4 scroll-px-4 px-4 pb-1">
+          {timeline.map((inv) => {
+            const isCurrent = inv.referenceMonth === currentRef;
+            const isChosen = viewing && inv.referenceMonth === month;
             const body = (
               <>
-                <div className="min-w-0 flex-1">
-                  <div className="font-medium first-letter:uppercase">
-                    {formatMonthLabel(inv.referenceMonth)}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    fecha {formatDateBR(inv.closingDate)} · vence {formatDateBR(inv.dueDate)}
-                    {inv.paidCents > 0 &&
-                      inv.remainingCents > 0 &&
-                      ` · falta ${formatBRL(inv.remainingCents)}`}
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium first-letter:uppercase">
+                    {formatMonthShort(inv.referenceMonth)}
+                  </span>
+                  <InvoiceStateBadge state={inv.state} />
                 </div>
-                <InvoiceStateBadge state={inv.state} />
-                <Amount cents={inv.totalCents} className="w-28 text-right font-medium" />
+                <Amount cents={inv.totalCents} className="block text-lg font-semibold" />
+                <div className="text-xs text-muted-foreground">
+                  vence {formatDateBR(inv.dueDate).slice(0, 5)}
+                  {inv.paidCents > 0 && inv.remainingCents > 0 && ` · falta ${formatBRL(inv.remainingCents)}`}
+                </div>
+                {isCurrent && <div className="text-xs font-medium text-primary">Fatura atual</div>}
+                {isChosen && !isCurrent && (
+                  <div className="text-xs font-medium text-primary">Mês escolhido</div>
+                )}
               </>
             );
+            const tile = cn(
+              'block w-40 shrink-0 snap-center space-y-1 rounded-xl border bg-card p-3 transition-colors',
+              (isCurrent || isChosen) && 'border-primary/60 bg-primary/5 ring-2 ring-primary/20',
+            );
+            const focus = inv.referenceMonth === focusRef ? { 'data-current': true } : {};
             return inv.id ? (
               <Link
                 key={inv.referenceMonth}
                 href={`/cartoes/faturas/${inv.id}`}
-                className={cn(
-                  'flex items-center gap-3 px-4 py-3 hover:bg-muted/50',
-                  inv.referenceMonth === month && viewing && 'bg-accent/60',
-                )}
+                aria-label={`Fatura de ${formatMonthLabel(inv.referenceMonth)}`}
+                className={cn(tile, 'hover:bg-muted/50')}
+                {...focus}
               >
                 {body}
               </Link>
             ) : (
-              <div key={inv.referenceMonth} className="flex items-center gap-3 px-4 py-3">
+              <div key={inv.referenceMonth} className={tile} {...focus}>
                 {body}
               </div>
             );
           })}
-        </CardContent>
-      </Card>
+        </ScrollStrip>
+      </section>
 
       <Card className="gap-0 pb-0">
         <CardHeader className="pb-3">
@@ -157,10 +168,10 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
                 className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{p.description}</div>
+                  <div className="font-medium break-words">{p.description}</div>
                   <div className="text-xs text-muted-foreground">
                     {formatBRL(p.total)} em {p.count}x · faltam {p.remainingCount}
-                    {p.lastMonth && ` · até ${formatMonthLabel(p.lastMonth)}`}
+                    {p.lastMonth && ` · até ${formatMonthShort(p.lastMonth)}`}
                     {p.source === 'ONBOARDING' && (
                       <Badge variant="outline" className="ml-1">
                         em andamento
@@ -168,16 +179,15 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
                     )}
                   </div>
                 </div>
-                <Amount cents={p.remainingCents} className="text-sm font-medium" />
+                <Amount cents={p.remainingCents} className="shrink-0 text-sm font-medium" />
               </Link>
             ))
           )}
         </CardContent>
       </Card>
 
-      <details className="rounded-xl border bg-card">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Editar cartão</summary>
-        <div className="space-y-6 px-4 pb-4">
+      <SheetAction label="Editar cartão" variant="ghost" className="text-muted-foreground">
+        <div className="space-y-6">
           <CardForm
             defaults={{
               id: c.id,
@@ -205,7 +215,7 @@ export default async function CardPage({ params, searchParams }: PageProps<'/car
             }}
           />
         </div>
-      </details>
+      </SheetAction>
     </div>
   );
 }

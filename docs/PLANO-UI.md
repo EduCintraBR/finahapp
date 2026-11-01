@@ -111,9 +111,10 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ### E2 — Cartões
 
-- [ ] Fatura: cabeçalho com total, pago e quanto falta; itens com "2/3" sempre visível; agrupamento por dia só quando há mais de um item no dia
-- [ ] Cartão: seletor horizontal de faturas (passadas ← atual → futuras) com a atual em destaque; ações (Nova compra, Parcelamento em andamento, Importar) em menu ou barra
-- [ ] Compra parcelada: parcelas em linha do tempo (paga / atual / futura); Antecipar, Estorno e Editar como botões que abrem painel, não `<details>`
+- [x] Fatura: cabeçalho com o total e, lado a lado, **Pago** e **Falta pagar** (ou "Pago a mais"), com "Pagar fatura" logo abaixo; itens com ícone da categoria e o **"2/3" sempre à vista** (mesmo com a descrição cortada); "lançado por" só quando foi a outra pessoa; subtotal do dia só quando há mais de um item no dia; "O banco mudou as datas?" num painel
+- [x] Cartão: **faixa horizontal de faturas** (passadas ← atual → futuras), aberta já centrada na atual (ou no mês escolhido), com a atual em destaque; ações em barra ("Nova compra" cheia; "Parcelamento em andamento" e "Importar fatura (OFX)" lado a lado); "Editar cartão" num painel (salvar fica na tela e fecha o painel)
+- [x] Compra parcelada: parcelas em **linha do tempo** (paga / fatura fechada a pagar / atual / futura); **Antecipar, Estorno e Editar** como botões que abrem painel; Excluir dentro do Editar, com confirmação
+- [x] `SheetAction` + `useActionDone` (o painel fecha quando a ação dá certo) e `Toaster` próprio (aviso no rodapé, sem dependência nova por causa da CSP); `ScrollStrip` (faixa centrada no item atual)
 
 ### E3 — Detalhes, empréstimo e fixos
 

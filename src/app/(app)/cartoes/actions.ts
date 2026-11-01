@@ -49,6 +49,8 @@ export async function saveCardAction(_p: Prev, fd: FormData): Promise<ActionResu
   });
   if (!r.ok) return r;
   refresh();
+  // editar: fica na tela do cartão (o painel fecha); cadastrar: abre o cartão novo
+  if (existing) return { ok: true, data: null };
   redirect(`/cartoes/${r.data.id}`);
 }
 
