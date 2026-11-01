@@ -15,10 +15,17 @@ import {
 } from '@/db/schema';
 import { checkNotBeforeOpening } from '@/domain/account/rules';
 import { buildInstallments } from '@/domain/card/purchases';
-import { compareDates, type ISODate } from '@/domain/dates';
+import { compareDates, monthStart, type ISODate } from '@/domain/dates';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
-import { invoicesForPurchase, invoicesFrom, loadCard, type CardRow, type InvoiceRow } from './cards';
+import {
+  invoicesForPurchase,
+  invoicesFrom,
+  loadCard,
+  startCycle,
+  type CardRow,
+  type InvoiceRow,
+} from './cards';
 import { getPrimaryAccount } from './entries';
 import type { CardPurchaseEditInput, CardPurchaseInput, OnboardingInput } from './schemas';
 
@@ -38,6 +45,12 @@ export async function checkUser(tx: Tx, userId: string | null) {
   if (!u) throw new UserError('Pessoa não encontrada.');
 }
 
+/** D73: o valor da compra (sem juros) não passa do total a pagar. */
+function checkOriginal(original: number | null | undefined, total: number) {
+  if (original != null && original > total)
+    throw new UserError('O total a pagar não pode ser menor que o valor da compra.');
+}
+
 const itemDescription = (description: string, k: number, n: number) =>
   n === 1 ? description : `${description} (${k}/${n})`;
 
@@ -46,6 +59,8 @@ type PlanSpec = {
   description: string;
   notes: string | null;
   total: number;
+  /** D73: valor sem juros (null = sem acréscimo informado) */
+  original?: number | null;
   count: number;
   firstTracked: number;
   purchaseDate: ISODate;
@@ -92,6 +107,7 @@ async function insertPlan(
       transactionId: t!.id,
       creditCardId: s.card.id,
       totalAmountCents: s.total,
+      originalAmountCents: s.original ?? null,
       installmentCount: s.count,
       firstTrackedInstallment: s.firstTracked,
       purchaseDate: s.purchaseDate,
@@ -136,6 +152,7 @@ export async function createCardPurchase(
       throw new UserError(`${dateError} Compras parceladas antigas: use "Parcelamento em andamento".`);
     if (input.amount < input.installments)
       throw new UserError('Cada parcela precisa ter pelo menos R$ 0,01.');
+    checkOriginal(input.originalAmount, input.amount);
     const card = await loadCard(tx, input.cardId);
     await checkExpenseCategory(tx, input.categoryId);
     await checkUser(tx, input.beneficiaryUserId);
@@ -144,6 +161,7 @@ export async function createCardPurchase(
       description: input.description,
       notes: input.notes,
       total: input.amount,
+      original: input.originalAmount ?? null,
       count: input.installments,
       firstTracked: 1,
       purchaseDate: input.date,
@@ -192,9 +210,21 @@ export async function createSubscriptionCharge(
  */
 export async function createOnboardingPlan(ctx: ServiceCtx, input: OnboardingInput) {
   return ctx.db.transaction(async (tx) => {
-    const card = await loadCard(tx, input.cardId);
+    let card = await loadCard(tx, input.cardId);
     await checkExpenseCategory(tx, input.categoryId);
     await checkUser(tx, input.beneficiaryUserId);
+    if (card.kind === 'STORE_CREDIT') {
+      // crediário (D73): o vencimento informado manda no mês; sem faturas ainda, define também o dia do ciclo
+      if (!input.currentInvoiceDue) throw new UserError('Informe o vencimento da fatura da parcela atual.');
+      if (monthStart(input.currentInvoiceDue) !== input.currentInvoiceMonth)
+        throw new UserError('O vencimento precisa ser no mês da fatura da parcela atual.');
+      const [any] = await tx
+        .select({ id: invoices.id })
+        .from(invoices)
+        .where(eq(invoices.creditCardId, card.id))
+        .limit(1);
+      if (!any) card = await startCycle(tx, card, Number(input.currentInvoiceDue.slice(8)));
+    }
     if (compareDates(input.purchaseDate, input.currentInvoiceMonth) > 0 && input.currentInstallment > 1) {
       throw new UserError('A data da compra precisa ser anterior à fatura da parcela atual.');
     }
@@ -256,6 +286,8 @@ export async function updateCardPurchase(ctx: ServiceCtx, planId: string, input:
     await checkUser(tx, input.beneficiaryUserId);
     const newTotal = input.amount ?? plan.totalAmountCents;
     const changesAmount = newTotal !== plan.totalAmountCents;
+    const newOriginal = input.originalAmount ?? plan.originalAmountCents;
+    checkOriginal(newOriginal, newTotal);
     const items = await planItems(tx, planId);
     if (changesAmount) {
       if (newTotal < plan.installmentCount)
@@ -294,6 +326,12 @@ export async function updateCardPurchase(ctx: ServiceCtx, planId: string, input:
       })
       .where(eq(transactions.id, t.id))
       .returning();
+    if (newOriginal !== plan.originalAmountCents) {
+      await tx
+        .update(installmentPlans)
+        .set({ originalAmountCents: newOriginal })
+        .where(eq(installmentPlans.id, planId));
+    }
     if (changesAmount) {
       await tx
         .update(installmentPlans)
@@ -324,8 +362,8 @@ export async function updateCardPurchase(ctx: ServiceCtx, planId: string, input:
       entity: 'transactions',
       entityId: t.id,
       action: 'UPDATE',
-      before: t,
-      after,
+      before: { ...t, originalAmountCents: plan.originalAmountCents },
+      after: { ...after, originalAmountCents: newOriginal },
     });
   });
 }

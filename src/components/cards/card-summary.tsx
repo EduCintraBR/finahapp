@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { CreditCard } from 'lucide-react';
+import { CreditCard, ShoppingBag } from 'lucide-react';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import type { CardMonthView, CardSummary, InvoiceSummary } from '@/db/queries/cards';
@@ -68,7 +68,11 @@ export function LimitBar({ s }: { s: CardSummary }) {
  */
 export function CardSummaryCard({ s, href }: { s: CardMonthView; href: string }) {
   const open = s.currentInvoice;
-  const shown = s.isCurrentMonth ? open : s.monthInvoice;
+  const store = s.card.kind === 'STORE_CREDIT';
+  // crediário sem ciclo ativo (D73): a "fatura atual" é só a que uma compra de hoje abriria
+  const idle = store && s.isCurrentMonth && !open.id;
+  const shown = idle ? null : s.isCurrentMonth ? open : s.monthInvoice;
+  const Icon = store ? ShoppingBag : CreditCard;
   const alsoThisMonth =
     s.isCurrentMonth && s.monthInvoice && s.monthInvoice.referenceMonth !== open.referenceMonth
       ? s.monthInvoice
@@ -82,7 +86,7 @@ export function CardSummaryCard({ s, href }: { s: CardMonthView; href: string })
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-2 font-medium">
-            <CreditCard className="size-4 shrink-0 text-primary" aria-hidden />
+            <Icon className="size-4 shrink-0 text-primary" aria-hidden />
             <span className="truncate">{s.card.name}</span>
           </div>
           {s.card.isAdditional && (
@@ -104,6 +108,14 @@ export function CardSummaryCard({ s, href }: { s: CardMonthView; href: string })
               Pago {formatBRL(shown.paidCents)} · falta {formatBRL(shown.remainingCents)}
             </div>
           )}
+        </div>
+      ) : idle ? (
+        <div>
+          <div className="text-xs text-muted-foreground">Nenhuma fatura em aberto</div>
+          <Amount cents={0} className="text-2xl font-semibold text-muted-foreground" />
+          <div className="text-xs text-muted-foreground">
+            Comprando hoje, a fatura vence em {formatDateBR(open.dueDate)}.
+          </div>
         </div>
       ) : (
         <div>

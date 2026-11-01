@@ -12,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
-import { formatDateBR } from '@/domain/dates';
+import { purchaseInterest, formatPercent } from '@/domain/card/store-credit';
+import { addMonths, formatDateBR } from '@/domain/dates';
 import { formatBRL, splitInstallments, tryParseBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { cn } from '@/lib/utils';
@@ -32,7 +33,8 @@ export type EntryFormDefaults = {
 };
 
 type Mode = 'EXPENSE' | 'INCOME' | 'CARD' | 'BENEFIT';
-export type CardOption = { id: string; name: string };
+/** `nextDueDate`: no crediário (D73), quando vence a fatura de uma compra feita hoje (para a taxa de juros) */
+export type CardOption = { id: string; name: string; kind: 'CARD' | 'STORE_CREDIT'; nextDueDate?: string };
 /** carteira de um cartão de benefícios; `label` já traz o saldo ("Multibenefícios · saldo R$ 800,00") */
 export type WalletOption = { id: string; label: string };
 
@@ -45,6 +47,29 @@ function installmentPreview(amountText: string, count: number): string | null {
   return first === rest[0]
     ? `${count}× de ${formatBRL(first!)}`
     : `1ª de ${formatBRL(first!)} + ${count - 1}× de ${formatBRL(rest[0]!)}`;
+}
+
+/** D73: acréscimo, % sobre o valor da compra e taxa mensal aproximada (só exibição). */
+function interestPreview(
+  originalText: string,
+  totalText: string,
+  count: number,
+  purchaseDate: string,
+  nextDueDate: string | undefined,
+): string | null {
+  const original = tryParseBRL(originalText);
+  const total = tryParseBRL(totalText);
+  if (!original.ok || !total.ok || original.value <= 0 || total.value <= 0) return null;
+  if (total.value < original.value) return 'O total não pode ser menor que o valor da compra.';
+  if (total.value === original.value) return 'Sem juros.';
+  const n = Number.isInteger(count) && count >= 1 && count <= 72 && total.value >= count ? count : 1;
+  const firstDue = nextDueDate ?? addMonths(purchaseDate, 1);
+  const parcels = splitInstallments(total.value, n).map((amountCents, i) => ({
+    amountCents,
+    dueDate: addMonths(firstDue, i),
+  }));
+  const r = purchaseInterest(original.value, parcels, purchaseDate);
+  return `Acréscimo de ${formatBRL(r.extraCents)} (${formatPercent(r.percent)} · ~${formatPercent(r.monthlyRate!)} ao mês)`;
 }
 
 export function EntryForm({
@@ -88,6 +113,9 @@ export function EntryForm({
   const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
   const [amountText, setAmountText] = useState(defaults?.amountText ?? '');
   const [installments, setInstallments] = useState('1');
+  const [cardId, setCardId] = useState(initialCardId ?? cards[0]?.id ?? '');
+  // crediário: o campo grande é o valor da compra; o total com juros vem à parte (vazio = sem juros)
+  const [totalText, setTotalText] = useState('');
   const [date, setDate] = useState(defaults?.date ?? today);
   // despesa nova nasce "a pagar" (D69); com a chave ligada, já saiu da conta
   const [paid, setPaid] = useState(false);
@@ -97,6 +125,9 @@ export function EntryForm({
   const options = categories.filter((c) => c.kind === categoryKind);
   const isCard = mode === 'CARD';
   const isBenefit = mode === 'BENEFIT';
+  const card = cards.find((c) => c.id === cardId);
+  const store = isCard && card?.kind === 'STORE_CREDIT';
+  const kinds = new Set(cards.map((c) => c.kind));
   const state = isCard ? cardState : isBenefit ? benefitState : entryState;
   const pending = isCard ? cardPending : isBenefit ? benefitPending : entryPending;
   const modes: Mode[] = defaults
@@ -114,7 +145,12 @@ export function EntryForm({
     if (!categories.some((c) => c.id === categoryId && c.kind === kind)) setCategoryId('');
     setCategoryMissing(false);
   };
-  const preview = isCard ? installmentPreview(amountText, Number(installments)) : null;
+  const preview = isCard
+    ? installmentPreview(store && totalText ? totalText : amountText, Number(installments))
+    : null;
+  const interest = store
+    ? interestPreview(amountText, totalText, Number(installments), date, card?.nextDueDate)
+    : null;
   const expenseMode = mode === 'EXPENSE' && !defaults;
   // enviado por onSubmit (e não por <form action>) para o React não limpar o formulário quando o servidor
   // devolve "faltam R$ X, informe o aporte"
@@ -127,6 +163,8 @@ export function EntryForm({
       return;
     }
     const fd = new FormData(e.currentTarget);
+    // crediário sem total informado: sem juros, o total é o próprio valor da compra
+    if (store && !String(fd.get('amount') ?? '').trim()) fd.set('amount', amountText);
     startTransition(() => act(fd));
   };
   const fundingShort =
@@ -180,10 +218,14 @@ export function EntryForm({
         </div>
       )}
 
-      <Field label={isCard ? 'Valor total da compra' : 'Valor'} htmlFor="amount">
+      <Field
+        label={store ? 'Valor da compra' : isCard ? 'Valor total da compra' : 'Valor'}
+        htmlFor="amount"
+        hint={store ? 'O preço do produto, sem os juros do crediário.' : undefined}
+      >
         <MoneyInput
           id="amount"
-          name="amount"
+          name={store ? 'originalAmount' : 'amount'}
           required
           autoFocus={!defaults}
           value={amountText}
@@ -198,13 +240,31 @@ export function EntryForm({
 
       {isCard && (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Cartão" htmlFor="cardId">
-            <NativeSelect id="cardId" name="cardId" required defaultValue={initialCardId ?? cards[0]?.id}>
-              {cards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+          <Field label={kinds.has('CARD') ? 'Cartão' : 'Crediário'} htmlFor="cardId">
+            <NativeSelect
+              id="cardId"
+              name="cardId"
+              required
+              value={cardId}
+              onChange={(e) => setCardId(e.target.value)}
+            >
+              {kinds.size > 1
+                ? (['CARD', 'STORE_CREDIT'] as const).map((k) => (
+                    <optgroup key={k} label={k === 'CARD' ? 'Cartões' : 'Crediários'}>
+                      {cards
+                        .filter((c) => c.kind === k)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))
+                : cards.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
             </NativeSelect>
           </Field>
           <Field label="Parcelas" htmlFor="installments" hint={preview ?? 'À vista = 1'}>
@@ -220,6 +280,21 @@ export function EntryForm({
               onChange={(e) => setInstallments(e.target.value)}
             />
           </Field>
+          {store && (
+            <Field
+              label="Total a pagar"
+              htmlFor="total"
+              hint={interest ?? 'Com os juros da loja. Vazio = sem juros.'}
+              className="col-span-2"
+            >
+              <MoneyInput
+                id="total"
+                name="amount"
+                value={totalText}
+                onChange={(e) => setTotalText(e.target.value)}
+              />
+            </Field>
+          )}
         </div>
       )}
 

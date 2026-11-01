@@ -247,10 +247,13 @@ export function PurchaseEditForm({
     beneficiaryUserId: string | null;
     notes: string | null;
     amountCents: number;
+    /** crediário (D73): valor da compra sem juros; undefined = cartão (o campo não aparece) */
+    originalCents?: number | null;
   };
   /** false quando já há parcela em fatura fechada, antecipação ou estorno */
   amountEditable: boolean;
 }) {
+  const store = defaults.originalCents !== undefined;
   const [state, action, pending] = useActionState(editPurchaseAction, null);
   const [categoryId, setCategoryId] = useState(defaults.categoryId);
   useActionDone(state, 'Compra salva.');
@@ -260,9 +263,22 @@ export function PurchaseEditForm({
       <Field label="Descrição" htmlFor="pe-desc">
         <Input id="pe-desc" name="description" required maxLength={180} defaultValue={defaults.description} />
       </Field>
+      {store && (
+        <Field
+          label="Valor da compra"
+          htmlFor="pe-original"
+          hint="Sem os juros. Não muda as parcelas, só o cálculo do acréscimo."
+        >
+          <MoneyInput
+            id="pe-original"
+            name="originalAmount"
+            defaultValue={defaults.originalCents != null ? formatDecimalBR(defaults.originalCents) : ''}
+          />
+        </Field>
+      )}
       {amountEditable ? (
         <Field
-          label="Valor total"
+          label={store ? 'Total a pagar' : 'Valor total'}
           htmlFor="pe-amount"
           hint="As parcelas são refeitas; o resto do arredondamento vai na 1ª."
         >
