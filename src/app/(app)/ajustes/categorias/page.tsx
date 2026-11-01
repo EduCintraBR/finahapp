@@ -20,7 +20,7 @@ export default async function CategoriesPage() {
   const archived = all.filter((c) => c.archived);
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link href="/ajustes">
           <ArrowLeft aria-hidden /> Ajustes

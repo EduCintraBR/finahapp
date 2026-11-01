@@ -310,7 +310,7 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
             {rows.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum gasto neste mês.</p>
             ) : (
-              <div className="flex flex-col gap-6 md:grid md:grid-cols-[13rem_1fr] md:items-start md:gap-10">
+              <div className="flex flex-col gap-6 md:grid md:grid-cols-[13rem_minmax(0,40rem)] md:items-start md:justify-center md:gap-10">
                 {slices.length > 0 && (
                   <div className="md:sticky md:top-20">
                     <CategoryDonut

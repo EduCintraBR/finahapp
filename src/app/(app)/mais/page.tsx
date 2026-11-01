@@ -13,7 +13,7 @@ export default async function MorePage({ searchParams }: PageProps<'/mais'>) {
   const params = new URLSearchParams(typeof mes === 'string' ? { mes } : {});
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader title="Mais" />
       {MORE_GROUPS.map((group) => (
         <section key={group.title} aria-label={group.title} className="space-y-2">

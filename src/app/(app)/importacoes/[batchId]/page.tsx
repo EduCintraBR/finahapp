@@ -65,7 +65,7 @@ export default async function ImportReviewPage({ params }: PageProps<'/importaco
   const diff = r.fileRemainingCents === null ? null : r.appRemainingCents - r.fileRemainingCents;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link href={`/cartoes/${r.card.id}/importar`}>
           <ArrowLeft aria-hidden /> Importações
