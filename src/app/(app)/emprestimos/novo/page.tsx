@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { LoanForm } from '@/components/loans/loan-forms';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormCard } from '@/components/forms/form-card';
 import { addMonths, today } from '@/domain/dates';
 
 export const metadata: Metadata = { title: 'Novo empréstimo' };
@@ -18,7 +19,7 @@ export default function NewLoanPage() {
           <ArrowLeft aria-hidden /> Empréstimos
         </Link>
       </Button>
-      <Card>
+      <FormCard>
         <CardHeader>
           <CardTitle>Novo empréstimo</CardTitle>
           <CardDescription>
@@ -28,7 +29,7 @@ export default function NewLoanPage() {
         <CardContent>
           <LoanForm today={hoje} defaultFirstDue={addMonths(hoje, 1)} />
         </CardContent>
-      </Card>
+      </FormCard>
     </div>
   );
 }

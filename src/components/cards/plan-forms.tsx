@@ -2,8 +2,10 @@
 
 import { useActionState, useState } from 'react';
 import { anticipateAction, editPurchaseAction, refundAction } from '@/app/(app)/cartoes/actions';
+import { CategoryPicker } from '@/components/categories/category-picker';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
@@ -35,8 +37,8 @@ export function AnticipationForm({
   const [settlement, setSettlement] = useState<'ON_INVOICE' | 'DIRECT_PAYMENT'>('ON_INVOICE');
   const gross = options.filter((o) => selected.includes(o.id)).reduce((s, o) => s + o.amountCents, 0);
   const openInvoices = invoices.filter((i) => i.open);
+  useActionDone(state, 'Antecipação registrada.');
 
-  if (state?.ok) return <p className="text-sm">Antecipação registrada. ✅</p>;
   if (options.length === 0) {
     return <p className="text-sm text-muted-foreground">Nenhuma parcela em fatura aberta para antecipar.</p>;
   }
@@ -150,7 +152,7 @@ export function RefundForm({
   const [mode, setMode] = useState<'CREDIT_KEEP_INSTALLMENTS' | 'CANCEL_PURCHASE'>(
     'CREDIT_KEEP_INSTALLMENTS',
   );
-  if (state?.ok) return <p className="text-sm">Estorno registrado. ✅</p>;
+  useActionDone(state, mode === 'CANCEL_PURCHASE' ? 'Compra cancelada.' : 'Estorno registrado.');
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="planId" value={planId} />
@@ -250,6 +252,8 @@ export function PurchaseEditForm({
   amountEditable: boolean;
 }) {
   const [state, action, pending] = useActionState(editPurchaseAction, null);
+  const [categoryId, setCategoryId] = useState(defaults.categoryId);
+  useActionDone(state, 'Compra salva.');
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="id" value={planId} />
@@ -277,15 +281,13 @@ export function PurchaseEditForm({
       )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="pe-cat">
-          <NativeSelect id="pe-cat" name="categoryId" defaultValue={defaults.categoryId}>
-            {categories
-              .filter((c) => c.kind === 'EXPENSE')
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </NativeSelect>
+          <CategoryPicker
+            id="pe-cat"
+            name="categoryId"
+            options={categories.filter((c) => c.kind === 'EXPENSE')}
+            value={categoryId}
+            onChange={setCategoryId}
+          />
         </Field>
         <Field label="De quem é" htmlFor="pe-ben">
           <NativeSelect id="pe-ben" name="beneficiaryUserId" defaultValue={defaults.beneficiaryUserId ?? ''}>
@@ -302,7 +304,6 @@ export function PurchaseEditForm({
         <Textarea id="pe-notes" name="notes" rows={2} maxLength={2000} defaultValue={defaults.notes ?? ''} />
       </Field>
       <FormError message={state && !state.ok ? state.error : null} />
-      {state?.ok && <p className="text-sm text-muted-foreground">Salvo.</p>}
       <Button type="submit" variant="outline" disabled={pending} className="w-full sm:w-auto">
         {pending ? 'Salvando…' : 'Salvar'}
       </Button>

@@ -5,6 +5,7 @@ import { invoiceDatesAction, payInvoiceAction } from '@/app/(app)/cartoes/action
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { FundingFields } from '@/components/forms/funding-fields';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import {
   Dialog,
   DialogContent,
@@ -108,6 +109,21 @@ export function InvoiceDatesForm({
   closingEditable: boolean;
 }) {
   const [state, action, pending] = useActionState(invoiceDatesAction, null);
+  useActionDone(
+    state,
+    state?.ok
+      ? `Datas atualizadas.${
+          state.data.moved.length > 0
+            ? ` Compras realocadas: ${state.data.moved
+                .map(
+                  (m) =>
+                    `${m.description} (${m.direction === 'forward' ? 'para a próxima fatura' : 'para esta fatura'})`,
+                )
+                .join(', ')}.`
+            : ''
+        }`
+      : undefined,
+  );
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="id" value={invoiceId} />
@@ -132,18 +148,6 @@ export function InvoiceDatesForm({
         </Field>
       </div>
       <FormError message={state && !state.ok ? state.error : null} />
-      {state?.ok && (
-        <p className="rounded-md bg-muted px-3 py-2 text-sm">
-          Datas atualizadas.
-          {state.data.moved.length > 0 &&
-            ` Compras realocadas: ${state.data.moved
-              .map(
-                (m) =>
-                  `${m.description} (${m.direction === 'forward' ? 'para a próxima fatura' : 'para esta fatura'})`,
-              )
-              .join(', ')}.`}
-        </p>
-      )}
       <Button type="submit" variant="outline" disabled={pending} className="w-full sm:w-auto">
         {pending ? 'Salvando…' : 'Salvar datas'}
       </Button>

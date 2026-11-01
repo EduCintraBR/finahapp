@@ -6,7 +6,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { homePending, openPayment } from './home';
 import { login as loginWith2fa } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -37,11 +39,17 @@ test('Home mostra o saldo inicial', async () => {
 });
 
 test('lançar uma despesa pelo botão + e ver no extrato e no saldo', async () => {
-  await page.getByRole('link', { name: 'Novo lançamento' }).click();
-  await expect(page.getByRole('heading', { name: 'Novo lançamento' })).toBeVisible();
+  // o + abre o painel de tipos (U2); Despesa leva ao formulário
+  await page.getByRole('button', { name: 'Novo lançamento' }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('link', { name: /Despesa/ })
+    .click();
+  await expect(page).toHaveURL(/\/lancamentos\/novo$/);
+  await expect(page.getByRole('heading', { name: 'Novo lançamento', level: 1 })).toBeVisible();
   await page.getByLabel('Valor').fill('123,45');
   await page.getByLabel('Descrição').fill('Padaria');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await pickCategory(page, 'Mercado');
   await page.getByLabel('Já paguei').check(); // sem a chave a despesa fica a pagar (D69)
   await page.getByRole('button', { name: 'Lançar' }).click();
 
@@ -77,7 +85,7 @@ test('cadastrar um fixo gera a conta do mês como pendente', async () => {
   await page.getByLabel('Descrição').fill('Internet');
   await page.getByLabel('Valor').fill('99,90');
   await page.getByLabel('Dia do vencimento').fill(String(day));
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   await page.getByRole('button', { name: 'Cadastrar' }).click();
 
   await expect(page.getByText('Histórico', { exact: true })).toBeVisible();
@@ -86,11 +94,10 @@ test('cadastrar um fixo gera a conta do mês como pendente', async () => {
 
 test('baixa em 2 toques a partir da Home, com valor real', async () => {
   await page.getByRole('link', { name: 'Início' }).click();
-  const pending = page.getByRole('listitem').filter({ hasText: 'Internet' });
+  const pending = await homePending(page, 'Internet');
   await expect(pending).toContainText('Vence hoje');
 
-  await pending.getByRole('button', { name: 'Paguei' }).click(); // toque 1
-  const dialog = page.getByRole('dialog');
+  const dialog = await openPayment(page, pending); // toque 1
   await expect(dialog.getByLabel('Valor pago')).toHaveValue('99,90');
   await dialog.getByLabel('Valor pago').fill('105,00');
   await dialog.getByRole('button', { name: 'Confirmar' }).click(); // toque 2
@@ -110,7 +117,7 @@ test('estornar a baixa volta a pendente com o valor estimado', async () => {
 
   await page.goto('/');
   await expect(balanceCard(page)).toContainText(brl('876,55'));
-  await expect(page.getByRole('listitem').filter({ hasText: 'Internet' })).toContainText(brl('99,90'));
+  await expect(await homePending(page, 'Internet')).toContainText(brl('99,90'));
 });
 
 test('conferência de saldo lança o ajuste exato', async () => {
@@ -139,6 +146,7 @@ test('a Viviane vê os lançamentos do Eduardo, com quem lançou', async ({ brow
   await login(p2, viviane);
   await expect(balanceCard(p2)).toContainText(brl('870,00'));
   await p2.goto('/lancamentos');
-  await expect(p2.getByRole('link', { name: /Padaria/ }).getByLabel('Lançado por Eduardo')).toBeVisible();
+  // quem lançou aparece em texto só quando foi a outra pessoa
+  await expect(p2.getByRole('link', { name: /Padaria/ })).toContainText('lançado por Eduardo');
   await ctx.close();
 });

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { ArrowLeft, Repeat } from 'lucide-react';
+import { Ellipsis, Pencil, Repeat } from 'lucide-react';
 import { ConfirmPaymentDialog } from '@/components/entries/confirm-payment-dialog';
 import { EntryForm } from '@/components/entries/entry-form';
 import { HighlightBadge } from '@/components/entries/entry-list';
@@ -9,7 +9,9 @@ import { ActionButton } from '@/components/forms/action-button';
 import { Amount, directionOf } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { PageHeader } from '@/components/layout/page-header';
+import { Card, CardContent } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { listBenefitCards, payableWallets } from '@/db/queries/benefits';
 import { getAnticipationLink, getEntry, planIdOfTransaction } from '@/db/queries/entries';
@@ -18,7 +20,7 @@ import { isScheduled } from '@/domain/account/rules';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { formatDateBR, monthStart, today } from '@/domain/dates';
 import { formatBRL, formatDecimalBR } from '@/domain/money';
-import { KIND_LABEL, STATUS_LABEL } from '@/lib/labels';
+import { KIND_LABEL, PAYMENT_METHOD_LABEL, STATUS_LABEL } from '@/lib/labels';
 import { removeEntryAction, revertPaymentAction } from '../actions';
 
 export const metadata: Metadata = { title: 'Lançamento' };
@@ -82,19 +84,69 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
     (entry.source === 'MANUAL' || entry.source === 'BOT') &&
     editable;
 
-  return (
-    <div className="mx-auto max-w-lg space-y-4">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href={back}>
-          <ArrowLeft aria-hidden /> Voltar
-        </Link>
-      </Button>
+  const removeConfirm = isOccurrence
+    ? {
+        title: 'Cancelar esta ocorrência?',
+        description: 'Ela não vai mais aparecer neste mês. O fixo continua valendo nos outros meses.',
+        confirmLabel: 'Cancelar ocorrência',
+      }
+    : {
+        title: 'Excluir lançamento?',
+        description: 'Ele sai do saldo e do extrato (fica registrado no histórico de auditoria).',
+        confirmLabel: 'Excluir',
+      };
+  const canRemove = editable && !isPayment;
+  // ações raras ficam no menu "⋯"; a principal (dar baixa, estornar) fica à vista
+  const hasMore = canReopen || canRemove;
 
-      <Card>
-        <CardHeader>
+  return (
+    <div className="mx-auto max-w-2xl space-y-4">
+      <PageHeader
+        title={entry.description}
+        back={{ href: back, label: 'Voltar' }}
+        actions={
+          hasMore && (
+            <SheetAction
+              label="Mais ações"
+              description={entry.description}
+              iconOnly
+              variant="ghost"
+              icon={<Ellipsis aria-hidden />}
+            >
+              <div className="grid gap-2">
+                {canReopen && (
+                  <ActionButton
+                    action={revertPaymentAction}
+                    fields={fields}
+                    label="Marcar como a pagar"
+                    confirm={{
+                      title: 'Marcar como a pagar?',
+                      description:
+                        'O lançamento volta a ficar pendente, vencendo na data em que foi lançado, e sai do saldo até você dar baixa em "Paguei".',
+                      confirmLabel: 'Marcar como a pagar',
+                    }}
+                  />
+                )}
+                {canRemove && (
+                  <ActionButton
+                    action={removeEntryAction}
+                    fields={fields}
+                    variant="destructive"
+                    label={isOccurrence ? 'Cancelar esta ocorrência' : 'Excluir'}
+                    confirm={removeConfirm}
+                  />
+                )}
+              </div>
+            </SheetAction>
+          )
+        }
+      />
+
+      <Card className="gap-3 py-4">
+        <CardContent className="space-y-2 px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={pending ? 'outline' : entry.status === 'CANCELLED' ? 'destructive' : 'secondary'}>
-              {isScheduled(entry, today())
+              {isScheduled(entry, hoje)
                 ? 'Agendado'
                 : isPayment
                   ? 'Pago antecipado'
@@ -110,19 +162,20 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
               </Link>
             )}
           </div>
-          <CardTitle className="text-xl">{entry.description}</CardTitle>
           <Amount
             cents={entry.amountCents}
             direction={directionOf(entry.kind)}
-            className="text-3xl font-semibold"
+            className="block text-3xl font-semibold tracking-tight"
           />
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm sm:grid-cols-[auto_1fr_auto_1fr] sm:gap-x-4">
             <dt className="text-muted-foreground">Tipo</dt>
             <dd>
               {entry.categoryName
                 ? `${KIND_LABEL[entry.kind]} · ${entry.categoryName}`
                 : KIND_LABEL[entry.kind]}
             </dd>
+            <dt className="text-muted-foreground">Meio</dt>
+            <dd>{PAYMENT_METHOD_LABEL[entry.paymentMethod]}</dd>
             {entry.dueDate && (
               <>
                 <dt className="text-muted-foreground">Vencimento</dt>
@@ -195,102 +248,68 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
             </dd>
             <dt className="text-muted-foreground">De quem é</dt>
             <dd>{entry.beneficiaryName ?? 'Casal'}</dd>
+            {entry.notes && (
+              <>
+                <dt className="text-muted-foreground">Observações</dt>
+                <dd className="whitespace-pre-line">{entry.notes}</dd>
+              </>
+            )}
           </dl>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          {pending && (
-            <ConfirmPaymentDialog
-              id={entry.id}
-              version={entry.version}
-              description={entry.description}
-              income={income}
-              amountText={formatDecimalBR(entry.amountCents)}
-              today={hoje}
-              wallets={wallets}
-              trigger={
-                <Button className="w-full sm:w-auto">
-                  {income ? 'Confirmar recebimento' : 'Confirmar pagamento'}
-                </Button>
-              }
-            />
-          )}
-          {entry.status === 'POSTED' && entry.dueDate && editable && (
-            <ActionButton
-              action={revertPaymentAction}
-              fields={fields}
-              label="Estornar baixa"
-              confirm={{
-                title: 'Estornar a baixa?',
-                description: `O lançamento volta a ficar pendente${
-                  entry.estimatedAmountCents !== null
-                    ? ` com o valor estimado (${formatBRL(entry.estimatedAmountCents)})`
-                    : ''
-                } e sai do saldo.`,
-                confirmLabel: 'Estornar',
-              }}
-            />
-          )}
-          {canReopen && (
-            <ActionButton
-              action={revertPaymentAction}
-              fields={fields}
-              label="Marcar como a pagar"
-              confirm={{
-                title: 'Marcar como a pagar?',
-                description:
-                  'O lançamento volta a ficar pendente, vencendo na data em que foi lançado, e sai do saldo até você dar baixa em "Paguei".',
-                confirmLabel: 'Marcar como a pagar',
-              }}
-            />
-          )}
-          {isPayment && editable && (
-            <ActionButton
-              action={revertPaymentAction}
-              fields={fields}
-              label="Estornar pagamento"
-              confirm={{
-                title: 'Estornar o pagamento antecipado?',
-                description: `O pagamento sai do saldo e a conta original volta para "a pagar"${
-                  link?.role === 'payment' && link.other.dueDate
-                    ? `, vencendo em ${formatDateBR(link.other.dueDate)}`
-                    : ''
-                }.`,
-                confirmLabel: 'Estornar',
-              }}
-            />
-          )}
-          {editable && !isPayment && (
-            <ActionButton
-              action={removeEntryAction}
-              fields={fields}
-              variant="destructive"
-              label={isOccurrence ? 'Cancelar esta ocorrência' : 'Excluir'}
-              confirm={
-                isOccurrence
-                  ? {
-                      title: 'Cancelar esta ocorrência?',
-                      description:
-                        'Ela não vai mais aparecer neste mês. O fixo continua valendo nos outros meses.',
-                      confirmLabel: 'Cancelar ocorrência',
-                    }
-                  : {
-                      title: 'Excluir lançamento?',
-                      description:
-                        'Ele sai do saldo e do extrato (fica registrado no histórico de auditoria).',
-                      confirmLabel: 'Excluir',
-                    }
-              }
-            />
-          )}
         </CardContent>
       </Card>
 
-      {editable && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Editar</CardTitle>
-          </CardHeader>
-          <CardContent>
+      {/* a ação principal à vista; editar abre o formulário num painel (o detalhe é só leitura) */}
+      <div className="grid gap-2 sm:flex sm:flex-wrap">
+        {pending && (
+          <ConfirmPaymentDialog
+            id={entry.id}
+            version={entry.version}
+            description={entry.description}
+            income={income}
+            amountText={formatDecimalBR(entry.amountCents)}
+            today={hoje}
+            wallets={wallets}
+            trigger={
+              <Button className="w-full sm:w-auto">
+                {income ? 'Confirmar recebimento' : 'Confirmar pagamento'}
+              </Button>
+            }
+          />
+        )}
+        {entry.status === 'POSTED' && entry.dueDate && editable && (
+          <ActionButton
+            action={revertPaymentAction}
+            fields={fields}
+            label="Estornar baixa"
+            confirm={{
+              title: 'Estornar a baixa?',
+              description: `O lançamento volta a ficar pendente${
+                entry.estimatedAmountCents !== null
+                  ? ` com o valor estimado (${formatBRL(entry.estimatedAmountCents)})`
+                  : ''
+              } e sai do saldo.`,
+              confirmLabel: 'Estornar',
+            }}
+          />
+        )}
+        {isPayment && editable && (
+          <ActionButton
+            action={revertPaymentAction}
+            fields={fields}
+            label="Estornar pagamento"
+            confirm={{
+              title: 'Estornar o pagamento antecipado?',
+              description: `O pagamento sai do saldo e a conta original volta para "a pagar"${
+                link?.role === 'payment' && link.other.dueDate
+                  ? `, vencendo em ${formatDateBR(link.other.dueDate)}`
+                  : ''
+              }.`,
+              confirmLabel: 'Estornar',
+            }}
+          />
+        )}
+        {editable && (
+          <SheetAction label="Editar" title="Editar lançamento" icon={<Pencil aria-hidden />}>
             <EntryForm
               key={entry.version} // depois de uma baixa o formulário recomeça com os valores novos, não os de antes
               categories={categories}
@@ -311,9 +330,9 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 pending,
               }}
             />
-          </CardContent>
-        </Card>
-      )}
+          </SheetAction>
+        )}
+      </div>
     </div>
   );
 }

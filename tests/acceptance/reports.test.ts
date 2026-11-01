@@ -244,6 +244,7 @@ describe('Home: resumo de caixa (D38) e projeção (D39–D41)', () => {
       incomePendingCents: 0,
       outPaidCents: 10_000 + 9_000,
       outPendingCents: 200_000,
+      outTotalCents: 10_000 + 9_000 + 200_000, // Saídas (U4): saiu + a pagar
       endOfMonthCents: 581_000 - 200_000,
       endOfMonthKind: 'projected',
     });

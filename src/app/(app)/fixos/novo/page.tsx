@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { TemplateForm } from '@/components/recurring/template-form';
-import { Card, CardContent } from '@/components/ui/card';
+import { CardContent } from '@/components/ui/card';
+import { FormCard } from '@/components/forms/form-card';
 import { getDb } from '@/db/client';
 import { listActiveCards } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
@@ -18,7 +19,7 @@ export default async function NewTemplatePage() {
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Novo fixo ou recorrente</h1>
-      <Card>
+      <FormCard>
         <CardContent>
           <TemplateForm
             categories={categories}
@@ -27,7 +28,7 @@ export default async function NewTemplatePage() {
             cards={cards.map((c) => ({ id: c.id, name: c.name }))}
           />
         </CardContent>
-      </Card>
+      </FormCard>
       <p className="text-center text-xs text-muted-foreground">
         Assinatura no cartão (Netflix, Spotify…): escolha “Cartão de crédito” como meio.
       </p>

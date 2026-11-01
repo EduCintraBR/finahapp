@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { moreAction } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -21,6 +22,23 @@ const cents = (text: string) => {
   const m = /(-?)R\$\s([\d.]+),(\d{2})/.exec(text.replace(/ /g, ' '));
   if (!m) throw new Error(`sem valor em: ${text}`);
   return (m[1] ? -1 : 1) * Number(m[2]!.replace(/\./g, '') + m[3]);
+};
+/** O botão de pagar fica à vista e mostra quantas parcelas estão marcadas na lista. */
+const payButton = () => page.getByRole('button', { name: /^Pagar \d+ parcelas?|^Escolha as parcelas/ });
+/** Desmarca tudo; repete até a página hidratar (o botão passa a pedir as parcelas). */
+const clearSelection = async () => {
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Limpar' }).click();
+    await expect(payButton()).toHaveText(/Escolha as parcelas/, { timeout: 1_000 });
+  }).toPass();
+};
+/** "Pagar N parcelas" abre o painel do valor e da data. */
+const openPay = async () => {
+  const sheet = page.getByRole('dialog', { name: 'Pagar parcelas' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await payButton().click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
 };
 const homeCard = (label: string) => page.locator('[data-slot=card]').filter({ hasText: label }).first();
 const accountBalance = async () => {
@@ -76,20 +94,24 @@ test('cadastrar: o total com juros vira parcelas e o valor recebido entra no sal
 
 test('antecipar as 3 últimas parcelas com um valor só: o desconto é calculado', async () => {
   await page.goto(loanUrl);
-  await page.getByRole('button', { name: 'Limpar' }).click();
+  await clearSelection();
   for (const n of [10, 11, 12]) await page.getByRole('checkbox', { name: new RegExp(`^${n}/12`) }).check();
+  await expect(payButton()).toHaveText(/Pagar 3 parcelas/);
+  await openPay();
   await expect(page.getByLabel('Valor que paguei')).toHaveValue('3.000,00'); // sugere a soma
   await page.getByLabel('Valor que paguei').fill('270000');
   await expect(page.getByTestId('pay-preview')).toContainText('desconto de R$');
   await expect(page.getByTestId('pay-preview')).toContainText(brl('300,00'));
   const before = await accountBalance();
   await page.goto(loanUrl);
-  await page.getByRole('button', { name: 'Limpar' }).click();
+  await clearSelection();
   for (const n of [10, 11, 12]) await page.getByRole('checkbox', { name: new RegExp(`^${n}/12`) }).check();
+  await expect(payButton()).toHaveText(/Pagar 3 parcelas/);
+  await openPay();
   await page.getByLabel('Valor que paguei').fill('270000');
   await page.getByRole('button', { name: 'Registrar pagamento' }).click();
 
-  await expect(page.getByRole('status')).toContainText('economia de');
+  await expect(page.getByText(/Pagamento registrado/)).toContainText('economia de');
   await expect(page.getByTestId('loan-remaining')).toContainText(brl('9.000,00'));
   await expect(page.getByTestId('loan-savings')).toContainText(brl('300,00'));
   await expect(page.getByTestId('loan-paid')).toContainText(brl('2.700,00'));
@@ -100,10 +122,12 @@ test('antecipar as 3 últimas parcelas com um valor só: o desconto é calculado
 
 test('pagar a 1ª parcela com atraso e valor maior: aparece o acréscimo', async () => {
   await page.goto(loanUrl);
-  await page.getByLabel('Valor que paguei').fill('103500'); // a 1ª parcela já vem marcada
+  await expect(payButton()).toHaveText(/Pagar 1 parcela/); // a 1ª pendente já vem marcada
+  await openPay();
+  await page.getByLabel('Valor que paguei').fill('103500');
   await expect(page.getByTestId('pay-preview')).toContainText('acréscimo de R$');
   await page.getByRole('button', { name: 'Registrar pagamento' }).click();
-  await expect(page.getByRole('status')).toContainText('acréscimo de');
+  await expect(page.getByText(/Pagamento registrado/)).toContainText('acréscimo de');
   await expect(page.getByText('Acréscimo por atraso')).toBeVisible();
   await expect(page.getByTestId('loan-remaining')).toContainText(brl('8.000,00'));
 });
@@ -141,7 +165,7 @@ test('excluir um empréstimo sem pagamentos devolve o saldo; com pagamento, não
   const toDelete = page.url();
   expect(await accountBalance()).toBe(before + 500_000);
   await page.goto(toDelete);
-  await page.getByRole('button', { name: 'Excluir empréstimo' }).click();
+  await moreAction(page, 'Excluir empréstimo');
   await expect(page.getByRole('alertdialog')).toContainText('Excluir este empréstimo?');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();
   await expect(page).toHaveURL(/\/emprestimos$/);
@@ -149,6 +173,11 @@ test('excluir um empréstimo sem pagamentos devolve o saldo; com pagamento, não
   expect(await accountBalance()).toBe(before);
 
   await page.goto(loanUrl); // este já tem parcela paga
-  await expect(page.getByRole('button', { name: 'Excluir empréstimo' })).toHaveCount(0);
-  await expect(page.getByText('Já tem parcela paga')).toBeVisible();
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Mais ações' }).click();
+    await expect(page.getByRole('dialog', { name: 'Mais ações' })).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  const menu = page.getByRole('dialog', { name: 'Mais ações' });
+  await expect(menu.getByText('Já tem parcela paga')).toBeVisible();
+  await expect(menu.getByRole('button', { name: 'Excluir empréstimo' })).toHaveCount(0);
 });

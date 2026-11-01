@@ -9,5 +9,5 @@ src/db/seed-data.ts
 tests/acceptance/card-ledger.test.ts
 test-results
 playwright-report
-.next-e2e
+.next-*
 tmp

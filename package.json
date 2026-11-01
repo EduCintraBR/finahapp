@@ -24,6 +24,7 @@
     "db:seed": "tsx --env-file-if-exists=.env src/db/seed.ts",
     "worker": "tsx --env-file-if-exists=.env src/worker/index.ts",
     "test:e2e": "playwright test",
+    "ui:shots": "tsx --env-file-if-exists=.env scripts/ui-shots.ts",
     "bot:webhook": "tsx --env-file-if-exists=.env scripts/bot-webhook.ts"
   },
   "dependencies": {

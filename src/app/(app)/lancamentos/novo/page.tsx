@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import { EntryForm } from '@/components/entries/entry-form';
-import { Card, CardContent } from '@/components/ui/card';
+import { PageHeader } from '@/components/layout/page-header';
+import { FormCard } from '@/components/forms/form-card';
+import { CardContent } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { listBenefitCards } from '@/db/queries/benefits';
 import { listActiveCards } from '@/db/queries/cards';
@@ -26,23 +28,33 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
   );
   return (
     <div className="mx-auto max-w-lg space-y-4">
-      <h1 className="text-2xl font-semibold tracking-tight">Novo lançamento</h1>
-      <Card>
+      <PageHeader title="Novo lançamento" />
+      <FormCard>
         <CardContent>
           <EntryForm
+            // escolher outro tipo no (+) já estando aqui muda só a URL: a key recria o formulário no tipo novo
+            key={`${tipo ?? ''}:${cartao ?? ''}:${carteira ?? ''}`}
             categories={categories}
             users={users}
             today={hoje}
             returnTo="/lancamentos"
             cards={cards.map((c) => ({ id: c.id, name: c.name }))}
             wallets={wallets}
-            initialMode={tipo === 'cartao' ? 'CARD' : tipo === 'beneficio' ? 'BENEFIT' : undefined}
+            initialMode={
+              tipo === 'cartao'
+                ? 'CARD'
+                : tipo === 'beneficio'
+                  ? 'BENEFIT'
+                  : tipo === 'receita'
+                    ? 'INCOME'
+                    : undefined
+            }
             initialWalletId={wallets.find((w) => w.id === carteira)?.id}
             // vindo da tela de um cartão, a compra já vem nesse cartão (e não no primeiro da lista)
             initialCardId={cards.find((c) => c.id === cartao)?.id}
           />
         </CardContent>
-      </Card>
+      </FormCard>
       <p className="text-center text-xs text-muted-foreground">
         Contas que se repetem todo mês (inclusive assinaturas no cartão): cadastre em Fixos.
       </p>

@@ -51,7 +51,7 @@ export async function invoicesText(db: AnyDB, today: ISODate): Promise<string> {
 export async function reminderText(db: AnyDB, today: ISODate): Promise<string | null> {
   const inTwoDays = addDays(today, 2);
   const [pending, cards] = await Promise.all([
-    listPending(db, monthStart(today)),
+    listPending(db, monthStart(today), today),
     listCardSummaries(db, today),
   ]);
   const dueToday = pending.filter((p) => p.dueDate === today);

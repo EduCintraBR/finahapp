@@ -1,17 +1,20 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { isScheduled } from '@/domain/account/rules';
-import { FileUp, Landmark, Repeat, Scale, SlidersHorizontal } from 'lucide-react';
+import { Search } from 'lucide-react';
+import { auth } from '@/auth';
+import { MonthKpis } from '@/components/dashboard/overview';
 import { EntryList } from '@/components/entries/entry-list';
-import { NativeSelect } from '@/components/forms/fields';
+import { monthSuffix } from '@/components/layout/month-link';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
+import { FilterChip } from '@/components/ui/filter-chip';
 import { Input } from '@/components/ui/input';
 import { getDb } from '@/db/client';
 import { listEntries, type EntryFilters } from '@/db/queries/entries';
 import { listCategories, listUsers } from '@/db/queries/lookups';
-import { today, toMonthParam } from '@/domain/dates';
+import { cashSummary } from '@/db/queries/reports';
+import { monthStart, today, toMonthParam } from '@/domain/dates';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { resolveMonth } from '@/lib/month';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
@@ -40,140 +43,168 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
     beneficiary: str(sp.dequem) === 'casal' ? 'casal' : uuidOrUndefined(str(sp.dequem)),
     q: str(sp.q)?.slice(0, 100),
   };
-  const [entries, categories, users] = await Promise.all([
-    listEntries(db, filters),
+  const [session, entries, categories, users, summary] = await Promise.all([
+    auth(),
+    // D72: os atrasados de antes que ainda pedem baixa entram no mês (a lista bate com o A pagar / A receber)
+    listEntries(db, { ...filters, overdueAsOf: filters.status === 'POSTED' ? undefined : hoje }),
     listCategories(db, { includeArchived: true }),
     listUsers(db),
+    cashSummary(db, month, hoje),
   ]);
 
-  const sum = (pred: (e: (typeof entries)[number]) => boolean) =>
-    entries.filter(pred).reduce((s, e) => s + e.amountCents, 0);
-  // agendado (pago com data futura, D67) ainda não entrou nem saiu da conta: conta como a receber / a pagar
-  const future = (e: (typeof entries)[number]) => isScheduled(e, hoje);
-  const inPaid = sum((e) => e.status === 'POSTED' && !future(e) && e.kind === 'INCOME');
-  const outPaid = sum((e) => e.status === 'POSTED' && !future(e) && e.kind === 'EXPENSE');
-  const outPending = sum((e) => (e.status === 'PENDING' || future(e)) && e.kind === 'EXPENSE');
-  const inPending = sum((e) => (e.status === 'PENDING' || future(e)) && e.kind === 'INCOME');
+  const current = monthStart(hoje);
+  const suffix = monthSuffix(month, current);
+  // os filtros vivem na URL: cada opção é um link que troca só o seu parâmetro
+  const params = Object.fromEntries(
+    Object.entries(sp).flatMap(([k, v]) => (typeof v === 'string' && v !== '' ? [[k, v]] : [])),
+  );
+  const hrefWith = (key: string, value?: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    const qs = next.toString();
+    return qs ? `/lancamentos?${qs}` : '/lancamentos';
+  };
+  const chip = (key: string, current: string | undefined, all: string, choices: [string, string][]) => ({
+    value: choices.find(([v]) => v === current)?.[1],
+    options: [
+      { label: all, href: hrefWith(key), active: current === undefined },
+      ...choices.map(([v, label]) => ({ label, href: hrefWith(key, v), active: v === current })),
+    ],
+  });
+  const chips = [
+    {
+      label: 'Tipo',
+      ...chip('tipo', filters.kind, 'Receitas e despesas', [
+        ['EXPENSE', 'Despesas'],
+        ['INCOME', 'Receitas'],
+      ]),
+    },
+    {
+      label: 'Situação',
+      ...chip('status', filters.status, 'Pagos e pendentes', [
+        ['POSTED', 'Pagos'],
+        ['PENDING', 'Pendentes'],
+      ]),
+    },
+    {
+      label: 'Categoria',
+      ...chip(
+        'categoria',
+        filters.categoryId,
+        'Todas as categorias',
+        // mesmo nome em despesa e receita (ex.: Empréstimo): a de receita ganha o sufixo
+        categories.map((c): [string, string] => [
+          c.id,
+          c.kind === 'INCOME' && categories.some((o) => o.kind === 'EXPENSE' && o.name === c.name)
+            ? `${c.name} (receita)`
+            : c.name,
+        ]),
+      ),
+    },
+    {
+      label: 'Meio',
+      ...chip(
+        'meio',
+        filters.paymentMethod,
+        'Todos os meios',
+        ACCOUNT_PAYMENT_METHODS.map((m): [string, string] => [m, PAYMENT_METHOD_LABEL[m] ?? m]),
+      ),
+    },
+    {
+      label: 'De quem é',
+      ...chip('dequem', filters.beneficiary, 'De qualquer um', [
+        ['casal', 'Do casal'],
+        ...users.map((u): [string, string] => [u.id, `De ${u.name}`]),
+      ]),
+    },
+    {
+      label: 'Quem lançou',
+      ...chip(
+        'lancou',
+        filters.createdBy,
+        'Qualquer um',
+        users.map((u) => [u.id, `Lançado por ${u.name}`]),
+      ),
+    },
+  ];
 
   const activeFilters = Object.entries(filters).filter(([k, v]) => k !== 'month' && v !== undefined).length;
   const mesParam = toMonthParam(month);
-  const returnTo = `/lancamentos?${new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (typeof v === 'string' ? [[k, v]] : [])))}`;
+  const returnTo = `/lancamentos?${new URLSearchParams(params)}`;
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight">Lançamentos</h1>
-        <div className="flex gap-1">
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/fixos" aria-label="Fixos">
-              <Repeat aria-hidden />
-              <span className="hidden sm:inline">Fixos</span>
+      {/* Fixos, Empréstimos, Importar e Conferir ficam no "Mais" (celular) e na sidebar (desktop) */}
+      <PageHeader title="Lançamentos" />
+
+      {summary && (
+        <Card className="gap-0 py-0" aria-label="Resumo do mês">
+          <MonthKpis summary={summary} suffix={suffix} wide />
+          <div
+            className="flex items-baseline justify-between gap-3 border-t px-4 py-3 text-sm sm:px-6"
+            data-testid="kpi-saidas"
+          >
+            <span>
+              <span className="font-medium">Saídas do mês</span>
+              <span className="block text-xs text-muted-foreground">já saiu + a pagar, com atrasados</span>
+            </span>
+            <Amount cents={summary.outTotalCents} className="text-lg font-semibold whitespace-nowrap" />
+          </div>
+        </Card>
+      )}
+
+      <div className="space-y-2">
+        <form method="get" role="search" className="relative">
+          {Object.entries(params)
+            .filter(([k]) => k !== 'q')
+            .map(([k, v]) => (
+              <input key={k} type="hidden" name={k} value={v} />
+            ))}
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+            aria-hidden
+          />
+          <Input
+            type="search"
+            name="q"
+            aria-label="Buscar descrição"
+            placeholder="Buscar descrição"
+            defaultValue={filters.q}
+            className="pl-9"
+          />
+        </form>
+        <div
+          className="-mx-4 flex [scrollbar-width:none] gap-2 overflow-x-auto px-4 pb-1"
+          aria-label="Filtros"
+        >
+          {chips.map((c) => (
+            <FilterChip key={c.label} label={c.label} value={c.value} options={c.options} />
+          ))}
+          {activeFilters > 0 && (
+            <Link
+              href={`/lancamentos?mes=${mesParam}`}
+              className="inline-flex h-8 shrink-0 items-center px-2 text-sm font-medium whitespace-nowrap text-primary"
+            >
+              Limpar filtros
             </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/emprestimos" aria-label="Empréstimos">
-              <Landmark aria-hidden />
-              <span className="hidden sm:inline">Empréstimos</span>
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/lancamentos/importar" aria-label="Importar extrato (OFX)">
-              <FileUp aria-hidden />
-              <span className="hidden sm:inline">Importar</span>
-            </Link>
-          </Button>
-          <Button asChild variant="ghost" size="sm">
-            <Link href="/conta/conferencia" aria-label="Conferir">
-              <Scale aria-hidden />
-              <span className="hidden sm:inline">Conferir</span>
-            </Link>
-          </Button>
+          )}
         </div>
+        {activeFilters > 0 && (
+          <p className="text-xs text-muted-foreground">
+            O resumo acima é do mês inteiro; a lista segue os filtros.
+          </p>
+        )}
       </div>
 
-      <Card className="py-3">
-        <CardContent className="grid grid-cols-2 gap-3 px-4 text-sm sm:grid-cols-4">
-          <Stat label="Entradas" value={<Amount cents={inPaid} direction="in" />} />
-          <Stat label="Saídas" value={<Amount cents={outPaid} direction="out" />} />
-          <Stat label="A pagar" value={<Amount cents={outPending} className="text-muted-foreground" />} />
-          <Stat label="A receber" value={<Amount cents={inPending} className="text-muted-foreground" />} />
-        </CardContent>
-      </Card>
-
-      <details className="group rounded-xl border bg-card" open={activeFilters > 0}>
-        <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium">
-          <SlidersHorizontal className="size-4" aria-hidden /> Filtros
-          {activeFilters > 0 && <span className="text-primary">({activeFilters})</span>}
-        </summary>
-        <form method="get" className="grid grid-cols-2 gap-3 px-4 pb-4 sm:grid-cols-4">
-          <input type="hidden" name="mes" value={mesParam} />
-          <Input name="q" placeholder="Buscar descrição" defaultValue={filters.q} className="col-span-2" />
-          <NativeSelect name="tipo" defaultValue={filters.kind ?? ''} aria-label="Tipo">
-            <option value="">Receitas e despesas</option>
-            <option value="EXPENSE">Despesas</option>
-            <option value="INCOME">Receitas</option>
-          </NativeSelect>
-          <NativeSelect name="status" defaultValue={filters.status ?? ''} aria-label="Situação">
-            <option value="">Pagos e pendentes</option>
-            <option value="POSTED">Pagos</option>
-            <option value="PENDING">Pendentes</option>
-          </NativeSelect>
-          <NativeSelect name="categoria" defaultValue={filters.categoryId ?? ''} aria-label="Categoria">
-            <option value="">Todas as categorias</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </NativeSelect>
-          <NativeSelect name="meio" defaultValue={filters.paymentMethod ?? ''} aria-label="Meio de pagamento">
-            <option value="">Todos os meios</option>
-            {ACCOUNT_PAYMENT_METHODS.map((m) => (
-              <option key={m} value={m}>
-                {PAYMENT_METHOD_LABEL[m]}
-              </option>
-            ))}
-          </NativeSelect>
-          <NativeSelect name="lancou" defaultValue={filters.createdBy ?? ''} aria-label="Quem lançou">
-            <option value="">Lançado por qualquer um</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                Lançado por {u.name}
-              </option>
-            ))}
-          </NativeSelect>
-          <NativeSelect name="dequem" defaultValue={filters.beneficiary ?? ''} aria-label="De quem é">
-            <option value="">De qualquer um</option>
-            <option value="casal">Do casal</option>
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                De {u.name}
-              </option>
-            ))}
-          </NativeSelect>
-          <div className="col-span-2 flex gap-2 sm:col-span-4">
-            <Button type="submit" size="sm">
-              Filtrar
-            </Button>
-            {activeFilters > 0 && (
-              <Button asChild variant="ghost" size="sm">
-                <Link href={`/lancamentos?mes=${mesParam}`}>Limpar</Link>
-              </Button>
-            )}
-          </div>
-        </form>
-      </details>
-
-      <EntryList entries={entries} today={hoje} returnTo={returnTo} />
-    </div>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className="font-medium">{value}</div>
+      <EntryList
+        entries={entries}
+        today={hoje}
+        returnTo={returnTo}
+        month={month}
+        viewerId={session?.user?.id}
+        table
+      />
     </div>
   );
 }

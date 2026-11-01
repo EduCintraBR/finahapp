@@ -8,6 +8,7 @@ import { lastBusinessDay } from '../../src/domain/benefits/credits';
 import { addMonths, compareDates, monthStart, toMonthParam, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -69,7 +70,7 @@ test('gasto no benefício: sai do saldo da carteira, volta para o cartão e não
   await expect(page.getByLabel('Carteira')).toContainText('Refeição e alimentação');
   await page.getByLabel('Valor').fill('25,00');
   await page.getByLabel('Descrição').fill('Almoço no restaurante');
-  await page.getByLabel('Categoria').selectOption({ label: 'Alimentação fora' });
+  await pickCategory(page, 'Alimentação fora');
   await page.getByRole('button', { name: 'Lançar' }).click();
 
   await expect(page).toHaveURL(cardUrl); // volta para o cartão, não para os detalhes (D59)
@@ -94,7 +95,7 @@ test('sem saldo suficiente na carteira, não lança', async () => {
   await page.getByLabel('Carteira').selectOption(wallet!);
   await page.getByLabel('Valor').fill('5.000,00');
   await page.getByLabel('Descrição').fill('Compra grande');
-  await page.getByLabel('Categoria').selectOption({ label: 'Alimentação fora' });
+  await pickCategory(page, 'Alimentação fora');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Saldo insuficiente' })).toBeVisible();
   await expect(page).toHaveURL(/\/lancamentos\/novo/);
@@ -127,8 +128,15 @@ test('encerrar: para os créditos, mantém o histórico e o saldo', async () => 
   // o cartão do teste começa no primeiro mês cujo crédito ainda não caiu: encerra nesse mesmo mês
   let first = monthStart(today());
   while (compareDates(lastBusinessDay(first), today()) <= 0) first = addMonths(first, 1);
-  await page.getByLabel('Último mês com crédito').fill(toMonthParam(first));
-  await page.getByRole('button', { name: 'Encerrar cartão' }).click();
+  // "Encerrar" abre um painel; repete o toque até a página hidratar
+  const sheet = page.getByRole('dialog', { name: 'Encerrar cartão' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Encerrar', exact: true }).click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  await sheet.getByLabel('Último mês com crédito').selectOption(toMonthParam(first));
+  await sheet.getByRole('button', { name: 'Encerrar cartão' }).click();
+  await expect(sheet).toBeHidden();
   await expect(page.getByText(/Encerra em|Encerrado/).first()).toBeVisible();
   await expect(saldo('Multibenefícios')).toContainText(brl('800,00'));
   await expect(page.getByRole('button', { name: 'Encerrar cartão' })).toHaveCount(0);

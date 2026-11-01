@@ -8,6 +8,7 @@ import { Amount } from '@/components/money/amount';
 import { EvolutionChart, type EvolutionPoint } from '@/components/reports/evolution-chart';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { listActiveCards } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
@@ -175,65 +176,73 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
           ))}
         </div>
 
-        <details className="group rounded-xl border bg-card" open={activeFilters > 0}>
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-2.5 text-sm font-medium">
-            <SlidersHorizontal className="size-4" aria-hidden /> Filtros
-            {activeFilters > 0 && <span className="text-primary">({activeFilters})</span>}
-          </summary>
-          <form method="get" className="grid grid-cols-2 gap-3 border-t px-4 pt-3 pb-4 sm:grid-cols-4">
-            <input type="hidden" name="mes" value={mesParam} />
-            <input type="hidden" name="visao" value={view} />
-            <NativeSelect name="dequem" defaultValue={filters.beneficiary ?? ''} aria-label="De quem é">
-              <option value="">De qualquer um</option>
-              <option value="casal">Do casal</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  De {u.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect name="lancou" defaultValue={filters.createdBy ?? ''} aria-label="Quem lançou">
-              <option value="">Lançado por qualquer um</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  Lançado por {u.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect name="cartao" defaultValue={filters.cardId ?? ''} aria-label="Cartão">
-              <option value="">Conta e cartões</option>
-              {cards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  Só {c.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect
-              name="meio"
-              defaultValue={filters.paymentMethod ?? ''}
-              aria-label="Meio de pagamento"
-            >
-              <option value="">Todos os meios</option>
-              <option value="CREDIT_CARD">{PAYMENT_METHOD_LABEL.CREDIT_CARD}</option>
-              <option value="BENEFIT_CARD">{PAYMENT_METHOD_LABEL.BENEFIT_CARD}</option>
-              {ACCOUNT_PAYMENT_METHODS.map((m) => (
-                <option key={m} value={m}>
-                  {PAYMENT_METHOD_LABEL[m]}
-                </option>
-              ))}
-            </NativeSelect>
-            <div className="col-span-2 flex gap-2 sm:col-span-4">
-              <Button type="submit" size="sm">
+        {/* filtros num painel (antes: bloco <details>); "Limpar" fica à vista quando há filtro */}
+        <div className="flex items-center gap-2">
+          <SheetAction
+            label="Filtros"
+            title="Filtrar relatórios"
+            icon={<SlidersHorizontal aria-hidden />}
+            className="w-auto"
+            triggerContent={
+              <>
+                Filtros
+                {activeFilters > 0 && <span className="text-primary">({activeFilters})</span>}
+              </>
+            }
+          >
+            <form method="get" className="grid grid-cols-2 gap-3">
+              <input type="hidden" name="mes" value={mesParam} />
+              <input type="hidden" name="visao" value={view} />
+              <NativeSelect name="dequem" defaultValue={filters.beneficiary ?? ''} aria-label="De quem é">
+                <option value="">De qualquer um</option>
+                <option value="casal">Do casal</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    De {u.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect name="lancou" defaultValue={filters.createdBy ?? ''} aria-label="Quem lançou">
+                <option value="">Lançado por qualquer um</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    Lançado por {u.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect name="cartao" defaultValue={filters.cardId ?? ''} aria-label="Cartão">
+                <option value="">Conta e cartões</option>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    Só {c.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect
+                name="meio"
+                defaultValue={filters.paymentMethod ?? ''}
+                aria-label="Meio de pagamento"
+              >
+                <option value="">Todos os meios</option>
+                <option value="CREDIT_CARD">{PAYMENT_METHOD_LABEL.CREDIT_CARD}</option>
+                <option value="BENEFIT_CARD">{PAYMENT_METHOD_LABEL.BENEFIT_CARD}</option>
+                {ACCOUNT_PAYMENT_METHODS.map((m) => (
+                  <option key={m} value={m}>
+                    {PAYMENT_METHOD_LABEL[m]}
+                  </option>
+                ))}
+              </NativeSelect>
+              <Button type="submit" className="col-span-2 h-11">
                 Filtrar
               </Button>
-              {activeFilters > 0 && (
-                <Button asChild variant="ghost" size="sm">
-                  <Link href={`/relatorios?mes=${mesParam}&visao=${view}`}>Limpar</Link>
-                </Button>
-              )}
-            </div>
-          </form>
-        </details>
+            </form>
+          </SheetAction>
+          {activeFilters > 0 && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/relatorios?mes=${mesParam}&visao=${view}`}>Limpar</Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* resumo do mês: o total, a comparação com o mês anterior e a média */}
@@ -301,7 +310,7 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
             {rows.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Nenhum gasto neste mês.</p>
             ) : (
-              <div className="flex flex-col gap-6 md:grid md:grid-cols-[13rem_1fr] md:items-start md:gap-10">
+              <div className="flex flex-col gap-6 md:grid md:grid-cols-[13rem_minmax(0,40rem)] md:items-start md:justify-center md:gap-10">
                 {slices.length > 0 && (
                   <div className="md:sticky md:top-20">
                     <CategoryDonut

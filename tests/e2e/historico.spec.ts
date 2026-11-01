@@ -6,16 +6,21 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
-import { addDays, addMonths, diffMonths, monthStart, today } from '../../src/domain/dates';
+import { addDays, addMonths, diffMonths, monthEnd, monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
+
+/** Desloca a data em meses; o último dia do mês continua sendo o último (30/09 → 31/10, não 30/10). */
+const shiftDate = (date: string, months: number) =>
+  date === monthEnd(date) ? monthEnd(addMonths(date, months)) : addMonths(date, months);
 
 function previousMonthFixture(): Buffer {
   const shift = Math.max(0, diffMonths(today(), '2026-10-18'));
   const text = readFileSync(join(process.cwd(), 'tests/fixtures/nubank-account-sep.ofx'), 'utf8').replace(
     /<(DTPOSTED|DTSTART|DTEND|DTASOF)>(\d{4})(\d{2})(\d{2})/g,
     (_, tag: string, y: string, m: string, d: string) =>
-      `<${tag}>${addMonths(`${y}-${m}-${d}`, shift).replace(/-/g, '')}`,
+      `<${tag}>${shiftDate(`${y}-${m}-${d}`, shift).replace(/-/g, '')}`,
   );
   return Buffer.from(text, 'utf8');
 }
@@ -34,7 +39,7 @@ test('importar o mês anterior ao início: mostra o recuo, confirma, ignora em l
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('2.000,00');
   await page.getByLabel('Descrição').fill('Aluguel já lançado');
-  await page.getByLabel('Categoria').selectOption({ label: 'Moradia' });
+  await pickCategory(page, 'Moradia');
   await page.locator('#date').fill(addDays(opening, 1));
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos/);

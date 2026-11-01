@@ -26,11 +26,12 @@ export async function changeFromAction(
 ): Promise<ActionResult<null>> {
   const parsed = changeFromInput.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
-  const r = await runAction(async () =>
-    changeTemplateFrom(await getServiceCtx(), String(fd.get('id')), parsed.data),
-  );
+  const id = String(fd.get('id'));
+  const r = await runAction(async () => changeTemplateFrom(await getServiceCtx(), id, parsed.data));
   if (!r.ok) return r;
   revalidatePath('/', 'layout');
+  // mesmo fixo: fica na tela (o painel fecha); virou um fixo novo a partir do mês: abre o novo
+  if (r.data.id === id) return { ok: true, data: null };
   redirect(`/fixos/${r.data.id}`);
 }
 
@@ -44,7 +45,7 @@ export async function endTemplateAction(
   const r = await runAction(async () => endTemplate(await getServiceCtx(), id, parsed.data.lastMonth));
   if (!r.ok) return r;
   revalidatePath('/', 'layout');
-  redirect(`/fixos/${id}`);
+  return { ok: true, data: null }; // fica na tela do fixo; o painel fecha
 }
 
 export async function deleteTemplateAction(

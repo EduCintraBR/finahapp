@@ -53,7 +53,7 @@ export default async function SummaryDetailPage({ params, searchParams }: PagePr
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <Button asChild variant="ghost" size="sm" className="-ml-2">
         <Link href={`/${suffix}`}>
           <ArrowLeft aria-hidden /> Início

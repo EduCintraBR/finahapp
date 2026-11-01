@@ -4,6 +4,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { categoryOffered, moreAction, pickCategory } from './forms';
 
 const row = (page: Page, name: string) =>
   page.getByTestId('category-row').filter({ has: page.getByText(name, { exact: true }) });
@@ -49,7 +50,7 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('80,00');
   await page.getByLabel('Descrição').fill('Ração do Thor');
-  await page.getByLabel('Categoria').selectOption({ label: 'Pets' });
+  await pickCategory(page, 'Pets');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('link', { name: /Ração do Thor/ })).toContainText('Pets');
 
@@ -76,7 +77,7 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await page.getByRole('button', { name: 'Arquivar', exact: true }).click();
   await expect(page.getByText('Arquivadas')).toBeVisible();
   await page.goto('/lancamentos/novo');
-  await expect(page.getByLabel('Categoria').locator('option', { hasText: 'Pets e bichos' })).toHaveCount(0);
+  expect(await categoryOffered(page, 'Pets e bichos')).toBe(false);
   await page.goto('/lancamentos');
   await expect(page.getByRole('link', { name: /Ração do Thor/ })).toContainText('Pets e bichos');
 
@@ -87,12 +88,12 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await archived.getByRole('button', { name: 'Restaurar categoria' }).click();
   await expect(page.getByText('Arquivadas')).toHaveCount(0);
   await page.goto('/lancamentos/novo');
-  await expect(page.getByLabel('Categoria').locator('option', { hasText: 'Pets e bichos' })).toHaveCount(1);
+  expect(await categoryOffered(page, 'Pets e bichos')).toBe(true);
 
   // limpa: o banco do E2E é compartilhado e os outros testes esperam o saldo inicial
   await page.goto('/lancamentos');
   await page.getByRole('link', { name: /Ração do Thor/ }).click();
-  await page.getByRole('button', { name: 'Excluir', exact: true }).click();
+  await moreAction(page, 'Excluir');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();
   // espera a exclusão terminar (volta para a lista) ANTES de conferir: na tela de detalhe o link
   // já não existe, então só checar o link passaria na hora e o próximo teste veria o saldo velho

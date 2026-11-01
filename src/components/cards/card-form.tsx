@@ -3,7 +3,9 @@
 import { useActionState, useState } from 'react';
 import { saveCardAction } from '@/app/(app)/cartoes/actions';
 import { Field, FormError, MoneyInput } from '@/components/forms/fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
 import { suggestClosingDay } from '@/domain/card/invoices';
 
@@ -22,6 +24,7 @@ export type CardDefaults = {
 
 export function CardForm({ defaults }: { defaults?: CardDefaults }) {
   const [state, action, pending] = useActionState(saveCardAction, null);
+  useActionDone(state, defaults ? 'Cartão salvo.' : undefined);
   const [additional, setAdditional] = useState(defaults?.isAdditional ?? false);
   const [dueDay, setDueDay] = useState(String(defaults?.dueDay ?? 10));
   const [closingDay, setClosingDay] = useState(String(defaults?.closingDay ?? 3));
@@ -158,9 +161,17 @@ export function CardForm({ defaults }: { defaults?: CardDefaults }) {
         </p>
       )}
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : defaults ? 'Salvar cartão' : 'Cadastrar cartão'}
-      </Button>
+      {defaults ? (
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
+          {pending ? 'Salvando…' : 'Salvar cartão'}
+        </Button>
+      ) : (
+        <StickyActions>
+          <Button type="submit" className="h-11" disabled={pending}>
+            {pending ? 'Salvando…' : 'Cadastrar cartão'}
+          </Button>
+        </StickyActions>
+      )}
     </form>
   );
 }

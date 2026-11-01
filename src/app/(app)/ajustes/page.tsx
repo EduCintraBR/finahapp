@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { OpeningBalanceForm } from '@/components/settings/opening-balance-form';
 import { ThemeSwitch } from '@/components/theme/theme-controls';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { bankAccounts, users } from '@/db/schema';
 import {
@@ -38,7 +39,7 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-3xl space-y-4">
       <h1 className="text-2xl font-semibold tracking-tight">Ajustes</h1>
       <Card>
         <CardHeader>
@@ -62,29 +63,17 @@ export default async function SettingsPage() {
             código(s) de recuperação sobrando.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <details className="rounded-lg border">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Trocar senha</summary>
-            <div className="px-3 pb-3">
-              <ChangePasswordForm />
-            </div>
-          </details>
-          <details className="rounded-lg border">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-              Novos códigos de recuperação
-            </summary>
-            <div className="px-3 pb-3">
-              <RecoveryCodesForm />
-            </div>
-          </details>
-          <details className="rounded-lg border">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
-              Trocar de app autenticador
-            </summary>
-            <div className="px-3 pb-3">
-              <ChangeAuthenticatorForm />
-            </div>
-          </details>
+        <CardContent className="grid gap-3">
+          {/* cada ação abre um painel (antes: blocos <details> com triângulo) */}
+          <SheetAction label="Trocar senha" className="sm:w-full">
+            <ChangePasswordForm />
+          </SheetAction>
+          <SheetAction label="Novos códigos de recuperação" className="sm:w-full">
+            <RecoveryCodesForm />
+          </SheetAction>
+          <SheetAction label="Trocar de app autenticador" className="sm:w-full">
+            <ChangeAuthenticatorForm />
+          </SheetAction>
           <LogoutEverywhereButton />
         </CardContent>
       </Card>

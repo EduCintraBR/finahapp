@@ -7,7 +7,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { homePending, openPayment } from './home';
 import { login } from './login';
+import { moreAction, pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -34,7 +36,7 @@ async function newExpense(description: string, amountCents: number, opts: { paid
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill(String(amountCents));
   await page.getByLabel('Descrição').fill(description);
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   if (opts.date) await page.locator('#date').fill(opts.date);
   if (opts.paid) await page.getByLabel('Já paguei').check();
   await page.getByRole('button', { name: 'Lançar' }).click();
@@ -53,7 +55,7 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Cemig vencida/ });
   await expect(row).toContainText('Pendente');
-  if (opening !== today()) await expect(row).toContainText('Vencida');
+  if (opening !== today()) await expect(row).toContainText('Venceu');
   expect(await balance()).toBe(before); // continua tudo na conta
 
   // aparece em "Pendentes" na Home, pronta para a baixa
@@ -76,9 +78,10 @@ test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
   await newExpense('Paga sem querer', 1_000, { paid: true, date: today() });
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Paga sem querer/ });
-  await expect(row).toContainText('Pago');
+  await expect(row).toBeVisible();
+  await expect(row).not.toContainText('Pendente'); // pago é o caso normal: sem selo
   await row.click();
-  await page.getByRole('button', { name: 'Marcar como a pagar' }).click();
+  await moreAction(page, 'Marcar como a pagar');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Marcar como a pagar' }).click();
   await expect(page.getByText('Pendente').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Marcar como a pagar' })).toHaveCount(0);
@@ -93,9 +96,8 @@ test('dar baixa sem saldo pede o aporte, com observação; o aporte entra no sal
   const amount = bal + 12_345; // sempre R$ 123,45 a mais do que a conta tem
   await newExpense('Conta grande', amount, { paid: false, date: today() });
   await page.goto('/');
-  const item = page.getByRole('listitem').filter({ hasText: 'Conta grande' });
-  await item.getByRole('button', { name: 'Paguei' }).click();
-  const dialog = page.getByRole('dialog');
+  const item = await homePending(page, 'Conta grande');
+  const dialog = await openPayment(page, item);
   await dialog.getByRole('button', { name: 'Confirmar' }).click();
 
   // o servidor diz quanto falta e o formulário mostra os campos do aporte, sem perder o que foi digitado
@@ -137,9 +139,8 @@ test('pagar a conta com a carteira do cartão de benefícios: sai da carteira, n
 
   await newExpense('Internet pelo benefício', 10_000, { paid: false, date: today() });
   const accountBefore = await balance();
-  const item = page.getByRole('listitem').filter({ hasText: 'Internet pelo benefício' });
-  await item.getByRole('button', { name: 'Paguei' }).click();
-  const dialog = page.getByRole('dialog');
+  const item = await homePending(page, 'Internet pelo benefício');
+  const dialog = await openPayment(page, item);
   const walletOption = await dialog
     .getByLabel('Pagar com')
     .locator('option', { hasText: 'Cartão Contas · Contas da casa' })

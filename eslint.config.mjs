@@ -24,5 +24,5 @@ export default defineConfig([
     files: ['tests/acceptance/**'],
     rules: { '@typescript-eslint/no-explicit-any': 'off' },
   },
-  globalIgnores(['.next/**', '.next-e2e/**', 'out/**', 'build/**', 'dist/**', 'next-env.d.ts', 'drizzle/**']),
+  globalIgnores(['.next/**', '.next-*/**', 'out/**', 'build/**', 'dist/**', 'next-env.d.ts', 'drizzle/**']),
 ]);

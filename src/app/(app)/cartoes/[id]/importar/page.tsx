@@ -9,7 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { getDb } from '@/db/client';
 import { listCardSummaries } from '@/db/queries/cards';
 import { listCardImports } from '@/db/queries/imports';
-import { formatMonthLabel, today } from '@/domain/dates';
+import { formatMonthLabel, today, toMonthParam } from '@/domain/dates';
 
 export const metadata: Metadata = { title: 'Importar fatura' };
 
@@ -38,7 +38,7 @@ export default async function ImportPage({ params }: PageProps<'/cartoes/[id]/im
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <UploadStatementForm cardId={id} />
+          <UploadStatementForm cardId={id} currentMonth={toMonthParam(today())} />
         </CardContent>
       </Card>
       {imports.length > 0 && (

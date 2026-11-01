@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import type { ISODate } from '@/domain/dates';
+import { Toaster } from '@/components/ui/toaster';
 import { BottomNav } from './bottom-nav';
 import { Logo } from './logo';
 import { MonthSelector } from './month-selector';
@@ -29,9 +30,12 @@ export function AppShell({
             <div className="md:hidden">
               <Logo />
             </div>
-            <Suspense fallback={<div className="h-9" />}>
-              <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
-            </Suspense>
+            {/* o meio do cabeçalho existe mesmo nas telas sem seletor de mês: tema e perfil ficam sempre à direita */}
+            <div className="flex min-w-0 flex-1 justify-center md:justify-start">
+              <Suspense fallback={<div className="h-9" />}>
+                <MonthSelector currentMonth={currentMonth} className="md:-ml-2" />
+              </Suspense>
+            </div>
             <div className="flex items-center gap-1">
               <ThemeQuickToggle />
               <Link
@@ -45,11 +49,15 @@ export function AppShell({
           </div>
         </header>
         {/* pb-24: espaço para a navegação inferior no celular */}
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-24 md:pb-8">{children}</main>
+        {/* espaço no fim = barra inferior (4rem) + folga + o indicador do iPhone: nada fica atrás da barra */}
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8">
+          {children}
+        </main>
       </div>
       <Suspense>
         <BottomNav />
       </Suspense>
+      <Toaster />
     </div>
   );
 }

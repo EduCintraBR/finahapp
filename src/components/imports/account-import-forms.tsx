@@ -10,6 +10,7 @@ import {
   uploadAccountStatementAction,
 } from '@/app/(app)/importacoes/actions';
 import { Field, FormError, NativeSelect } from '@/components/forms/fields';
+import { FilePicker } from '@/components/forms/file-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { LineCandidate } from '@/db/queries/imports';
@@ -43,10 +44,9 @@ export function UploadAccountStatementForm() {
         htmlFor="ofx-account-file"
         hint="No app do Nubank: Conta → Extrato → Exportar → período → OFX (ou CSV; o CSV não traz o saldo, então não dá para conferir)."
       >
-        <Input
+        <FilePicker
           id="ofx-account-file"
           name="file"
-          type="file"
           accept=".ofx,.csv,text/csv,application/x-ofx,text/plain"
           required
           onChange={(e) => {
@@ -212,7 +212,7 @@ export function AccountLineActions({
       <CandidatePicker lineId={line.id} candidates={line.candidates} bank hasSuggestion={!!line.suggestion} />
 
       {showCreate && (
-        <form action={create} className="grid grid-cols-2 gap-3 rounded-md border p-3">
+        <form action={create} className="grid grid-cols-2 gap-3 sm:rounded-md sm:border sm:p-3">
           <input type="hidden" name="id" value={line.id} />
           <Field label="Tipo" htmlFor={`kind-${line.id}`} className="col-span-2">
             <NativeSelect
@@ -240,7 +240,7 @@ export function AccountLineActions({
           </Field>
           {(kind === 'EXPENSE' || kind === 'INCOME') && (
             <>
-              <Field label="Categoria" htmlFor={`cat-${line.id}`}>
+              <Field label="Categoria" htmlFor={`cat-${line.id}`} className="col-span-2 sm:col-span-1">
                 <NativeSelect
                   id={`cat-${line.id}`}
                   name="categoryId"
@@ -256,7 +256,7 @@ export function AccountLineActions({
                     ))}
                 </NativeSelect>
               </Field>
-              <Field label="De quem é" htmlFor={`ben-${line.id}`}>
+              <Field label="De quem é" htmlFor={`ben-${line.id}`} className="col-span-2 sm:col-span-1">
                 <NativeSelect id={`ben-${line.id}`} name="beneficiaryUserId" defaultValue="">
                   <option value="">Casal</option>
                   {users.map((u) => (

@@ -7,15 +7,18 @@ import { Button } from '@/components/ui/button';
 import { addMonths, formatMonthLabel, parseMonthParam, toMonthParam, type ISODate } from '@/domain/dates';
 import { cn } from '@/lib/utils';
 import { MONTH_PARAM } from './month-link';
+import { isMonthRoute } from './nav-items';
 
 /**
- * Seletor de mês global (?mes=AAAA-MM). Sem parâmetro = mês atual.
+ * Seletor de mês (?mes=AAAA-MM) das telas que dependem do mês (isMonthRoute). Sem parâmetro = mês atual.
  * `currentMonth` vem do servidor (today() em America/Sao_Paulo), nunca do relógio do aparelho.
  */
 export function MonthSelector({ currentMonth, className }: { currentMonth: ISODate; className?: string }) {
   const pathname = usePathname();
   const params = useSearchParams();
   const selected = parseMonthParam(params.get(MONTH_PARAM)) ?? currentMonth;
+  // formulários, detalhes e configurações não dependem do mês: o seletor só confundiria
+  if (!isMonthRoute(pathname)) return null;
 
   const hrefFor = (month: ISODate) => {
     const next = new URLSearchParams(params.toString());
