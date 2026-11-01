@@ -7,7 +7,10 @@ import {
   updateBenefitCardAction,
 } from '@/app/(app)/beneficios/actions';
 import { Field, FormError, MoneyInput } from '@/components/forms/fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
+import { MonthField } from '@/components/forms/month-field';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
 import { MAX_BENEFIT_WALLETS } from '@/domain/benefits/credits';
 
@@ -88,7 +91,13 @@ export function BenefitCardForm({ defaultStartMonth }: { defaultStartMonth: stri
         htmlFor="b-start"
         hint="O mês do primeiro crédito que ainda vai cair. O que já caiu vai no saldo de hoje, abaixo."
       >
-        <Input id="b-start" name="startMonth" type="month" required defaultValue={defaultStartMonth} />
+        <MonthField
+          id="b-start"
+          name="startMonth"
+          required
+          around={defaultStartMonth}
+          defaultValue={defaultStartMonth}
+        />
       </Field>
 
       <div className="space-y-3">
@@ -139,9 +148,12 @@ export function BenefitCardForm({ defaultStartMonth }: { defaultStartMonth: stri
       </div>
 
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : 'Cadastrar cartão'}
-      </Button>
+      {/* cadastrar: o botão fica sempre à vista, acima da barra inferior e do teclado */}
+      <StickyActions>
+        <Button type="submit" className="h-11" disabled={pending}>
+          {pending ? 'Salvando…' : 'Cadastrar cartão'}
+        </Button>
+      </StickyActions>
     </form>
   );
 }
@@ -156,6 +168,7 @@ export function BenefitEditForm({
   wallets: { id: string; name: string; creditText: string }[];
 }) {
   const [state, action, pending] = useActionState(updateBenefitCardAction, null);
+  useActionDone(state, 'Cartão salvo.');
   const [rule, setRule] = useState<Rule>(defaults.rule);
   return (
     <form action={action} className="space-y-3">
@@ -190,7 +203,6 @@ export function BenefitEditForm({
         Vale para os próximos créditos. Os que já caíram não mudam.
       </p>
       <FormError message={state && !state.ok ? state.error : null} />
-      {state?.ok && <p className="text-sm text-muted-foreground">Salvo.</p>}
       <Button type="submit" variant="outline" disabled={pending} className="w-full sm:w-auto">
         {pending ? 'Salvando…' : 'Salvar'}
       </Button>
@@ -201,6 +213,7 @@ export function BenefitEditForm({
 /** Encerrar: escolhe o último mês com crédito. Histórico, gastos e o saldo que sobrou continuam. */
 export function EndBenefitForm({ id, defaultMonth }: { id: string; defaultMonth: string }) {
   const [state, action, pending] = useActionState(endBenefitCardAction, null);
+  useActionDone(state, 'Cartão encerrado.');
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="id" value={id} />
@@ -209,7 +222,13 @@ export function EndBenefitForm({ id, defaultMonth }: { id: string; defaultMonth:
         htmlFor="lastMonth"
         hint="Depois desse mês o app não credita mais. Nada é apagado: o histórico e o saldo que sobrar continuam, e dá para gastar o resto."
       >
-        <Input id="lastMonth" name="lastMonth" type="month" required defaultValue={defaultMonth} />
+        <MonthField
+          id="lastMonth"
+          name="lastMonth"
+          required
+          around={defaultMonth}
+          defaultValue={defaultMonth}
+        />
       </Field>
       <FormError message={state && !state.ok ? state.error : null} />
       <Button type="submit" variant="destructive" disabled={pending} className="w-full sm:w-auto">

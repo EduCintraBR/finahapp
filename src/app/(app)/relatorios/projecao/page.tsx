@@ -16,6 +16,7 @@ import {
   toMonthParam,
 } from '@/domain/dates';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
+import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Projeção' };
 
@@ -100,15 +101,20 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
                       className="font-semibold"
                     />
                   </div>
-                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <Row label="Receitas" cents={r.incomeCents} />
-                    <Row label="Saídas" cents={out} />
-                    {r.fixedCents > 0 && <Row label="· Fixos" cents={r.fixedCents} />}
-                    {r.variableCents > 0 && <Row label="· Recorrentes (estim.)" cents={r.variableCents} />}
-                    {r.invoicesCents > 0 && <Row label="· Faturas" cents={r.invoicesCents} />}
-                    {r.loansCents > 0 && <Row label="· Empréstimos" cents={r.loansCents} />}
-                    {r.scheduledOutCents > 0 && <Row label="· Agendados" cents={r.scheduledOutCents} />}
-                    {r.subscriptionsCents > 0 && <Row label="· Assinaturas" cents={r.subscriptionsCents} />}
+                  {/* uma coluna só: receitas, saídas e, recuadas, as partes das saídas (antes as duas colunas se misturavam) */}
+                  <dl className="grid gap-y-1 text-xs text-muted-foreground">
+                    <Row label="Receitas" cents={r.incomeCents} strong />
+                    <Row label="Saídas" cents={out} strong />
+                    {r.fixedCents > 0 && <Row label="· Fixos" cents={r.fixedCents} sub />}
+                    {r.variableCents > 0 && (
+                      <Row label="· Recorrentes (estimado)" cents={r.variableCents} sub />
+                    )}
+                    {r.invoicesCents > 0 && <Row label="· Faturas" cents={r.invoicesCents} sub />}
+                    {r.loansCents > 0 && <Row label="· Empréstimos" cents={r.loansCents} sub />}
+                    {r.scheduledOutCents > 0 && <Row label="· Agendados" cents={r.scheduledOutCents} sub />}
+                    {r.subscriptionsCents > 0 && (
+                      <Row label="· Assinaturas" cents={r.subscriptionsCents} sub />
+                    )}
                   </dl>
                   <div className="flex justify-between border-t pt-2 text-xs">
                     <span className="text-muted-foreground">Saldo estimado no fim do mês</span>
@@ -127,10 +133,20 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
   );
 }
 
-function Row({ label, cents }: { label: string; cents: number }) {
+function Row({
+  label,
+  cents,
+  strong,
+  sub,
+}: {
+  label: string;
+  cents: number;
+  strong?: boolean;
+  sub?: boolean;
+}) {
   return (
-    <div className="flex justify-between gap-2">
-      <dt className="truncate">{label}</dt>
+    <div className={cn('flex justify-between gap-2', strong && 'text-foreground', sub && 'pl-3')}>
+      <dt>{label}</dt>
       <dd className="tabular-nums">
         <Amount cents={cents} />
       </dd>

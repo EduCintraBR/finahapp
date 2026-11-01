@@ -128,8 +128,15 @@ test('encerrar: para os créditos, mantém o histórico e o saldo', async () => 
   // o cartão do teste começa no primeiro mês cujo crédito ainda não caiu: encerra nesse mesmo mês
   let first = monthStart(today());
   while (compareDates(lastBusinessDay(first), today()) <= 0) first = addMonths(first, 1);
-  await page.getByLabel('Último mês com crédito').fill(toMonthParam(first));
-  await page.getByRole('button', { name: 'Encerrar cartão' }).click();
+  // "Encerrar" abre um painel; repete o toque até a página hidratar
+  const sheet = page.getByRole('dialog', { name: 'Encerrar cartão' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Encerrar', exact: true }).click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  await sheet.getByLabel('Último mês com crédito').selectOption(toMonthParam(first));
+  await sheet.getByRole('button', { name: 'Encerrar cartão' }).click();
+  await expect(sheet).toBeHidden();
   await expect(page.getByText(/Encerra em|Encerrado/).first()).toBeVisible();
   await expect(saldo('Multibenefícios')).toContainText(brl('800,00'));
   await expect(page.getByRole('button', { name: 'Encerrar cartão' })).toHaveCount(0);

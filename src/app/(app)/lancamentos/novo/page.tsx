@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import { EntryForm } from '@/components/entries/entry-form';
 import { PageHeader } from '@/components/layout/page-header';
-import { Card, CardContent } from '@/components/ui/card';
+import { FormCard } from '@/components/forms/form-card';
+import { CardContent } from '@/components/ui/card';
 import { getDb } from '@/db/client';
 import { listBenefitCards } from '@/db/queries/benefits';
 import { listActiveCards } from '@/db/queries/cards';
@@ -28,9 +29,8 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <PageHeader title="Novo lançamento" />
-      {/* no celular o formulário ocupa a tela, sem card em volta (sem padding duplo) */}
-      <Card className="max-md:gap-0 max-md:border-0 max-md:bg-transparent max-md:py-0 max-md:shadow-none">
-        <CardContent className="max-md:px-0">
+      <FormCard>
+        <CardContent>
           <EntryForm
             // escolher outro tipo no (+) já estando aqui muda só a URL: a key recria o formulário no tipo novo
             key={`${tipo ?? ''}:${cartao ?? ''}:${carteira ?? ''}`}
@@ -54,7 +54,7 @@ export default async function NewEntryPage({ searchParams }: PageProps<'/lancame
             initialCardId={cards.find((c) => c.id === cartao)?.id}
           />
         </CardContent>
-      </Card>
+      </FormCard>
       <p className="text-center text-xs text-muted-foreground">
         Contas que se repetem todo mês (inclusive assinaturas no cartão): cadastre em Fixos.
       </p>

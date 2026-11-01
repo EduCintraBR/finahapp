@@ -4,7 +4,8 @@ import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { OnboardingForm } from '@/components/cards/onboarding-form';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormCard } from '@/components/forms/form-card';
 import { getDb } from '@/db/client';
 import { listCardSummaries } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
@@ -29,7 +30,7 @@ export default async function OnboardingPage({ params }: PageProps<'/cartoes/[id
           <ArrowLeft aria-hidden /> {s.card.name}
         </Link>
       </Button>
-      <Card>
+      <FormCard>
         <CardHeader>
           <CardTitle>Parcelamento em andamento</CardTitle>
           <CardDescription>
@@ -45,7 +46,7 @@ export default async function OnboardingPage({ params }: PageProps<'/cartoes/[id
             currentMonth={toMonthParam(s.currentInvoice.referenceMonth)}
           />
         </CardContent>
-      </Card>
+      </FormCard>
     </div>
   );
 }

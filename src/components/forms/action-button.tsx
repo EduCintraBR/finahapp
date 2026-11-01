@@ -30,6 +30,7 @@ export function ActionButton({
   pendingLabel,
   variant = 'outline',
   confirm,
+  icon,
 }: {
   action: Action;
   fields: Record<string, string | number>;
@@ -37,6 +38,8 @@ export function ActionButton({
   pendingLabel?: string;
   variant?: 'outline' | 'destructive' | 'default' | 'secondary';
   confirm?: { title: string; description: string; confirmLabel: string };
+  /** com confirmação: o gatilho vira um botão só de ícone (ex.: lixeira numa linha); o rótulo é o nome acessível */
+  icon?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [state, formAction, pending] = useActionState(
@@ -74,18 +77,31 @@ export function ActionButton({
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
+      {/* o vermelho cheio fica só no botão de dentro da confirmação; fora dela, contorno com texto vermelho */}
       <AlertDialogTrigger asChild>
-        {/* o vermelho cheio fica só no botão de dentro da confirmação; fora dela, contorno com texto vermelho */}
-        <Button
-          variant={variant === 'destructive' ? 'outline' : variant}
-          className={cn(
-            'w-full sm:w-auto',
-            variant === 'destructive' &&
-              'border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive',
-          )}
-        >
-          {label}
-        </Button>
+        {icon ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={label}
+            className={cn(
+              variant === 'destructive' && 'text-destructive hover:bg-destructive/10 hover:text-destructive',
+            )}
+          >
+            {icon}
+          </Button>
+        ) : (
+          <Button
+            variant={variant === 'destructive' ? 'outline' : variant}
+            className={cn(
+              'w-full sm:w-auto',
+              variant === 'destructive' &&
+                'border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive',
+            )}
+          >
+            {label}
+          </Button>
+        )}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>

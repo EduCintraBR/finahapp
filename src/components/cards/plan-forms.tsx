@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from 'react';
 import { anticipateAction, editPurchaseAction, refundAction } from '@/app/(app)/cartoes/actions';
+import { CategoryPicker } from '@/components/categories/category-picker';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
 import { useActionDone } from '@/components/ui/sheet-action';
@@ -251,6 +252,7 @@ export function PurchaseEditForm({
   amountEditable: boolean;
 }) {
   const [state, action, pending] = useActionState(editPurchaseAction, null);
+  const [categoryId, setCategoryId] = useState(defaults.categoryId);
   useActionDone(state, 'Compra salva.');
   return (
     <form action={action} className="space-y-3">
@@ -279,15 +281,13 @@ export function PurchaseEditForm({
       )}
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="pe-cat">
-          <NativeSelect id="pe-cat" name="categoryId" defaultValue={defaults.categoryId}>
-            {categories
-              .filter((c) => c.kind === 'EXPENSE')
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </NativeSelect>
+          <CategoryPicker
+            id="pe-cat"
+            name="categoryId"
+            options={categories.filter((c) => c.kind === 'EXPENSE')}
+            value={categoryId}
+            onChange={setCategoryId}
+          />
         </Field>
         <Field label="De quem é" htmlFor="pe-ben">
           <NativeSelect id="pe-ben" name="beneficiaryUserId" defaultValue={defaults.beneficiaryUserId ?? ''}>

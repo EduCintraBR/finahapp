@@ -2,7 +2,10 @@
 
 import { useActionState, useState } from 'react';
 import { changeFromAction, createTemplateAction } from '@/app/(app)/fixos/actions';
+import { CategoryPicker } from '@/components/categories/category-picker';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
+import { MonthField } from '@/components/forms/month-field';
 import { Button } from '@/components/ui/button';
 import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
@@ -132,22 +135,13 @@ export function TemplateForm({
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="t-category">
-          <NativeSelect
+          <CategoryPicker
             id="t-category"
             name="categoryId"
-            required
+            options={options}
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
-          >
-            <option value="" disabled>
-              Escolha…
-            </option>
-            {options.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </NativeSelect>
+            onChange={setCategoryId}
+          />
         </Field>
         <Field label="Meio" htmlFor="t-method">
           <NativeSelect
@@ -207,23 +201,43 @@ export function TemplateForm({
           htmlFor="t-effective"
           hint="Meses anteriores e contas já pagas não mudam. Pendentes a partir deste mês recebem o valor novo."
         >
-          <Input id="t-effective" name="effectiveMonth" type="month" required defaultValue={currentMonth} />
+          <MonthField
+            id="t-effective"
+            name="effectiveMonth"
+            required
+            around={currentMonth}
+            defaultValue={currentMonth}
+          />
         </Field>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Primeiro mês" htmlFor="t-start">
-            <Input id="t-start" name="startMonth" type="month" required defaultValue={currentMonth} />
+            <MonthField
+              id="t-start"
+              name="startMonth"
+              required
+              around={currentMonth}
+              defaultValue={currentMonth}
+            />
           </Field>
           <Field label="Último mês" htmlFor="t-end" hint="Opcional">
-            <Input id="t-end" name="endMonth" type="month" />
+            <MonthField id="t-end" name="endMonth" around={currentMonth} />
           </Field>
         </div>
       )}
 
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : defaults ? 'Aplicar mudança' : 'Cadastrar'}
-      </Button>
+      {defaults ? (
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
+          {pending ? 'Salvando…' : 'Aplicar mudança'}
+        </Button>
+      ) : (
+        <StickyActions>
+          <Button type="submit" className="h-11" disabled={pending}>
+            {pending ? 'Salvando…' : 'Cadastrar'}
+          </Button>
+        </StickyActions>
+      )}
     </form>
   );
 }

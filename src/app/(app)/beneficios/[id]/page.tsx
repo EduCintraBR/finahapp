@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft, Plus } from 'lucide-react';
+import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { BenefitEditForm, EndBenefitForm } from '@/components/benefits/benefit-forms';
 import { ActionButton } from '@/components/forms/action-button';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { getBenefitCard, listBenefitMovements } from '@/db/queries/benefits';
 import { creditDateFor } from '@/domain/benefits/credits';
@@ -138,7 +139,7 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
             movements.map((m) => (
               <div key={m.id} className="flex items-center gap-3 px-4 py-3 text-sm">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{m.description}</div>
+                  <div className="font-medium break-words">{m.description}</div>
                   <div className="text-xs text-muted-foreground">
                     {formatDateBR(m.date)} · {m.walletName}
                     {m.type === 'SPEND' && m.categoryName ? ` · ${m.categoryName}` : ''}
@@ -156,7 +157,8 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
                       action={deleteBenefitSpendAction}
                       fields={{ id: m.id }}
                       label="Excluir"
-                      variant="outline"
+                      variant="destructive"
+                      icon={<Trash2 aria-hidden />}
                       confirm={{
                         title: 'Excluir este gasto?',
                         description: `${m.description} volta para o saldo de ${m.walletName} e sai dos relatórios. Fica registrado no histórico de alterações.`,
@@ -171,9 +173,9 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
         </CardContent>
       </Card>
 
-      <details className="rounded-xl border bg-card">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Editar</summary>
-        <div className="px-4 pb-4">
+      {/* ações em botões que abrem painel (antes: bloco <details> e card de encerrar com o vermelho à vista) */}
+      <div className={cn('grid gap-2', !card.endMonth && 'grid-cols-2')}>
+        <SheetAction label="Editar" title="Editar cartão de benefícios" icon={<Pencil aria-hidden />}>
           <BenefitEditForm
             id={card.id}
             defaults={{
@@ -189,22 +191,17 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
               creditText: formatDecimalBR(w.monthlyCreditCents),
             }))}
           />
-        </div>
-      </details>
-
-      {!card.endMonth && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Encerrar</CardTitle>
-            <CardDescription>
-              Quando o benefício acabar: para o crédito automático. O histórico e o saldo que sobrar ficam.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        </SheetAction>
+        {!card.endMonth && (
+          <SheetAction
+            label="Encerrar"
+            title="Encerrar cartão"
+            description="Quando o benefício acabar: para o crédito automático. O histórico e o saldo que sobrar ficam."
+          >
             <EndBenefitForm id={card.id} defaultMonth={lastMonthSuggestion} />
-          </CardContent>
-        </Card>
-      )}
+          </SheetAction>
+        )}
+      </div>
     </div>
   );
 }

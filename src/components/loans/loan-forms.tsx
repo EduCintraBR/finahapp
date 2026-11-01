@@ -109,9 +109,12 @@ export function LoanForm({ today, defaultFirstDue }: { today: string; defaultFir
         empréstimo.
       </p>
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : 'Cadastrar empréstimo'}
-      </Button>
+      {/* cadastrar: o botão fica sempre à vista, acima da barra inferior e do teclado */}
+      <StickyActions>
+        <Button type="submit" className="h-11" disabled={pending}>
+          {pending ? 'Salvando…' : 'Cadastrar empréstimo'}
+        </Button>
+      </StickyActions>
     </form>
   );
 }
