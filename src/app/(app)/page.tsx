@@ -207,7 +207,13 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
             action={{ href: `/lancamentos?mes=${mes}`, label: 'Ver todos' }}
             className={`${MOBILE_ORDER.recent} lg:order-none`}
           >
-            <EntryList entries={recent} today={hoje} returnTo={`/${suffix}`} flat />
+            <EntryList
+              entries={recent}
+              today={hoje}
+              returnTo={`/${suffix}`}
+              viewerId={session?.user?.id}
+              flat
+            />
           </Panel>
         </div>
 

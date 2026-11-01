@@ -2,31 +2,10 @@ import Link from 'next/link';
 import { Amount, directionOf } from '@/components/money/amount';
 import { ShowMoreList } from '@/components/ui/show-more-list';
 import type { EntryRow } from '@/db/queries/entries';
-import { dueHighlight } from '@/domain/account/rules';
-import { formatDateBR, type ISODate } from '@/domain/dates';
+import type { ISODate } from '@/domain/dates';
 import { formatDecimalBR } from '@/domain/money';
-import { cn } from '@/lib/utils';
 import { ConfirmPaymentDialog, type PayWithWallet } from './confirm-payment-dialog';
-
-/** Vencimento em texto, colorido só quando pede atenção ("Venceu" vale para conta e para receita). */
-function DueText({ dueDate, today }: { dueDate: ISODate; today: ISODate }) {
-  const h = dueHighlight(dueDate, today);
-  const day = formatDateBR(dueDate).slice(0, 5);
-  return (
-    <span
-      className={cn(
-        'whitespace-nowrap',
-        h === 'OVERDUE'
-          ? 'font-medium text-expense'
-          : h
-            ? 'font-medium text-warning-text'
-            : 'text-muted-foreground',
-      )}
-    >
-      {h === 'OVERDUE' ? `Venceu ${day}` : h === 'TODAY' ? 'Vence hoje' : `Vence ${day}`}
-    </span>
-  );
-}
+import { DueText } from './entry-list';
 
 /**
  * Pendentes com baixa rápida (2 toques a partir da Início: "Paguei" → "Confirmar"). O nome usa a linha toda; valor

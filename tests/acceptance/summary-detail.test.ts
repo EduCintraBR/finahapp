@@ -6,7 +6,7 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AnyDB } from '@/db/client';
-import { listPending } from '@/db/queries/entries';
+import { listEntries, listPending } from '@/db/queries/entries';
 import { cashSummary } from '@/db/queries/reports';
 import { summaryDetail, SUMMARY_KINDS, type SummaryKind } from '@/db/queries/summary-detail';
 import { seed, seedConfigFromEnv } from '@/db/seed';
@@ -353,6 +353,25 @@ describe('atrasados acompanham os meses seguintes até a baixa (D72)', () => {
     const s = (await cashSummary(db, '2026-10-01', LATER))!;
     expect(s.outPendingCents).toBe(15_000 + 45_000);
     expect(s.incomePendingCents).toBe(40_000);
+  });
+
+  it('Saídas (U4) = Saiu + A pagar, e a soma dos detalhes bate', async () => {
+    for (const month of ['2026-10-01', '2026-11-01', '2026-12-01']) {
+      const s = (await cashSummary(db, month, LATER))!;
+      const saiu = await summaryDetail(db, 'saiu', month, LATER);
+      const pagar = await summaryDetail(db, 'a-pagar', month, LATER);
+      expect(s.outTotalCents, month).toBe(saiu.totalCents + pagar.totalCents);
+    }
+  });
+
+  it('o extrato do mês traz os atrasados de antes quando pedido (overdueAsOf), e só eles', async () => {
+    const plain = await listEntries(db, { month: '2026-11-01' });
+    expect(plain.map((e) => e.description).sort()).toEqual(['Internet']);
+    const withOverdue = await listEntries(db, { month: '2026-11-01', overdueAsOf: LATER });
+    expect(withOverdue.map((e) => e.description).sort()).toEqual(['Internet', 'Luz', 'Reembolso']);
+    // mês futuro: o atrasado sim; o que ainda vence neste mês (Internet, 25/11) não
+    const dec = await listEntries(db, { month: '2026-12-01', overdueAsOf: LATER });
+    expect(dec.map((e) => e.description).sort()).toEqual(['Luz', 'Reembolso']);
   });
 
   it('depois de pago, sai de todos os meses e entra no "Saiu" do mês em que foi pago', async () => {
