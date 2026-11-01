@@ -7,7 +7,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
-import { homePending } from './home';
+import { homePending, openPayment } from './home';
 import { login } from './login';
 import { moreAction, pickCategory } from './forms';
 
@@ -97,8 +97,7 @@ test('dar baixa sem saldo pede o aporte, com observação; o aporte entra no sal
   await newExpense('Conta grande', amount, { paid: false, date: today() });
   await page.goto('/');
   const item = await homePending(page, 'Conta grande');
-  await item.getByRole('button', { name: 'Paguei' }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = await openPayment(page, item);
   await dialog.getByRole('button', { name: 'Confirmar' }).click();
 
   // o servidor diz quanto falta e o formulário mostra os campos do aporte, sem perder o que foi digitado
@@ -141,8 +140,7 @@ test('pagar a conta com a carteira do cartão de benefícios: sai da carteira, n
   await newExpense('Internet pelo benefício', 10_000, { paid: false, date: today() });
   const accountBefore = await balance();
   const item = await homePending(page, 'Internet pelo benefício');
-  await item.getByRole('button', { name: 'Paguei' }).click();
-  const dialog = page.getByRole('dialog');
+  const dialog = await openPayment(page, item);
   const walletOption = await dialog
     .getByLabel('Pagar com')
     .locator('option', { hasText: 'Cartão Contas · Contas da casa' })
