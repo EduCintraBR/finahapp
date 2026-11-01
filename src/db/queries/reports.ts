@@ -10,6 +10,7 @@ import { asc, eq, isNull } from 'drizzle-orm';
 import { sql, type SQL } from 'drizzle-orm';
 import { addDays, addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/domain/dates';
 import { overdueCutoff } from '@/domain/account/rules';
+import { cardRule } from '@/domain/card/invoices';
 import type { Cents } from '@/domain/money';
 import {
   accumulate,
@@ -442,7 +443,7 @@ export async function loadProjectionTemplates(db: AnyDB): Promise<ProjectionTemp
         paymentMethod: t.paymentMethod,
         card: card
           ? {
-              rule: { closingDay: card.closingDay, dueDay: card.dueDay },
+              rule: cardRule(card),
               invoices: mats.filter((m) => m.cardId === card.id),
             }
           : null,

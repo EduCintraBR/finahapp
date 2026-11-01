@@ -17,7 +17,7 @@ export type CardDefaults = {
   isAdditional: boolean;
   holderName: string | null;
   limitText: string;
-  closingDay: number;
+  closingDay: number | null;
   dueDay: number;
   botAliases: string[];
 };

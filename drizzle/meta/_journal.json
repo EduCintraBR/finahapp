@@ -50,6 +50,13 @@
       "when": 1793370887076,
       "tag": "0006_youthful_shaman",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793560104707,
+      "tag": "0007_shiny_thunderbird",
+      "breakpoints": true
     }
   ]
 }

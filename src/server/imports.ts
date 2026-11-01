@@ -16,7 +16,7 @@ import {
   invoices,
   transactions,
 } from '@/db/schema';
-import { ruleInvoice } from '@/domain/card/invoices';
+import { cardRule, ruleInvoice } from '@/domain/card/invoices';
 import { addMonths, formatDateBR, monthStart, type ISODate } from '@/domain/dates';
 import { formatBRL, splitInstallments } from '@/domain/money';
 import { assignMatches, type MatchCandidate } from '@/domain/reconciliation/matching';
@@ -159,7 +159,7 @@ async function invoiceOfPeriod(tx: Tx, card: CardRow, periodEnd: ISODate) {
     .where(and(eq(invoices.creditCardId, card.id), eq(invoices.closingDate, periodEnd)));
   if (materialized) return materialized;
   for (const ref of [monthStart(periodEnd), addMonths(monthStart(periodEnd), 1)]) {
-    const w = ruleInvoice(ref, card);
+    const w = ruleInvoice(ref, cardRule(card));
     if (w.closingDate === periodEnd) return ensureInvoice(tx, card, ref);
   }
   throw new UserError(

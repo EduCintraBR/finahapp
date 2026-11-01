@@ -4,13 +4,15 @@
  */
 import { and, asc, eq, gt, inArray, isNull, ne } from 'drizzle-orm';
 import { creditCards, installmentPlans, invoiceItems, invoices, transactions } from '@/db/schema';
+import { invoiceRows } from '@/db/queries/cards';
 import {
+  cardRule,
   ruleInvoice,
   windowFor,
-  resolveInvoice,
   type InvoiceRule,
   type InvoiceWindow,
 } from '@/domain/card/invoices';
+import { placePurchase } from '@/domain/card/store-credit';
 import { planClosingChange, type PlanPlacement } from '@/domain/card/reallocation';
 import { addMonths, compareDates, monthStart, type ISODate } from '@/domain/dates';
 import { audit } from './audit';
@@ -21,10 +23,7 @@ import type { CardInput, InvoiceDatesInput } from './schemas';
 export type CardRow = typeof creditCards.$inferSelect;
 export type InvoiceRow = typeof invoices.$inferSelect;
 
-const rule = (c: Pick<CardRow, 'closingDay' | 'dueDay'>): InvoiceRule => ({
-  closingDay: c.closingDay,
-  dueDay: c.dueDay,
-});
+const rule = (c: CardRow): InvoiceRule => cardRule(c);
 
 export async function loadCard(
   tx: Tx,
@@ -78,15 +77,35 @@ export async function ensureInvoice(tx: Tx, card: CardRow, referenceMonth: ISODa
   return raced;
 }
 
-/** Invariante 5 + parcelas em faturas consecutivas, materializando o que faltar. */
+/**
+ * Invariante 5 + parcelas em faturas consecutivas, materializando o que faltar. No crediário (D73), a compra
+ * fora de um ciclo ativo abre um ciclo novo: o dia do vencimento do cadastro passa a ser o da nova fatura.
+ */
 export async function invoicesForPurchase(
   tx: Tx,
   card: CardRow,
   purchaseDate: ISODate,
   count: number,
 ): Promise<InvoiceRow[]> {
-  const first = resolveInvoice(purchaseDate, await materialized(tx, card.id), rule(card));
-  return invoicesFrom(tx, card, first.referenceMonth, count);
+  const placed = placePurchase(card, purchaseDate, await invoiceRows(tx, [card.id]));
+  let terms = card;
+  if (placed.newCycle && placed.anchorDay !== card.dueDay) {
+    const [after] = await tx
+      .update(creditCards)
+      .set({ dueDay: placed.anchorDay })
+      .where(eq(creditCards.id, card.id))
+      .returning();
+    await audit(tx, {
+      userId: null,
+      entity: 'credit_cards',
+      entityId: card.id,
+      action: 'UPDATE',
+      before: { dueDay: card.dueDay },
+      after: { dueDay: placed.anchorDay, reason: 'novo ciclo do crediário' },
+    });
+    terms = after!;
+  }
+  return invoicesFrom(tx, terms, placed.window.referenceMonth, count);
 }
 
 export async function invoicesFrom(tx: Tx, card: CardRow, firstRef: ISODate, count: number) {

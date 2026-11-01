@@ -4,13 +4,8 @@
  */
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { centsFromDb } from '@/server/context';
-import {
-  availableLimit,
-  invoiceState,
-  remainingToPay,
-  resolveInvoice,
-  type InvoiceState,
-} from '@/domain/card/invoices';
+import { availableLimit, invoiceState, remainingToPay, type InvoiceState } from '@/domain/card/invoices';
+import { placePurchase } from '@/domain/card/store-credit';
 import { compareDates, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
 import {
@@ -43,7 +38,8 @@ const paymentsSum = sql<string>`coalesce(sum(${transactions.amountCents}), 0)`;
  * Agregações agrupadas e combinadas aqui — sem subconsulta correlacionada (o Drizzle não
  * qualifica a coluna da tabela externa dentro de sql``, e a soma silenciosamente vira zero).
  */
-async function invoiceRows(db: AnyDB, cardIds: string[]) {
+/** Faturas materializadas dos cartões com o total (itens ACTIVE) e o que já foi pago. */
+export async function invoiceRows(db: AnyDB, cardIds: string[]) {
   if (cardIds.length === 0) return [];
   const [rows, totals, paid] = await Promise.all([
     db
@@ -161,8 +157,8 @@ export async function listCardSummaries(db: AnyDB, today: ISODate, opts: { cardI
     const usedCents = centsFromDb(used.find((u) => u.cardId === c.id)?.v);
     const paidCents = centsFromDb(paid.find((p) => p.cardId === c.id)?.v);
     const mine = invs.filter((i) => i.cardId === c.id);
-    const rule = { closingDay: c.closingDay, dueDay: c.dueDay };
-    const currentWindow = resolveInvoice(today, mine, rule);
+    // a fatura em que cairia uma compra feita hoje (no crediário sem ciclo ativo, a de um ciclo novo)
+    const currentWindow = placePurchase(c, today, mine).window;
     const current = mine.find((i) => i.referenceMonth === currentWindow.referenceMonth);
     // fatura fechada ainda não paga (a que vence agora), se houver
     const toPay = mine
@@ -220,7 +216,7 @@ export async function listCardInvoices(db: AnyDB, cardId: string, today: ISODate
   const [card] = await db.select().from(creditCards).where(eq(creditCards.id, cardId));
   if (!card) return [];
   const rows = await invoiceRows(db, [cardId]);
-  const current = resolveInvoice(today, rows, { closingDay: card.closingDay, dueDay: card.dueDay });
+  const current = placePurchase(card, today, rows).window;
   const all = rows.some((r) => r.referenceMonth === current.referenceMonth)
     ? rows
     : [...rows, { ...current, id: null, totalCents: 0, paidCents: 0 }];
