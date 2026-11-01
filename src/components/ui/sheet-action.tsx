@@ -38,10 +38,13 @@ export function SheetAction({
   description,
   variant = 'outline',
   icon,
+  iconOnly = false,
   className,
   children,
 }: {
   label: string;
+  /** só o ícone no botão (ex.: "⋯"); o rótulo vira o nome acessível */
+  iconOnly?: boolean;
   title?: string;
   description?: React.ReactNode;
   variant?: 'outline' | 'default' | 'secondary' | 'ghost';
@@ -54,10 +57,16 @@ export function SheetAction({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant={variant} className={cn('w-full sm:w-auto', className)}>
-          {icon}
-          {label}
-        </Button>
+        {iconOnly ? (
+          <Button variant={variant} size="icon" aria-label={label} className={className}>
+            {icon}
+          </Button>
+        ) : (
+          <Button variant={variant} className={cn('w-full sm:w-auto', className)}>
+            {icon}
+            {label}
+          </Button>
+        )}
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

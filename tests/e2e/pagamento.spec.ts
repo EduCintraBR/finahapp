@@ -9,7 +9,7 @@ import { monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { homePending } from './home';
 import { login } from './login';
-import { pickCategory } from './forms';
+import { moreAction, pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -81,7 +81,7 @@ test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
   await expect(row).toBeVisible();
   await expect(row).not.toContainText('Pendente'); // pago é o caso normal: sem selo
   await row.click();
-  await page.getByRole('button', { name: 'Marcar como a pagar' }).click();
+  await moreAction(page, 'Marcar como a pagar');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Marcar como a pagar' }).click();
   await expect(page.getByText('Pendente').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Marcar como a pagar' })).toHaveCount(0);

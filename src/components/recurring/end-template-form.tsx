@@ -4,11 +4,13 @@ import { useActionState } from 'react';
 import { endTemplateAction } from '@/app/(app)/fixos/actions';
 import { Field, FormError } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
 
 /** Encerrar: escolhe o último mês com conta. Pendentes depois dele são canceladas. */
 export function EndTemplateForm({ id, defaultMonth }: { id: string; defaultMonth: string }) {
   const [state, action, pending] = useActionState(endTemplateAction, null);
+  useActionDone(state, 'Fixo encerrado.');
   return (
     <form action={action} className="space-y-3">
       <input type="hidden" name="id" value={id} />

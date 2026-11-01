@@ -33,3 +33,13 @@ export async function categoryOffered(page: Page, name: string): Promise<boolean
   await expect(picker(page)).toBeHidden();
   return n > 0;
 }
+
+/** Ação do menu "⋯" (Mais ações) de uma tela de detalhe; repete o toque até a página hidratar. */
+export async function moreAction(page: Page, name: string) {
+  const menu = page.getByRole('dialog', { name: 'Mais ações' });
+  await expect(async () => {
+    if (!(await menu.isVisible())) await page.getByRole('button', { name: 'Mais ações' }).click();
+    await expect(menu).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  await menu.getByRole('button', { name, exact: true }).click();
+}

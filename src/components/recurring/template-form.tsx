@@ -4,6 +4,7 @@ import { useActionState, useState } from 'react';
 import { changeFromAction, createTemplateAction } from '@/app/(app)/fixos/actions';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { Input } from '@/components/ui/input';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
@@ -42,6 +43,7 @@ export function TemplateForm({
   cards?: { id: string; name: string }[];
 }) {
   const [state, action, pending] = useActionState(defaults ? changeFromAction : createTemplateAction, null);
+  useActionDone(state, defaults ? 'Fixo alterado.' : undefined);
   const [direction, setDirection] = useState<'INCOME' | 'EXPENSE'>(defaults?.direction ?? 'EXPENSE');
   const [categoryId, setCategoryId] = useState(defaults?.categoryId ?? '');
   const options = categories.filter((c) => c.kind === direction);

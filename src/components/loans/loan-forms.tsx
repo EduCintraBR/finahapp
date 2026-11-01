@@ -1,23 +1,23 @@
 'use client';
 
 import { type FormEvent, startTransition, useActionState, useState } from 'react';
+import { Check } from 'lucide-react';
 import { createLoanAction, payLoanAction } from '@/app/(app)/emprestimos/actions';
 import { Field, FormError, MoneyInput } from '@/components/forms/fields';
 import { FundingFields } from '@/components/forms/funding-fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
+import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/components/ui/toaster';
+import type { LoanInstallmentView } from '@/db/queries/loans';
 import { buildLoanInstallments, MAX_LOAN_INSTALLMENTS } from '@/domain/loans/loans';
 import { formatBRL, formatDecimalBR, tryParseBRL } from '@/domain/money';
 import { formatDateBR } from '@/domain/dates';
+import { cn } from '@/lib/utils';
 
 /** Prévia do parcelamento com a mesma regra do servidor (resto na 1ª). Só exibição. */
 function loanPreview(totalText: string, principalText: string, count: number): string | null {
@@ -116,30 +116,50 @@ export function LoanForm({ today, defaultFirstDue }: { today: string; defaultFir
   );
 }
 
-export type PendingInstallment = { id: string; number: number; dueDate: string; scheduledCents: number };
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Pagar uma ou mais parcelas de uma vez (em dia, adiantadas ou atrasadas). Pergunta quanto você pagou e quando;
- * o desconto é a soma das parcelas escolhidas menos o que você pagou (ou o acréscimo, se pagou mais).
+ * Parcelas do empréstimo numa lista só: as pagas com o que foi pago (adiantou/atrasou, desconto/acréscimo) e as
+ * pendentes com seleção. "Pagar N parcelas" fica sempre à vista e abre o painel que pergunta quanto você pagou e
+ * quando; o desconto é a soma das escolhidas menos o que você pagou (ou o acréscimo, se pagou mais).
  */
-export function PayLoanForm({
+export function LoanInstallments({
   loanId,
-  pending: pendingInstallments,
-  today,
+  installments,
   total,
+  today,
 }: {
   loanId: string;
-  pending: PendingInstallment[];
-  today: string;
+  installments: LoanInstallmentView[];
   total: number;
+  today: string;
 }) {
-  const [state, action, pending] = useActionState(payLoanAction, null);
-  const [selected, setSelected] = useState<string[]>(() =>
-    pendingInstallments[0] ? [pendingInstallments[0].id] : [],
-  );
+  const pendingList = installments.filter((i) => i.paidCents === null);
+  const [chosen, setChosen] = useState<string[]>(() => (pendingList[0] ? [pendingList[0].id] : []));
   const [paidText, setPaidText] = useState<string | null>(null); // null = ainda segue a soma das parcelas
+  const [open, setOpen] = useState(false);
+  const [state, action, pending] = useActionState(
+    async (prev: Awaited<ReturnType<typeof payLoanAction>> | null, fd: FormData) => {
+      const r = await payLoanAction(prev, fd);
+      if (r.ok) {
+        // pagou: fecha o painel, limpa a escolha e avisa no rodapé
+        setOpen(false);
+        setChosen([]);
+        setPaidText(null);
+        toast(
+          `Pagamento registrado: ${formatBRL(r.data.paidCents)}${
+            r.data.savingsCents > 0 ? ` · economia de ${formatBRL(r.data.savingsCents)}` : ''
+          }${r.data.lateFeesCents > 0 ? ` · acréscimo de ${formatBRL(r.data.lateFeesCents)}` : ''}.`,
+        );
+      }
+      return r;
+    },
+    null,
+  );
 
-  const scheduledSum = pendingInstallments
+  // depois de pagar, a lista muda: só vale o que continua pendente
+  const selected = chosen.filter((id) => pendingList.some((p) => p.id === id));
+  const scheduledSum = pendingList
     .filter((p) => selected.includes(p.id))
     .reduce((s, p) => s + p.scheduledCents, 0);
   const paidValue = paidText ?? (scheduledSum > 0 ? formatDecimalBR(scheduledSum) : '');
@@ -154,118 +174,174 @@ export function PayLoanForm({
   };
   const fundingShort = state && !state.ok ? state.details?.fundingShortCents : undefined;
 
-  const toggle = (id: string) => {
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
+  const choose = (ids: string[]) => {
+    setChosen(ids);
     setPaidText(null); // trocou as parcelas: volta a sugerir a soma
   };
+  const toggle = (id: string) =>
+    choose(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id]);
 
   return (
-    <form onSubmit={submit} className="space-y-3">
-      <input type="hidden" name="loanId" value={loanId} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-medium">Parcelas</span>
-        <span className="flex gap-1">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSelected(pendingInstallments.map((p) => p.id));
-              setPaidText(null);
-            }}
-          >
-            Todas ({pendingInstallments.length})
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSelected([]);
-              setPaidText(null);
-            }}
-          >
-            Limpar
-          </Button>
-        </span>
-      </div>
-      <ul className="max-h-60 divide-y overflow-y-auto rounded-lg border" aria-label="Parcelas pendentes">
-        {pendingInstallments.map((p) => (
-          <li key={p.id}>
-            <label className="flex cursor-pointer items-center gap-3 px-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                name="installmentId"
-                value={p.id}
-                checked={selected.includes(p.id)}
-                onChange={() => toggle(p.id)}
-                className="size-4 accent-primary"
-              />
-              <span className="min-w-0 flex-1">
-                {p.number}/{total} · vence {formatDateBR(p.dueDate)}
+    <>
+      <Card className="gap-0 pb-0">
+        <CardHeader className="pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <CardTitle>Parcelas</CardTitle>
+            {pendingList.length > 0 && (
+              <span className="flex gap-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => choose(pendingList.map((p) => p.id))}
+                >
+                  Todas ({pendingList.length})
+                </Button>
+                <Button type="button" variant="ghost" size="sm" onClick={() => choose([])}>
+                  Limpar
+                </Button>
               </span>
-              <span className="whitespace-nowrap tabular-nums">{formatBRL(p.scheduledCents)}</span>
-            </label>
-          </li>
-        ))}
-      </ul>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Valor que paguei" htmlFor="lp-paid">
-          <MoneyInput
-            id="lp-paid"
-            name="paid"
-            required
-            value={paidValue}
-            onChange={(e) => setPaidText(e.target.value)}
-          />
-        </Field>
-        <Field label="Data do pagamento" htmlFor="lp-date">
-          <Input id="lp-date" name="date" type="date" required defaultValue={today} max={today} />
-        </Field>
-      </div>
-      <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="pay-preview">
-        {selected.length === 0
-          ? 'Escolha as parcelas que você pagou.'
-          : diff === null
-            ? `Parcelas escolhidas: ${formatBRL(scheduledSum)}`
-            : diff > 0
-              ? `Programado ${formatBRL(scheduledSum)} · desconto de ${formatBRL(diff)}`
-              : diff < 0
-                ? `Programado ${formatBRL(scheduledSum)} · acréscimo de ${formatBRL(-diff)}`
-                : `Programado ${formatBRL(scheduledSum)} · sem desconto`}
-      </p>
-      {fundingShort !== undefined && <FundingFields shortCents={fundingShort} idPrefix="loan" />}
-      <FormError message={state && !state.ok ? state.error : null} />
-      {state?.ok && (
-        <p role="status" className="text-sm text-income">
-          Pagamento registrado: {formatBRL(state.data.paidCents)}
-          {state.data.savingsCents > 0 && ` · economia de ${formatBRL(state.data.savingsCents)}`}
-          {state.data.lateFeesCents > 0 && ` · acréscimo de ${formatBRL(state.data.lateFeesCents)}`}.
-        </p>
-      )}
-      <Button type="submit" disabled={pending || selected.length === 0} className="w-full sm:w-auto">
-        {pending ? 'Registrando…' : 'Registrar pagamento'}
-      </Button>
-    </form>
-  );
-}
+            )}
+          </div>
+          <CardDescription>
+            {pendingList.length > 0
+              ? 'Marque as que você pagou. Cada parcela também aparece em Lançamentos e na Início quando chega o mês.'
+              : 'Cada parcela também aparece em Lançamentos e na Início quando chega o mês.'}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="border-t px-0">
+          <ul className="divide-y" aria-label="Parcelas">
+            {installments.map((i) => {
+              const isPaid = i.paidCents !== null;
+              const diffPaid = isPaid ? i.scheduledCents - i.paidCents! : 0;
+              const body = (
+                <>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium">
+                      {i.number}/{total}
+                      {isPaid ? (
+                        <span className="ml-2 text-xs font-normal text-income">paga</span>
+                      ) : (
+                        <> · vence {formatDateBR(i.dueDate)}</>
+                      )}
+                      {i.overdue && <span className="ml-2 text-xs text-destructive">atrasada</span>}
+                    </div>
+                    {isPaid && (
+                      <div className="text-xs text-muted-foreground">
+                        Pago em {formatDateBR(i.paidDate!)} · venc. {formatDateBR(i.dueDate)}
+                        {i.daysEarly !== null &&
+                          i.daysEarly > 0 &&
+                          ` · adiantou ${plural(i.daysEarly, 'dia', 'dias')}`}
+                        {i.daysEarly !== null &&
+                          i.daysEarly < 0 &&
+                          ` · atrasou ${plural(-i.daysEarly, 'dia', 'dias')}`}
+                      </div>
+                    )}
+                    {isPaid && diffPaid !== 0 && (
+                      <div className={cn('text-xs', diffPaid > 0 ? 'text-income' : 'text-expense')}>
+                        {diffPaid > 0
+                          ? `desconto de ${formatBRL(diffPaid)}`
+                          : `acréscimo de ${formatBRL(-diffPaid)}`}{' '}
+                        (programado {formatBRL(i.scheduledCents)})
+                      </div>
+                    )}
+                  </div>
+                  <Amount
+                    cents={isPaid ? i.paidCents! : i.scheduledCents}
+                    className={cn('shrink-0 font-medium', !isPaid && 'text-muted-foreground')}
+                  />
+                </>
+              );
+              return (
+                <li key={i.id} data-testid="loan-installment">
+                  {isPaid ? (
+                    <div className="flex items-center gap-3 px-4 py-3 text-sm">
+                      <span aria-hidden className="grid size-4 shrink-0 place-items-center text-income">
+                        <Check className="size-4" />
+                      </span>
+                      {body}
+                    </div>
+                  ) : (
+                    <label className="flex cursor-pointer items-center gap-3 px-4 py-3 text-sm hover:bg-muted/40">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(i.id)}
+                        onChange={() => toggle(i.id)}
+                        className="size-4 shrink-0 accent-primary"
+                      />
+                      {body}
+                    </label>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </CardContent>
+      </Card>
 
-/** "Pagar parcelas" num painel inferior (ação frequente: um toque abre, sem bloco de formulário aberto na página). */
-export function PayLoanSheet(props: React.ComponentProps<typeof PayLoanForm>) {
-  return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button className="w-full sm:w-auto">Pagar parcelas</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Pagar parcelas</DialogTitle>
-          <DialogDescription>
-            Marque as parcelas que você pagou e informe o valor: o desconto (ou acréscimo) é calculado.
-          </DialogDescription>
-        </DialogHeader>
-        <PayLoanForm {...props} />
-      </DialogContent>
-    </Dialog>
+      {pendingList.length > 0 && (
+        <StickyActions>
+          <Button
+            type="button"
+            className="h-11"
+            disabled={selected.length === 0}
+            onClick={() => setOpen(true)}
+          >
+            {selected.length === 0
+              ? 'Escolha as parcelas que pagou'
+              : `Pagar ${plural(selected.length, 'parcela', 'parcelas')} · ${formatBRL(scheduledSum)}`}
+          </Button>
+        </StickyActions>
+      )}
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pagar parcelas</DialogTitle>
+            <DialogDescription>
+              {pendingList
+                .filter((p) => selected.includes(p.id))
+                .map((p) => `${p.number}/${total}`)
+                .join(', ')}{' '}
+              · programado {formatBRL(scheduledSum)}
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submit} className="space-y-3">
+            <input type="hidden" name="loanId" value={loanId} />
+            {selected.map((id) => (
+              <input key={id} type="hidden" name="installmentId" value={id} />
+            ))}
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Valor que paguei" htmlFor="lp-paid">
+                <MoneyInput
+                  id="lp-paid"
+                  name="paid"
+                  required
+                  value={paidValue}
+                  onChange={(e) => setPaidText(e.target.value)}
+                />
+              </Field>
+              <Field label="Data do pagamento" htmlFor="lp-date">
+                <Input id="lp-date" name="date" type="date" required defaultValue={today} max={today} />
+              </Field>
+            </div>
+            <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="pay-preview">
+              {diff === null
+                ? `Parcelas escolhidas: ${formatBRL(scheduledSum)}`
+                : diff > 0
+                  ? `Programado ${formatBRL(scheduledSum)} · desconto de ${formatBRL(diff)}`
+                  : diff < 0
+                    ? `Programado ${formatBRL(scheduledSum)} · acréscimo de ${formatBRL(-diff)}`
+                    : `Programado ${formatBRL(scheduledSum)} · sem desconto`}
+            </p>
+            {fundingShort !== undefined && <FundingFields shortCents={fundingShort} idPrefix="loan" />}
+            <FormError message={state && !state.ok ? state.error : null} />
+            <Button type="submit" disabled={pending || selected.length === 0} className="h-11 w-full">
+              {pending ? 'Registrando…' : 'Registrar pagamento'}
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
