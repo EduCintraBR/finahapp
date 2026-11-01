@@ -13,6 +13,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import type { ActionResult } from '@/lib/action-result';
+import { useActionDone } from '@/components/ui/sheet-action';
 import { cn } from '@/lib/utils';
 import { FormError } from './fields';
 
@@ -46,6 +47,8 @@ export function ActionButton({
     },
     null,
   );
+  // dentro de um painel (ex.: menu "⋯"), fecha o painel também quando a ação dá certo
+  useActionDone(state);
 
   const form = (submitLabel: string, submitVariant: typeof variant) => (
     <form action={formAction} className="contents">

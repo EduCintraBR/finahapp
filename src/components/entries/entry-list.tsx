@@ -95,14 +95,18 @@ export function EntryRowItem({
   today,
   href,
   viewerId,
+  showDate = false,
 }: {
   e: EntryRow;
   today: ISODate;
   href: string;
   viewerId?: string;
+  /** fora da lista agrupada por dia (ex.: histórico do fixo), a data vai na linha */
+  showDate?: boolean;
 }) {
   const pending = e.status === 'PENDING';
   const details = [
+    showDate && formatDateBR(e.date),
     e.categoryName ?? KIND_LABEL[e.kind],
     PAYMENT_METHOD_LABEL[e.paymentMethod],
     e.beneficiaryName && `de ${e.beneficiaryName}`,

@@ -118,9 +118,12 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ### E3 — Detalhes, empréstimo e fixos
 
-- [ ] Empréstimo: uma lista só de parcelas, com seleção para pagar
-- [ ] Fixos: total por grupo (contas a pagar, receitas previstas)
-- [ ] Detalhe de lançamento e de fixo: só leitura + botão "Editar" (abre formulário) + menu "⋯" com Excluir; "Encerrar" do fixo sem vermelho cheio fora da confirmação
+- [x] Empréstimo: **uma lista só de parcelas** (as pagas com data, adiantou/atrasou e desconto/acréscimo; as pendentes com seleção, "Todas" e "Limpar"); "Pagar N parcelas · R$ X" sempre à vista (`StickyActions`) abre o painel só com valor e data; ao registrar, o painel fecha e o aviso mostra a economia/acréscimo. Excluir no menu "⋯" (com a explicação quando não dá)
+- [x] Fixos: total por mês de cada grupo (contas a pagar, receitas previstas), contando só os que valem agora
+- [x] Detalhe de lançamento: só leitura (com Meio e Observações) + a ação principal à vista (Confirmar pagamento / Estornar baixa / Estornar pagamento) + **"Editar"** que abre o formulário num painel + menu **"⋯"** com "Marcar como a pagar" e "Excluir" / "Cancelar esta ocorrência"
+- [x] Detalhe de fixo: só leitura + **"Editar"** (alterar a partir de um mês) e **"Encerrar"** em painel (o vermelho cheio só dentro dele) + "⋯" com "Excluir fixo"; o histórico mostra a data de cada conta
+- [x] `ActionButton` dentro de um painel fecha o painel quando a ação dá certo; `SheetAction` com botão só de ícone ("⋯")
+- [x] Helper `moreAction` nos testes (abre o "⋯" e escolhe a ação)
 
 ### E4 — Restante
 
