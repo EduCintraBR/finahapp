@@ -43,9 +43,9 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha (Fase E1: `EntryRowItem`)
 - [x] `StickyActions` (`src/components/forms/sticky-actions.tsx`): no novo lançamento (Fase D); os outros formulários adotam na Fase E
 - [x] `CategoryPicker` (grade com ícone + busca) no novo lançamento (Fase D)
-- [ ] `Select` próprio, `CategoryPicker` nos outros formulários (fixo, compra parcelada, importação), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase E**
+- [x] `CategoryPicker` nos outros formulários, `MonthField` e `FilePicker` em pt-BR (Fase E4). O `Select` próprio não foi necessário: o select nativo fica (no celular abre o seletor do sistema)
 - [x] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) — Fase E1: `FilterChip` em Lançamentos
-- [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) e sem card dentro de card no celular → **Fase E/F**
+- [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) → **Fase F**. Sem card dentro de card no celular: feito nas telas de cadastro (`FormCard`, Fase E4)
 - [x] Confirmações (`AlertDialog`) também como painel inferior no celular (Fase D)
 
 **Pronto quando:** o script de capturas roda com um comando. ✅ 31/10/2026
@@ -111,22 +111,32 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ### E2 — Cartões
 
-- [ ] Fatura: cabeçalho com total, pago e quanto falta; itens com "2/3" sempre visível; agrupamento por dia só quando há mais de um item no dia
-- [ ] Cartão: seletor horizontal de faturas (passadas ← atual → futuras) com a atual em destaque; ações (Nova compra, Parcelamento em andamento, Importar) em menu ou barra
-- [ ] Compra parcelada: parcelas em linha do tempo (paga / atual / futura); Antecipar, Estorno e Editar como botões que abrem painel, não `<details>`
+- [x] Fatura: cabeçalho com o total e, lado a lado, **Pago** e **Falta pagar** (ou "Pago a mais"), com "Pagar fatura" logo abaixo; itens com ícone da categoria e o **"2/3" sempre à vista** (mesmo com a descrição cortada); "lançado por" só quando foi a outra pessoa; subtotal do dia só quando há mais de um item no dia; "O banco mudou as datas?" num painel
+- [x] Cartão: **faixa horizontal de faturas** (passadas ← atual → futuras), aberta já centrada na atual (ou no mês escolhido), com a atual em destaque; ações em barra ("Nova compra" cheia; "Parcelamento em andamento" e "Importar fatura (OFX)" lado a lado); "Editar cartão" num painel (salvar fica na tela e fecha o painel)
+- [x] Compra parcelada: parcelas em **linha do tempo** (paga / fatura fechada a pagar / atual / futura); **Antecipar, Estorno e Editar** como botões que abrem painel; Excluir dentro do Editar, com confirmação
+- [x] `SheetAction` + `useActionDone` (o painel fecha quando a ação dá certo) e `Toaster` próprio (aviso no rodapé, sem dependência nova por causa da CSP); `ScrollStrip` (faixa centrada no item atual)
 
 ### E3 — Detalhes, empréstimo e fixos
 
-- [ ] Empréstimo: uma lista só de parcelas, com seleção para pagar
-- [ ] Fixos: total por grupo (contas a pagar, receitas previstas)
-- [ ] Detalhe de lançamento e de fixo: só leitura + botão "Editar" (abre formulário) + menu "⋯" com Excluir; "Encerrar" do fixo sem vermelho cheio fora da confirmação
+- [x] Empréstimo: **uma lista só de parcelas** (as pagas com data, adiantou/atrasou e desconto/acréscimo; as pendentes com seleção, "Todas" e "Limpar"); "Pagar N parcelas · R$ X" sempre à vista (`StickyActions`) abre o painel só com valor e data; ao registrar, o painel fecha e o aviso mostra a economia/acréscimo. Excluir no menu "⋯" (com a explicação quando não dá)
+- [x] Fixos: total por mês de cada grupo (contas a pagar, receitas previstas), contando só os que valem agora
+- [x] Detalhe de lançamento: só leitura (com Meio e Observações) + a ação principal à vista (Confirmar pagamento / Estornar baixa / Estornar pagamento) + **"Editar"** que abre o formulário num painel + menu **"⋯"** com "Marcar como a pagar" e "Excluir" / "Cancelar esta ocorrência"
+- [x] Detalhe de fixo: só leitura + **"Editar"** (alterar a partir de um mês) e **"Encerrar"** em painel (o vermelho cheio só dentro dele) + "⋯" com "Excluir fixo"; o histórico mostra a data de cada conta
+- [x] `ActionButton` dentro de um painel fecha o painel quando a ação dá certo; `SheetAction` com botão só de ícone ("⋯")
+- [x] Helper `moreAction` nos testes (abre o "⋯" e escolhe a ação)
 
 ### E4 — Restante
 
-- [ ] Benefícios, Projeção, Ajustes e Categorias revisados com os mesmos componentes (sem cortes de texto)
-- [ ] `CategoryPicker` nos outros formulários, `StickyActions` nos outros formulários, `MonthField`, `FilePicker` em pt-BR
+- [x] Benefícios: histórico sem descrição cortada e com lixeira (ícone) no lugar do botão "Excluir" em cada linha; "Editar" e "Encerrar" viraram painéis (o vermelho cheio só dentro do "Encerrar")
+- [x] Projeção: cada mês numa coluna só (Receitas, Saídas e, recuadas, as partes das saídas), sem o "Recorrentes (…" cortado
+- [x] Ajustes: "Trocar senha", "Novos códigos de recuperação" e "Trocar de app autenticador" em painéis (sem `<details>`)
+- [x] Relatórios: "Filtros" num painel, com "Limpar" à vista quando há filtro
+- [x] `MonthField` (select com o mês por extenso, "Outubro de 2026") no lugar dos 8 `type=month`; `FilePicker` em pt-BR ("Escolher arquivo") nas importações; `CategoryPicker` também no fixo, no parcelamento em andamento e na edição de compra; `StickyActions` nos cadastros (fixo, empréstimo, cartão, benefício, parcelamento em andamento); `FormCard` (sem card dentro de card no celular) nas telas de cadastro
+- [x] `ActionButton` com gatilho só de ícone; `SheetAction` com conteúdo próprio no botão
+- [ ] Categorias (`/ajustes/categorias`): as linhas ainda abrem a edição com `<details>`; não corta texto, fica para uma revisão futura
+- [ ] Revisão da importação (`/importacoes/[id]`): "Não é esse? Trocar…" ainda é `<details>` → **Fase G** (já prevista lá)
 
-**Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal.
+**Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal. ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico) ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico)
 
 ---
 

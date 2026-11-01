@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { Ellipsis, Pencil } from 'lucide-react';
 import { EntryRowItem } from '@/components/entries/entry-list';
 import { ActionButton } from '@/components/forms/action-button';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
 import { EndTemplateForm } from '@/components/recurring/end-template-form';
 import { TemplateForm } from '@/components/recurring/template-form';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { listActiveCards } from '@/db/queries/cards';
 import { getTemplate, listOccurrences } from '@/db/queries/entries';
@@ -40,22 +40,49 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href="/fixos">
-          <ArrowLeft aria-hidden /> Fixos
-        </Link>
-      </Button>
+      <PageHeader
+        title={t.description}
+        description={t.direction === 'INCOME' ? 'Receita prevista' : 'Conta a pagar'}
+        back={{ href: '/fixos', label: 'Fixos' }}
+        actions={
+          <SheetAction
+            label="Mais ações"
+            description={t.description}
+            iconOnly
+            variant="ghost"
+            icon={<Ellipsis aria-hidden />}
+          >
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Excluir apaga este fixo e as contas dele que não foram pagas (pendentes e canceladas, de
+                qualquer mês). As já pagas ficam no extrato e no saldo, só deixam de ser ligadas a um fixo.
+              </p>
+              <ActionButton
+                action={deleteTemplateAction}
+                fields={{ id: t.id }}
+                variant="destructive"
+                label="Excluir fixo"
+                pendingLabel="Excluindo…"
+                confirm={{
+                  title: 'Excluir este fixo?',
+                  description:
+                    'O fixo e todas as contas dele ainda não pagas somem do histórico. As contas já pagas continuam no extrato e o saldo não muda. Fica registrado no histórico de alterações.',
+                  confirmLabel: 'Excluir',
+                }}
+              />
+            </div>
+          </SheetAction>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardDescription>{t.direction === 'INCOME' ? 'Receita prevista' : 'Conta a pagar'}</CardDescription>
-          <CardTitle className="text-xl">{t.description}</CardTitle>
+      <Card className="gap-3 py-4">
+        <CardContent className="space-y-2 px-4 sm:px-6">
           <Amount
             cents={t.amountCents}
             direction={t.direction === 'INCOME' ? 'in' : 'out'}
-            className="text-3xl font-semibold"
+            className="block text-3xl font-semibold tracking-tight"
           />
-          <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 pt-1 text-sm">
             <dt className="text-muted-foreground">Tipo</dt>
             <dd>{RECURRING_TYPE_LABEL[t.type]}</dd>
             <dt className="text-muted-foreground">Vencimento</dt>
@@ -71,16 +98,18 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
               {!t.isActive && ' (desativado)'}
             </dd>
           </dl>
-        </CardHeader>
+        </CardContent>
       </Card>
 
+      {/* só leitura; mudar e encerrar abrem painel (o vermelho cheio só dentro do "Encerrar") */}
       {!ended && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Alterar a partir de um mês</CardTitle>
-            <CardDescription>Reajuste de aluguel, mudança de vencimento etc.</CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className="grid grid-cols-2 gap-2">
+          <SheetAction
+            label="Editar"
+            title="Alterar a partir de um mês"
+            description="Reajuste de aluguel, mudança de vencimento etc. Os meses anteriores ficam como estão."
+            icon={<Pencil aria-hidden />}
+          >
             <TemplateForm
               categories={categories}
               users={users}
@@ -99,8 +128,15 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
                 beneficiaryUserId: t.beneficiaryUserId,
               }}
             />
-          </CardContent>
-        </Card>
+          </SheetAction>
+          <SheetAction
+            label="Encerrar"
+            title="Encerrar este fixo"
+            description="Para de gerar contas depois do mês escolhido (por exemplo, o mês atual). O que já foi gerado até lá continua no histórico."
+          >
+            <EndTemplateForm id={t.id} defaultMonth={toMonthParam(month)} />
+          </SheetAction>
+        </div>
       )}
 
       <Card className="gap-0 pb-0">
@@ -117,49 +153,10 @@ export default async function TemplatePage({ params }: PageProps<'/fixos/[id]'>)
                 e={e}
                 today={hoje}
                 href={`/lancamentos/${e.id}?voltar=/fixos/${t.id}`}
+                showDate
               />
             ))
           )}
-        </CardContent>
-      </Card>
-
-      {!ended && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Encerrar</CardTitle>
-            <CardDescription>
-              Para de gerar contas depois do mês escolhido (por exemplo, o mês atual). O que já foi gerado até
-              lá continua no histórico.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <EndTemplateForm id={t.id} defaultMonth={toMonthParam(month)} />
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Excluir</CardTitle>
-          <CardDescription>
-            Apaga este fixo e as contas dele que não foram pagas (pendentes e canceladas, de qualquer mês). As
-            já pagas ficam no extrato e no saldo, só deixam de ser ligadas a um fixo.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ActionButton
-            action={deleteTemplateAction}
-            fields={{ id: t.id }}
-            variant="destructive"
-            label="Excluir fixo"
-            pendingLabel="Excluindo…"
-            confirm={{
-              title: 'Excluir este fixo?',
-              description:
-                'O fixo e todas as contas dele ainda não pagas somem do histórico. As contas já pagas continuam no extrato e o saldo não muda. Fica registrado no histórico de alterações.',
-              confirmLabel: 'Excluir',
-            }}
-          />
         </CardContent>
       </Card>
     </div>

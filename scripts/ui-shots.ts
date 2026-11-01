@@ -379,7 +379,8 @@ async function detailIds() {
         where c.name like 'Nubank%' and i.due_date >= current_date order by i.due_date limit 1`),
       plan: await one(`select p.id from installment_plans p join transactions t on t.id = p.transaction_id
         where t.description like 'Notebook%'`),
-      entry: await one(`select id from transactions where description = 'Conserto da máquina de lavar'`),
+      // do mês passado: existe em qualquer dia do mês (os do mês atual dependem de o dia já ter passado)
+      entry: await one(`select id from transactions where description = 'Barbeiro'`),
       loan: await one(`select id from loans limit 1`),
       benefit: await one(`select id from benefit_cards limit 1`),
       template: await one(`select id from recurring_templates where description = 'Aluguel apartamento'`),
@@ -517,11 +518,17 @@ async function captureInteractions(browser: Browser, ids: Awaited<ReturnType<typ
     [
       'pagar-parcelas',
       () =>
-        open(`/emprestimos/${ids.loan}`, () => page.getByRole('button', { name: 'Pagar parcelas' }).click()),
+        open(`/emprestimos/${ids.loan}`, () =>
+          page.getByRole('button', { name: /^Pagar \d+ parcela/ }).click(),
+        ),
     ],
     [
       'excluir-confirmacao',
-      () => open(`/fixos/${ids.template}`, () => page.getByRole('button', { name: 'Excluir fixo' }).click()),
+      () =>
+        open(`/fixos/${ids.template}`, async () => {
+          await page.getByRole('button', { name: 'Mais ações' }).click();
+          await page.getByRole('button', { name: 'Excluir fixo' }).click();
+        }),
     ],
   ];
   for (const [name, step] of steps) {

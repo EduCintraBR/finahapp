@@ -10,6 +10,8 @@ import {
   uploadStatementAction,
 } from '@/app/(app)/importacoes/actions';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { FilePicker } from '@/components/forms/file-picker';
+import { MonthField } from '@/components/forms/month-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { LineCandidate } from '@/db/queries/imports';
@@ -19,7 +21,7 @@ import { formatDateBR } from '@/domain/dates';
 import { formatDecimalBR } from '@/domain/money';
 import { cn } from '@/lib/utils';
 
-export function UploadStatementForm({ cardId }: { cardId: string }) {
+export function UploadStatementForm({ cardId, currentMonth }: { cardId: string; currentMonth: string }) {
   const [state, action, pending] = useActionState(uploadStatementAction, null);
   return (
     <form action={action} className="space-y-3">
@@ -29,10 +31,9 @@ export function UploadStatementForm({ cardId }: { cardId: string }) {
         htmlFor="ofx-file"
         hint="No app do Nubank: fatura → ⋯ → Exportar fatura → OFX (ou CSV)."
       >
-        <Input
+        <FilePicker
           id="ofx-file"
           name="file"
-          type="file"
           accept=".ofx,.csv,text/csv,application/x-ofx,text/plain"
           required
         />
@@ -42,7 +43,7 @@ export function UploadStatementForm({ cardId }: { cardId: string }) {
         htmlFor="ref-month"
         hint="O CSV não informa o período. Use o mês do vencimento: a fatura que vence em 16/11 é a de novembro. No OFX isso é ignorado."
       >
-        <Input id="ref-month" name="referenceMonth" type="month" />
+        <MonthField id="ref-month" name="referenceMonth" around={currentMonth} before={12} after={3} />
       </Field>
       <FormError message={state && !state.ok ? state.error : null} />
       <Button type="submit" className="h-11 w-full" disabled={pending}>

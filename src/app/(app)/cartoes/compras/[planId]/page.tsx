@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
 import { AnticipationForm, PurchaseEditForm, RefundForm } from '@/components/cards/plan-forms';
 import { ActionButton } from '@/components/forms/action-button';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { getPlanDetail } from '@/db/queries/cards';
 import { listCategories, listUsers } from '@/db/queries/lookups';
@@ -59,16 +59,34 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
     d.refunds.length === 0 &&
     d.items.every((i) => i.kind === 'INSTALLMENT' && i.status === 'ACTIVE' && !i.invoiceClosed);
 
+  // linha do tempo: a fatura de cada parcela já paga, fechada (a pagar), a atual (aberta) ou uma futura
+  const stateOf = new Map(d.invoices.filter((i) => i.id).map((i) => [i.id!, i.state]));
+  const currentInvoiceId = invoiceOptions.find((i) => i.open)?.id;
+  const step = (i: (typeof d.items)[number]) => {
+    if (i.status !== 'ACTIVE') return { tone: 'muted', label: ITEM_STATUS[i.status] ?? '' } as const;
+    const st = stateOf.get(i.invoiceId);
+    if (st === 'PAID') return { tone: 'done', label: 'paga' } as const;
+    if (st === 'OVERDUE') return { tone: 'late', label: 'fatura atrasada' } as const;
+    if (st === 'CLOSED') return { tone: 'due', label: 'fatura fechada, a pagar' } as const;
+    if (i.invoiceId === currentInvoiceId) return { tone: 'now', label: 'fatura atual' } as const;
+    return { tone: 'next', label: 'futura' } as const;
+  };
+  const DOT = {
+    done: 'border-income bg-income',
+    late: 'border-expense bg-expense',
+    due: 'border-warning bg-warning',
+    now: 'border-primary bg-background ring-4 ring-primary/20',
+    next: 'border-muted-foreground/40 bg-background',
+    muted: 'border-muted-foreground/30 bg-muted',
+  } as const;
+  const actionClass = 'h-auto min-h-10 px-2 py-2 text-xs leading-tight whitespace-normal';
+
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href={`/cartoes/${card.id}`}>
-          <ArrowLeft aria-hidden /> {card.name}
-        </Link>
-      </Button>
+      <PageHeader title={purchase.description} back={{ href: `/cartoes/${card.id}`, label: card.name }} />
 
-      <Card>
-        <CardHeader>
+      <Card className="gap-3 py-4">
+        <CardContent className="space-y-2 px-4 sm:px-6">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={active ? 'secondary' : 'outline'}>{PLAN_STATUS[plan.status]}</Badge>
             {purchase.source === 'ONBOARDING' && (
@@ -77,44 +95,119 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
             {purchase.source === 'RECURRING' && <Badge variant="outline">assinatura</Badge>}
             {purchase.source === 'BOT' && <Badge variant="outline">pelo bot</Badge>}
           </div>
-          <CardTitle className="text-xl">{purchase.description}</CardTitle>
-          <Amount cents={plan.totalAmountCents} className="text-3xl font-semibold" />
-          <CardDescription>
+          <Amount cents={plan.totalAmountCents} className="block text-3xl font-semibold tracking-tight" />
+          <p className="text-sm text-muted-foreground">
             {plan.installmentCount === 1 ? 'À vista' : `${plan.installmentCount}x`} · comprado em{' '}
             {formatDateBR(plan.purchaseDate)} · {d.categoryName} · por {d.createdByName}
-          </CardDescription>
-        </CardHeader>
+          </p>
+        </CardContent>
       </Card>
+
+      {/* ações em botões que abrem painel (antes eram blocos <details>) */}
+      <div className="grid grid-cols-3 gap-2">
+        {active && plan.installmentCount > 1 && (
+          <SheetAction label="Antecipar parcelas" className={actionClass}>
+            <AnticipationForm
+              planId={planId}
+              count={plan.installmentCount}
+              options={anticipatable}
+              invoices={invoiceOptions}
+              today={hoje}
+            />
+          </SheetAction>
+        )}
+        {plan.status !== 'CANCELLED' && (
+          <SheetAction label="Estorno / devolução" className={actionClass}>
+            <RefundForm planId={planId} invoices={invoiceOptions} today={hoje} />
+          </SheetAction>
+        )}
+        <SheetAction label="Editar" title="Editar compra" className={actionClass}>
+          <div className="space-y-4">
+            <PurchaseEditForm
+              planId={planId}
+              categories={categories}
+              users={users}
+              defaults={{
+                description: purchase.description,
+                categoryId: purchase.categoryId ?? '',
+                beneficiaryUserId: purchase.beneficiaryUserId,
+                notes: purchase.notes,
+                amountCents: plan.totalAmountCents,
+              }}
+              amountEditable={deletable}
+            />
+            {deletable ? (
+              <ActionButton
+                action={deletePurchaseAction}
+                fields={{ id: planId, cardId: card.id }}
+                variant="destructive"
+                label="Excluir compra"
+                confirm={{
+                  title: 'Excluir esta compra?',
+                  description:
+                    'Todas as parcelas saem das faturas e o limite é liberado. Fica registrado no histórico.',
+                  confirmLabel: 'Excluir',
+                }}
+              />
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Valor e parcelas não mudam depois de cobrados: para desfazer, use Estorno.
+              </p>
+            )}
+          </div>
+        </SheetAction>
+      </div>
 
       <Card className="gap-0 pb-0">
         <CardHeader className="pb-3">
           <CardTitle>{plan.installmentCount === 1 ? 'Fatura' : 'Parcelas'}</CardTitle>
         </CardHeader>
-        <CardContent className="divide-y border-t px-0">
-          {[...installments, ...others].map((i) => (
-            <Link
-              key={i.id}
-              href={`/cartoes/faturas/${i.invoiceId}`}
-              className="flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50"
-            >
-              <div className="min-w-0 flex-1">
-                <div className={cn('font-medium', i.status !== 'ACTIVE' && 'line-through opacity-60')}>
-                  {i.kind === 'INSTALLMENT'
-                    ? `${i.installmentNumber}/${plan.installmentCount}`
-                    : i.description}
-                </div>
-                <div className="text-xs text-muted-foreground first-letter:uppercase">
-                  fatura de {formatMonthLabel(i.referenceMonth)}
-                  {ITEM_STATUS[i.status] && ` · ${ITEM_STATUS[i.status]}`}
-                </div>
-              </div>
-              <Amount
-                cents={Math.abs(i.amountCents)}
-                direction={i.amountCents < 0 ? 'in' : undefined}
-                className={cn('font-medium', i.status !== 'ACTIVE' && 'line-through opacity-50')}
-              />
-            </Link>
-          ))}
+        <CardContent className="border-t px-0">
+          <ol aria-label={plan.installmentCount === 1 ? 'Fatura' : 'Parcelas'}>
+            {[...installments, ...others].map((i, idx, all) => {
+              const st = step(i);
+              return (
+                <li key={i.id} className="relative">
+                  {/* trilho da linha do tempo */}
+                  {idx < all.length - 1 && (
+                    <span aria-hidden className="absolute top-8 bottom-0 left-[1.35rem] w-px bg-border" />
+                  )}
+                  <Link
+                    href={`/cartoes/faturas/${i.invoiceId}`}
+                    className="relative flex items-center gap-3 px-4 py-3 text-sm hover:bg-muted/50"
+                  >
+                    <span aria-hidden className={cn('size-3 shrink-0 rounded-full border-2', DOT[st.tone])} />
+                    <div className="min-w-0 flex-1">
+                      <div className={cn('font-medium', i.status !== 'ACTIVE' && 'line-through opacity-60')}>
+                        {i.kind === 'INSTALLMENT'
+                          ? `${i.installmentNumber}/${plan.installmentCount}`
+                          : i.description}
+                      </div>
+                      <div className="text-xs text-muted-foreground first-letter:uppercase">
+                        fatura de {formatMonthLabel(i.referenceMonth)}
+                        {st.label && (
+                          <span
+                            className={cn(
+                              st.tone === 'now' && 'font-medium text-primary',
+                              st.tone === 'late' && 'font-medium text-expense',
+                            )}
+                          >
+                            {' '}
+                            · {st.label}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <Amount
+                      cents={Math.abs(i.amountCents)}
+                      direction={i.amountCents < 0 ? 'in' : undefined}
+                      className={cn('font-medium', i.status !== 'ACTIVE' && 'line-through opacity-50')}
+                    />
+                  </Link>
+                </li>
+              );
+            })}
+          </ol>
         </CardContent>
       </Card>
 
@@ -142,67 +235,6 @@ export default async function PlanPage({ params }: PageProps<'/cartoes/compras/[
           </CardContent>
         </Card>
       )}
-
-      {active && plan.installmentCount > 1 && (
-        <details className="rounded-xl border bg-card">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Antecipar parcelas</summary>
-          <div className="px-4 pb-4">
-            <AnticipationForm
-              planId={planId}
-              count={plan.installmentCount}
-              options={anticipatable}
-              invoices={invoiceOptions}
-              today={hoje}
-            />
-          </div>
-        </details>
-      )}
-
-      {plan.status !== 'CANCELLED' && (
-        <details className="rounded-xl border bg-card">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Estorno / devolução</summary>
-          <div className="px-4 pb-4">
-            <RefundForm planId={planId} invoices={invoiceOptions} today={hoje} />
-          </div>
-        </details>
-      )}
-
-      <details className="rounded-xl border bg-card">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Editar</summary>
-        <div className="space-y-4 px-4 pb-4">
-          <PurchaseEditForm
-            planId={planId}
-            categories={categories}
-            users={users}
-            defaults={{
-              description: purchase.description,
-              categoryId: purchase.categoryId ?? '',
-              beneficiaryUserId: purchase.beneficiaryUserId,
-              notes: purchase.notes,
-              amountCents: plan.totalAmountCents,
-            }}
-            amountEditable={deletable}
-          />
-          {deletable ? (
-            <ActionButton
-              action={deletePurchaseAction}
-              fields={{ id: planId, cardId: card.id }}
-              variant="destructive"
-              label="Excluir compra"
-              confirm={{
-                title: 'Excluir esta compra?',
-                description:
-                  'Todas as parcelas saem das faturas e o limite é liberado. Fica registrado no histórico.',
-                confirmLabel: 'Excluir',
-              }}
-            />
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Valor e parcelas não mudam depois de cobrados: para desfazer, use Estorno.
-            </p>
-          )}
-        </div>
-      </details>
     </div>
   );
 }

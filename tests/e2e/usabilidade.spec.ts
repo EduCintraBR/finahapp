@@ -14,7 +14,7 @@ import {
 } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
-import { pickCategory } from './forms';
+import { moreAction, pickCategory } from './forms';
 
 test.beforeEach(async ({ page }) => {
   await login(page, e2eEnv.users.eduardo);
@@ -137,9 +137,7 @@ test('excluir um fixo: confirma, volta para a lista e o fixo some', async ({ pag
   await pickCategory(page, 'Contas da casa');
   await page.getByRole('button', { name: 'Cadastrar' }).click();
   await expect(page.getByText('Histórico', { exact: true })).toBeVisible();
-  await expect(page.getByText('Excluir', { exact: true })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Excluir fixo' }).click();
+  await moreAction(page, 'Excluir fixo');
   await expect(page.getByRole('alertdialog')).toContainText('Excluir este fixo?');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();
 

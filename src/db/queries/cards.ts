@@ -247,6 +247,8 @@ export async function getInvoiceDetail(db: AnyDB, invoiceId: string, today: ISOD
       planId: invoiceItems.installmentPlanId,
       installmentCount: installmentPlans.installmentCount,
       categoryName: categories.name,
+      categoryIcon: categories.icon,
+      createdById: transactions.createdByUserId,
       createdByName: users.name,
       createdByColor: users.color,
     })

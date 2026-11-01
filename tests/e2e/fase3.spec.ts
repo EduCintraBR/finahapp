@@ -70,7 +70,7 @@ test('fatura da 1ª parcela: pagar libera o limite', async () => {
   await expect(dialog.getByLabel('Valor pago')).toHaveValue('33,34');
   await dialog.getByRole('button', { name: 'Confirmar pagamento' }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByText(/Pago R\$\s33,34/)).toBeVisible();
+  await expect(page.getByTestId('invoice-paid')).toContainText(brl('33,34'));
   await page.goto(cardUrl);
   await expect(available(page)).toContainText(brl('4.933,34'));
 });

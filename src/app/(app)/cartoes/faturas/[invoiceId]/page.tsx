@@ -1,15 +1,16 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { auth } from '@/auth';
 import { InvoiceStateBadge } from '@/components/cards/card-summary';
 import { InvoiceDatesForm, PayInvoiceDialog } from '@/components/cards/invoice-forms';
-import { UserBadge } from '@/components/entries/user-badge';
+import { CategoryIcon } from '@/components/categories/category-icon';
 import { ActionButton } from '@/components/forms/action-button';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { SheetAction } from '@/components/ui/sheet-action';
 import { getDb } from '@/db/client';
 import { getInvoiceDetail } from '@/db/queries/cards';
 import { compareDates, formatDateBR, formatDayLabel, formatMonthLabel, today } from '@/domain/dates';
@@ -31,9 +32,10 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
   const { invoiceId } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(invoiceId)) notFound();
   const hoje = today();
-  const d = await getInvoiceDetail(getDb(), invoiceId, hoje);
+  const [d, session] = await Promise.all([getInvoiceDetail(getDb(), invoiceId, hoje), auth()]);
   if (!d) notFound();
   const { card, summary: inv, items, payments } = d;
+  const viewerId = session?.user?.id;
   const label = `${card.name} · ${formatMonthLabel(inv.referenceMonth)}`;
   // do dia mais novo para o mais antigo, como a tela de lançamentos
   const byDay = new Map<string, typeof items>();
@@ -43,37 +45,52 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Button asChild variant="ghost" size="sm" className="-ml-2">
-        <Link href={`/cartoes/${card.id}`}>
-          <ArrowLeft aria-hidden /> {card.name}
-        </Link>
-      </Button>
+      <PageHeader
+        title={
+          <span className="first-letter:uppercase">Fatura de {formatMonthLabel(inv.referenceMonth)}</span>
+        }
+        back={{ href: `/cartoes/${card.id}`, label: card.name }}
+      />
 
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
+      <Card className="gap-0 py-0">
+        <CardContent className="space-y-1 px-4 pt-4 pb-3 sm:px-6">
+          <div className="flex items-center justify-between gap-2 text-sm text-muted-foreground">
+            <span>
+              fecha {formatDateBR(inv.closingDate)} · vence {formatDateBR(inv.dueDate)}
+            </span>
             <InvoiceStateBadge state={inv.state} />
           </div>
-          <CardDescription className="first-letter:uppercase">
-            Fatura de {formatMonthLabel(inv.referenceMonth)} · fecha {formatDateBR(inv.closingDate)} · vence{' '}
-            {formatDateBR(inv.dueDate)}
-          </CardDescription>
-          <CardTitle>
-            <Amount cents={inv.totalCents} className="text-3xl font-semibold" />
-          </CardTitle>
-          {inv.paidCents > 0 && (
-            <CardDescription>
-              Pago {formatBRL(inv.paidCents)}
-              {inv.remainingCents > 0 && ` · falta ${formatBRL(inv.remainingCents)}`}
-              {inv.paidCents > inv.totalCents &&
-                inv.totalCents >= 0 &&
-                ` · pago a mais: ${formatBRL(inv.paidCents - inv.totalCents)}`}
-            </CardDescription>
+          <Amount cents={inv.totalCents} className="block text-3xl font-semibold tracking-tight" />
+          {inv.totalCents < 0 && (
+            <p className="text-sm text-muted-foreground">Fatura credora: nada a pagar.</p>
           )}
-          {inv.totalCents < 0 && <CardDescription>Fatura credora: nada a pagar.</CardDescription>}
-        </CardHeader>
+        </CardContent>
+        {/* total, pago e quanto falta lado a lado */}
+        <div className="grid grid-cols-2 gap-4 border-t px-4 py-3 text-sm sm:px-6">
+          <div>
+            <div className="text-xs text-muted-foreground">Pago</div>
+            <Amount cents={inv.paidCents} className="font-semibold" data-testid="invoice-paid" />
+          </div>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              {inv.paidCents > inv.totalCents && inv.totalCents >= 0 ? 'Pago a mais' : 'Falta pagar'}
+            </div>
+            <Amount
+              cents={
+                inv.paidCents > inv.totalCents && inv.totalCents >= 0
+                  ? inv.paidCents - inv.totalCents
+                  : inv.remainingCents
+              }
+              className={cn(
+                'font-semibold',
+                inv.remainingCents > 0 && inv.state === 'OVERDUE' && 'text-expense',
+              )}
+              data-testid="invoice-remaining"
+            />
+          </div>
+        </div>
         {inv.remainingCents > 0 && (
-          <CardContent>
+          <div className="border-t px-4 py-3 sm:px-6">
             <PayInvoiceDialog
               invoiceId={invoiceId}
               label={label}
@@ -81,7 +98,7 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
               today={hoje}
               additionalHolder={card.isAdditional ? card.holderName : null}
             />
-          </CardContent>
+          </div>
         )}
       </Card>
 
@@ -89,66 +106,92 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
         <CardHeader className="pb-3">
           <CardTitle>Itens</CardTitle>
         </CardHeader>
-        <CardContent className="divide-y border-t px-0">
+        <CardContent className="border-t px-0">
           {items.length === 0 ? (
             <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nenhum item nesta fatura.</p>
           ) : (
-            groups.flatMap(([date, dayItems]) => [
-              // um cabeçalho por dia, como na tela de lançamentos; o total do dia só conta itens ativos
-              <div
-                key={`day-${date}`}
-                className="flex items-center justify-between bg-muted/40 px-4 py-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase"
-              >
-                <h3>{formatDayLabel(date)}</h3>
-                <span className="tabular-nums">
-                  {formatBRL(
-                    dayItems.reduce((sum, i) => sum + (i.status === 'ACTIVE' ? i.amountCents : 0), 0),
-                  )}
-                </span>
-              </div>,
-              ...dayItems.map((i) => {
-                const inactive = i.status !== 'ACTIVE';
-                const row = (
-                  <>
-                    {i.createdByName ? (
-                      <UserBadge name={i.createdByName} color={i.createdByColor} />
-                    ) : (
-                      <span className="size-5" />
+            groups.map(([date, dayItems]) => {
+              const active = dayItems.filter((i) => i.status === 'ACTIVE');
+              return (
+                <section key={date} aria-label={formatDayLabel(date)}>
+                  {/* o total do dia só quando há mais de um item (com um só, repetiria o valor da linha) */}
+                  <div className="flex items-center justify-between border-b bg-muted/40 px-4 py-1.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                    <h3>{formatDayLabel(date)}</h3>
+                    {dayItems.length > 1 && (
+                      <span className="tabular-nums">
+                        {formatBRL(active.reduce((sum, i) => sum + i.amountCents, 0))}
+                      </span>
                     )}
-                    <div className="min-w-0 flex-1">
-                      <div className={cn('truncate font-medium', inactive && 'line-through opacity-60')}>
-                        {i.description}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        {i.categoryName && <span>{i.categoryName}</span>}
-                        {ITEM_KIND_LABEL[i.kind] && (
-                          <Badge variant="outline">{ITEM_KIND_LABEL[i.kind]}</Badge>
-                        )}
-                        {inactive && <Badge variant="secondary">{ITEM_STATUS_LABEL[i.status]}</Badge>}
-                      </div>
-                    </div>
-                    <Amount
-                      cents={Math.abs(i.amountCents)}
-                      direction={i.amountCents < 0 ? 'in' : undefined}
-                      className={cn('text-sm font-medium', inactive && 'line-through opacity-50')}
-                    />
-                  </>
-                );
-                return i.planId ? (
-                  <Link
-                    key={i.id}
-                    href={`/cartoes/compras/${i.planId}`}
-                    className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
-                  >
-                    {row}
-                  </Link>
-                ) : (
-                  <div key={i.id} className="flex items-center gap-3 px-4 py-3">
-                    {row}
                   </div>
-                );
-              }),
-            ])
+                  <div className="divide-y border-b last:border-b-0">
+                    {dayItems.map((i) => {
+                      const inactive = i.status !== 'ACTIVE';
+                      const parcel =
+                        i.installmentNumber && i.installmentCount && i.installmentCount > 1
+                          ? `${i.installmentNumber}/${i.installmentCount}`
+                          : null;
+                      const details = [
+                        i.categoryName,
+                        viewerId &&
+                          i.createdById &&
+                          i.createdById !== viewerId &&
+                          `lançado por ${i.createdByName}`,
+                      ].filter(Boolean);
+                      const row = (
+                        <>
+                          <span className="grid size-9 shrink-0 place-items-center rounded-full bg-muted text-muted-foreground">
+                            <CategoryIcon name={i.categoryIcon} className="size-4" />
+                          </span>
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={cn('truncate font-medium', inactive && 'line-through opacity-60')}
+                              >
+                                {i.description}
+                              </span>
+                              {/* a parcela sempre à vista, mesmo com a descrição cortada */}
+                              {parcel && (
+                                <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs font-medium tabular-nums">
+                                  {parcel}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                              {details.length > 0 && <span>{details.join(' · ')}</span>}
+                              {ITEM_KIND_LABEL[i.kind] && (
+                                <Badge variant="outline">{ITEM_KIND_LABEL[i.kind]}</Badge>
+                              )}
+                              {inactive && <Badge variant="secondary">{ITEM_STATUS_LABEL[i.status]}</Badge>}
+                            </div>
+                          </div>
+                          <Amount
+                            cents={Math.abs(i.amountCents)}
+                            direction={i.amountCents < 0 ? 'in' : undefined}
+                            className={cn(
+                              'shrink-0 text-sm font-medium',
+                              inactive && 'line-through opacity-50',
+                            )}
+                          />
+                        </>
+                      );
+                      return i.planId ? (
+                        <Link
+                          key={i.id}
+                          href={`/cartoes/compras/${i.planId}`}
+                          className="flex items-center gap-3 px-4 py-3 hover:bg-muted/50"
+                        >
+                          {row}
+                        </Link>
+                      ) : (
+                        <div key={i.id} className="flex items-center gap-3 px-4 py-3">
+                          {row}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })
           )}
         </CardContent>
       </Card>
@@ -184,19 +227,20 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
         </Card>
       )}
 
-      <details className="rounded-xl border bg-card">
-        <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-          O banco mudou as datas desta fatura?
-        </summary>
-        <div className="px-4 pb-4">
-          <InvoiceDatesForm
-            invoiceId={invoiceId}
-            closingDate={inv.closingDate}
-            dueDate={inv.dueDate}
-            closingEditable={closingEditable}
-          />
-        </div>
-      </details>
+      <SheetAction
+        label="O banco mudou as datas desta fatura?"
+        title="Datas da fatura"
+        description="Mudar o fechamento realoca as compras afetadas."
+        variant="ghost"
+        className="text-muted-foreground"
+      >
+        <InvoiceDatesForm
+          invoiceId={invoiceId}
+          closingDate={inv.closingDate}
+          dueDate={inv.dueDate}
+          closingEditable={closingEditable}
+        />
+      </SheetAction>
     </div>
   );
 }

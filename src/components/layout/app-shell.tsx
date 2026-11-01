@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import type { ISODate } from '@/domain/dates';
+import { Toaster } from '@/components/ui/toaster';
 import { BottomNav } from './bottom-nav';
 import { Logo } from './logo';
 import { MonthSelector } from './month-selector';
@@ -53,6 +54,7 @@ export function AppShell({
       <Suspense>
         <BottomNav />
       </Suspense>
+      <Toaster />
     </div>
   );
 }

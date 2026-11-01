@@ -46,7 +46,12 @@ test('Home: caixa do mês, gasto Mensal × Bruto e últimos lançamentos; bate c
 
 test('Relatórios: filtro de cartão mostra só o lado cartão', async ({ page }) => {
   await page.goto('/relatorios?visao=bruto');
-  await page.getByText('Filtros', { exact: true }).click();
+  // "Filtros" abre um painel; repete o toque até a página hidratar
+  const sheet = page.getByRole('dialog', { name: 'Filtrar relatórios' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Filtros' }).click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
   const cardOption = page.getByLabel('Cartão').locator('option').nth(1);
   await page.getByLabel('Cartão').selectOption((await cardOption.getAttribute('value'))!);
   await page.getByRole('button', { name: 'Filtrar' }).click();

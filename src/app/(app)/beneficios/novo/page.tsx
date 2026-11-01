@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { BenefitCardForm } from '@/components/benefits/benefit-forms';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FormCard } from '@/components/forms/form-card';
 import { creditDateFor } from '@/domain/benefits/credits';
 import { addMonths, compareDates, monthStart, today, toMonthParam } from '@/domain/dates';
 
@@ -24,7 +25,7 @@ export default function NewBenefitCardPage() {
           <ArrowLeft aria-hidden /> Cartões
         </Link>
       </Button>
-      <Card>
+      <FormCard>
         <CardHeader>
           <CardTitle>Novo cartão de benefícios</CardTitle>
           <CardDescription>
@@ -35,7 +36,7 @@ export default function NewBenefitCardPage() {
         <CardContent>
           <BenefitCardForm defaultStartMonth={toMonthParam(first)} />
         </CardContent>
-      </Card>
+      </FormCard>
     </div>
   );
 }

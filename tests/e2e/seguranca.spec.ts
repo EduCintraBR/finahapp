@@ -73,11 +73,16 @@ test('sair de todos os aparelhos derruba uma sessão copiada', async ({ page, br
 test('trocar a senha: entra de novo com a nova (e volta a original)', async ({ page }) => {
   const change = async (current: string, next: string) => {
     await page.goto('/ajustes');
-    await page.locator('summary', { hasText: 'Trocar senha' }).click();
+    // "Trocar senha" abre um painel; repete o toque até a página hidratar
+    const sheet = page.getByRole('dialog', { name: 'Trocar senha' });
+    await expect(async () => {
+      if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Trocar senha' }).click();
+      await expect(sheet).toBeVisible({ timeout: 1_000 });
+    }).toPass();
     await page.getByLabel('Senha atual').fill(current);
     await page.getByLabel('Nova senha', { exact: true }).fill(next);
     await page.getByLabel('Repita a nova senha').fill(next);
-    await page.getByRole('button', { name: 'Trocar senha' }).click();
+    await sheet.getByRole('button', { name: 'Trocar senha' }).click();
     await expect(page).toHaveURL(/\/login/);
   };
   await login(page, eduardo);

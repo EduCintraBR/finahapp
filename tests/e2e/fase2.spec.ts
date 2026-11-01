@@ -6,7 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
-import { homePending } from './home';
+import { homePending, openPayment } from './home';
 import { login as loginWith2fa } from './login';
 import { pickCategory } from './forms';
 
@@ -97,8 +97,7 @@ test('baixa em 2 toques a partir da Home, com valor real', async () => {
   const pending = await homePending(page, 'Internet');
   await expect(pending).toContainText('Vence hoje');
 
-  await pending.getByRole('button', { name: 'Paguei' }).click(); // toque 1
-  const dialog = page.getByRole('dialog');
+  const dialog = await openPayment(page, pending); // toque 1
   await expect(dialog.getByLabel('Valor pago')).toHaveValue('99,90');
   await dialog.getByLabel('Valor pago').fill('105,00');
   await dialog.getByRole('button', { name: 'Confirmar' }).click(); // toque 2
