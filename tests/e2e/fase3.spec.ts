@@ -7,6 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -45,7 +46,7 @@ test('compra parcelada em 3x pelo botão +, resto do arredondamento na 1ª', asy
   await page.getByLabel('Parcelas').fill('3');
   await expect(page.getByText(/1ª de R\$\s33,34 \+ 2× de R\$\s33,33/)).toBeVisible();
   await page.getByLabel('Descrição').fill('Tênis');
-  await page.getByLabel('Categoria').selectOption({ label: 'Compras' });
+  await pickCategory(page, 'Compras');
   await page.getByRole('button', { name: 'Lançar' }).click();
 
   // depois de lançar volta para a fatura onde a compra caiu (os detalhes só abrem se você tocar nela)
@@ -109,7 +110,7 @@ test('assinatura no cartão vira compra no dia da cobrança', async () => {
   await page.getByLabel('Descrição').fill('Streaming');
   await page.getByLabel('Valor').fill('55,90');
   await page.getByLabel('Dia do vencimento').fill(String(Number(today().slice(8))));
-  await page.getByLabel('Categoria').selectOption({ label: 'Assinaturas' });
+  await pickCategory(page, 'Assinaturas');
   await page.getByLabel('Meio').selectOption({ label: 'Cartão de crédito' });
   await page.getByLabel('Cartão', { exact: true }).selectOption({ label: 'Nubank Teste' });
   await page.getByRole('button', { name: 'Cadastrar' }).click();
@@ -126,7 +127,7 @@ test('parcelamento em andamento: só as parcelas restantes', async () => {
   await page.getByLabel('Data da compra').fill('2026-03-05');
   await page.getByLabel('Parcela atual', { exact: true }).fill('9');
   await page.getByLabel('Total de parcelas').fill('10');
-  await page.getByLabel('Categoria').selectOption({ label: 'Casa e manutenção' });
+  await pickCategory(page, 'Casa e manutenção');
   await page.getByRole('button', { name: 'Cadastrar parcelamento' }).click();
   await expect(page).toHaveURL(/\/cartoes\/faturas\//);
   await page
@@ -152,7 +153,7 @@ test('compra excluída some da fatura', async () => {
   await page.goto('/lancamentos/novo?tipo=cartao');
   await page.getByLabel('Valor total da compra').fill('12,00');
   await page.getByLabel('Descrição').fill('Lançada errado');
-  await page.getByLabel('Categoria').selectOption({ label: 'Compras' });
+  await pickCategory(page, 'Compras');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/cartoes\/faturas\//);
   await expect(page.getByText('Lançada errado')).toBeVisible();

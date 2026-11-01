@@ -8,6 +8,7 @@ import { lastBusinessDay } from '../../src/domain/benefits/credits';
 import { addMonths, compareDates, monthStart, toMonthParam, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -69,7 +70,7 @@ test('gasto no benefício: sai do saldo da carteira, volta para o cartão e não
   await expect(page.getByLabel('Carteira')).toContainText('Refeição e alimentação');
   await page.getByLabel('Valor').fill('25,00');
   await page.getByLabel('Descrição').fill('Almoço no restaurante');
-  await page.getByLabel('Categoria').selectOption({ label: 'Alimentação fora' });
+  await pickCategory(page, 'Alimentação fora');
   await page.getByRole('button', { name: 'Lançar' }).click();
 
   await expect(page).toHaveURL(cardUrl); // volta para o cartão, não para os detalhes (D59)
@@ -94,7 +95,7 @@ test('sem saldo suficiente na carteira, não lança', async () => {
   await page.getByLabel('Carteira').selectOption(wallet!);
   await page.getByLabel('Valor').fill('5.000,00');
   await page.getByLabel('Descrição').fill('Compra grande');
-  await page.getByLabel('Categoria').selectOption({ label: 'Alimentação fora' });
+  await pickCategory(page, 'Alimentação fora');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Saldo insuficiente' })).toBeVisible();
   await expect(page).toHaveURL(/\/lancamentos\/novo/);

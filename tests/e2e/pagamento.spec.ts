@@ -9,6 +9,7 @@ import { monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { homePending } from './home';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -35,7 +36,7 @@ async function newExpense(description: string, amountCents: number, opts: { paid
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill(String(amountCents));
   await page.getByLabel('Descrição').fill(description);
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   if (opts.date) await page.locator('#date').fill(opts.date);
   if (opts.paid) await page.getByLabel('Já paguei').check();
   await page.getByRole('button', { name: 'Lançar' }).click();

@@ -8,6 +8,7 @@ import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { homePending } from './home';
 import { login as loginWith2fa } from './login';
+import { pickCategory } from './forms';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -48,7 +49,7 @@ test('lançar uma despesa pelo botão + e ver no extrato e no saldo', async () =
   await expect(page.getByRole('heading', { name: 'Novo lançamento', level: 1 })).toBeVisible();
   await page.getByLabel('Valor').fill('123,45');
   await page.getByLabel('Descrição').fill('Padaria');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await pickCategory(page, 'Mercado');
   await page.getByLabel('Já paguei').check(); // sem a chave a despesa fica a pagar (D69)
   await page.getByRole('button', { name: 'Lançar' }).click();
 
@@ -84,7 +85,7 @@ test('cadastrar um fixo gera a conta do mês como pendente', async () => {
   await page.getByLabel('Descrição').fill('Internet');
   await page.getByLabel('Valor').fill('99,90');
   await page.getByLabel('Dia do vencimento').fill(String(day));
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   await page.getByRole('button', { name: 'Cadastrar' }).click();
 
   await expect(page.getByText('Histórico', { exact: true })).toBeVisible();

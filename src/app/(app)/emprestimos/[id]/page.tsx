@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { ActionButton } from '@/components/forms/action-button';
-import { PayLoanForm } from '@/components/loans/loan-forms';
+import { PayLoanSheet } from '@/components/loans/loan-forms';
 import { Amount } from '@/components/money/amount';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -71,22 +71,17 @@ export default async function LoanPage({ params }: PageProps<'/emprestimos/[id]'
       </Card>
 
       {!s.settled && (
-        <details className="rounded-xl border bg-card" open>
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">Pagar parcelas</summary>
-          <div className="px-4 pb-4">
-            <PayLoanForm
-              loanId={loan.id}
-              today={hoje}
-              total={loan.installmentCount}
-              pending={pending.map((p) => ({
-                id: p.id,
-                number: p.number,
-                dueDate: p.dueDate,
-                scheduledCents: p.scheduledCents,
-              }))}
-            />
-          </div>
-        </details>
+        <PayLoanSheet
+          loanId={loan.id}
+          today={hoje}
+          total={loan.installmentCount}
+          pending={pending.map((p) => ({
+            id: p.id,
+            number: p.number,
+            dueDate: p.dueDate,
+            scheduledCents: p.scheduledCents,
+          }))}
+        />
       )}
 
       <Card className="gap-0 pb-0">

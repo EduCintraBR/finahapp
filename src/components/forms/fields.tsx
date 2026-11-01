@@ -3,17 +3,19 @@ import { Label } from '@/components/ui/label';
 import { maskMoneyInput } from '@/domain/money';
 import { cn } from '@/lib/utils';
 
-/** Campo com rótulo. */
+/** Campo com rótulo; `error` (em vermelho) substitui a dica. */
 export function Field({
   label,
   htmlFor,
   hint,
+  error,
   className,
   children,
 }: {
   label: string;
   htmlFor: string;
   hint?: string;
+  error?: string | null;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -21,7 +23,13 @@ export function Field({
     <div className={cn('space-y-1.5', className)}>
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {error ? (
+        <p role="alert" className="text-xs font-medium text-destructive">
+          {error}
+        </p>
+      ) : (
+        hint && <p className="text-xs text-muted-foreground">{hint}</p>
+      )}
     </div>
   );
 }
@@ -31,10 +39,20 @@ export function Field({
  * digitar a vírgula. O texto mascarado ("1.234,56") é o que vai no formulário; a conversão para centavos é feita no
  * servidor (parseBRL), nunca com float no navegador.
  */
-export function MoneyInput({ className, onChange, ...props }: Omit<React.ComponentProps<'input'>, 'type'>) {
+export function MoneyInput({
+  className,
+  prefixClassName,
+  onChange,
+  ...props
+}: Omit<React.ComponentProps<'input'>, 'type'> & { prefixClassName?: string }) {
   return (
     <div className="relative">
-      <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground">
+      <span
+        className={cn(
+          'pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-muted-foreground',
+          prefixClassName,
+        )}
+      >
         R$
       </span>
       <Input

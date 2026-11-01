@@ -5,6 +5,7 @@ import { cn } from 'cn';
 import { AlertDialog as AlertDialogPrimitive } from 'radix-ui';
 
 import { Button } from '@/components/ui/button';
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
 function AlertDialog({ ...props }: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
   return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />;
@@ -41,6 +42,7 @@ function AlertDialogContent({
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: 'default' | 'sm';
 }) {
+  const kb = useKeyboardInset();
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -48,10 +50,14 @@ function AlertDialogContent({
         data-slot="alert-dialog-content"
         data-size={size}
         className={cn(
-          'group/alert-dialog-content fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border bg-background p-6 shadow-lg duration-200 data-[size=sm]:max-w-xs data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[size=default]:sm:max-w-lg',
+          // celular: painel que sobe de baixo, como o Dialog (o botão de confirmar fica ao alcance do polegar)
+          'group/alert-dialog-content fixed inset-x-0 bottom-(--kb) z-50 grid max-h-[calc(90dvh-var(--kb))] w-full gap-4 overflow-y-auto rounded-t-2xl border-t bg-background p-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-lg duration-200 data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:animate-in data-[state=open]:slide-in-from-bottom',
+          // desktop: janela no centro
+          'sm:inset-x-auto sm:top-[50%] sm:bottom-auto sm:left-[50%] sm:max-w-[calc(100%-2rem)] sm:translate-x-[-50%] sm:translate-y-[-50%] sm:rounded-lg sm:border sm:pb-6 data-[size=default]:sm:max-w-lg sm:data-[size=sm]:max-w-xs sm:data-[state=closed]:fade-out-0 sm:data-[state=closed]:slide-out-to-bottom-0 sm:data-[state=closed]:zoom-out-95 sm:data-[state=open]:fade-in-0 sm:data-[state=open]:slide-in-from-bottom-0 sm:data-[state=open]:zoom-in-95',
           className,
         )}
         {...props}
+        style={{ '--kb': `${kb}px`, ...props.style } as React.CSSProperties}
       />
     </AlertDialogPortal>
   );

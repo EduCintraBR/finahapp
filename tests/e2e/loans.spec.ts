@@ -22,6 +22,14 @@ const cents = (text: string) => {
   if (!m) throw new Error(`sem valor em: ${text}`);
   return (m[1] ? -1 : 1) * Number(m[2]!.replace(/\./g, '') + m[3]);
 };
+/** "Pagar parcelas" abre um painel; repete o toque até a página hidratar. */
+const openPay = async () => {
+  const sheet = page.getByRole('dialog', { name: 'Pagar parcelas' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Pagar parcelas' }).click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+};
 const homeCard = (label: string) => page.locator('[data-slot=card]').filter({ hasText: label }).first();
 const accountBalance = async () => {
   await page.goto('/');
@@ -76,6 +84,7 @@ test('cadastrar: o total com juros vira parcelas e o valor recebido entra no sal
 
 test('antecipar as 3 últimas parcelas com um valor só: o desconto é calculado', async () => {
   await page.goto(loanUrl);
+  await openPay();
   await page.getByRole('button', { name: 'Limpar' }).click();
   for (const n of [10, 11, 12]) await page.getByRole('checkbox', { name: new RegExp(`^${n}/12`) }).check();
   await expect(page.getByLabel('Valor que paguei')).toHaveValue('3.000,00'); // sugere a soma
@@ -84,6 +93,7 @@ test('antecipar as 3 últimas parcelas com um valor só: o desconto é calculado
   await expect(page.getByTestId('pay-preview')).toContainText(brl('300,00'));
   const before = await accountBalance();
   await page.goto(loanUrl);
+  await openPay();
   await page.getByRole('button', { name: 'Limpar' }).click();
   for (const n of [10, 11, 12]) await page.getByRole('checkbox', { name: new RegExp(`^${n}/12`) }).check();
   await page.getByLabel('Valor que paguei').fill('270000');
@@ -100,6 +110,7 @@ test('antecipar as 3 últimas parcelas com um valor só: o desconto é calculado
 
 test('pagar a 1ª parcela com atraso e valor maior: aparece o acréscimo', async () => {
   await page.goto(loanUrl);
+  await openPay();
   await page.getByLabel('Valor que paguei').fill('103500'); // a 1ª parcela já vem marcada
   await expect(page.getByTestId('pay-preview')).toContainText('acréscimo de R$');
   await page.getByRole('button', { name: 'Registrar pagamento' }).click();

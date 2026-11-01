@@ -14,6 +14,7 @@ import {
 } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
+import { pickCategory } from './forms';
 
 test.beforeEach(async ({ page }) => {
   await login(page, e2eEnv.users.eduardo);
@@ -78,7 +79,7 @@ test('depois de lançar na conta, volta para a lista do mês da data (não para 
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('15,00');
   await page.getByLabel('Descrição').fill('Lançado no mês passado');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await pickCategory(page, 'Mercado');
   await page.locator('#date').fill(lastDayOfLastMonth);
   await page.getByRole('button', { name: 'Lançar' }).click();
 
@@ -90,7 +91,7 @@ test('depois de lançar na conta, volta para a lista do mês da data (não para 
   await page.goto('/lancamentos/novo');
   await page.getByLabel('Valor').fill('7,00');
   await page.getByLabel('Descrição').fill('Lançado hoje');
-  await page.getByLabel('Categoria').selectOption({ label: 'Mercado' });
+  await pickCategory(page, 'Mercado');
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos$/);
   await expect(page.getByRole('link', { name: /Lançado hoje/ })).toBeVisible();
@@ -133,7 +134,7 @@ test('excluir um fixo: confirma, volta para a lista e o fixo some', async ({ pag
   await page.getByLabel('Descrição').fill('Fixo para excluir');
   await page.getByLabel('Valor').fill('10,00');
   await page.getByLabel('Dia do vencimento').fill('28');
-  await page.getByLabel('Categoria').selectOption({ label: 'Contas da casa' });
+  await pickCategory(page, 'Contas da casa');
   await page.getByRole('button', { name: 'Cadastrar' }).click();
   await expect(page.getByText('Histórico', { exact: true })).toBeVisible();
   await expect(page.getByText('Excluir', { exact: true })).toBeVisible();
@@ -160,7 +161,7 @@ test('receita com data futura fica agendada: não entra no saldo atual, mostra o
   await page.getByRole('radio', { name: 'Receita' }).click();
   await page.getByLabel('Valor').fill('50000');
   await page.getByLabel('Descrição').fill('Freela agendado');
-  await page.getByLabel('Categoria').selectOption({ label: 'Salário CLT' });
+  await pickCategory(page, 'Salário CLT');
   await page.locator('#date').fill(future);
   await expect(page.getByText(/Data futura: fica agendado e só entra no saldo em/)).toBeVisible();
   await page.getByRole('button', { name: 'Lançar' }).click();
@@ -175,7 +176,7 @@ test('receita com data futura fica agendada: não entra no saldo atual, mostra o
   await page.getByRole('radio', { name: 'Receita' }).click();
   await page.getByLabel('Valor').fill('10000');
   await page.getByLabel('Descrição').fill('Receita de hoje');
-  await page.getByLabel('Categoria').selectOption({ label: 'Salário CLT' });
+  await pickCategory(page, 'Salário CLT');
   await expect(page.getByText(/Data futura/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('link', { name: /Receita de hoje/ })).not.toContainText('Agendado');
