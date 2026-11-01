@@ -215,6 +215,8 @@ export type CashSummary = {
   incomePendingCents: Cents;
   outPaidCents: Cents;
   outPendingCents: Cents;
+  /** Saídas (U4): o que já saiu + o que ainda vai sair no mês (pendente, atrasado e agendado; D72) */
+  outTotalCents: Cents;
   /** saldo no fim do mês: projetado (mês atual), real (passado) ou estimado (futuro, D40) */
   endOfMonthCents: Cents;
   endOfMonthKind: 'projected' | 'actual' | 'estimated';
@@ -392,12 +394,14 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
     incomePendingCents += row.templateIncomeCents;
     templatesOutCents = row.fixedCents + row.variableCents + row.subscriptionsCents;
   }
+  const outPendingCents = pendingExp + pendingInv + schedOut + templatesOutCents;
   return {
     balanceCents,
     incomeReceivedCents,
     incomePendingCents,
     outPaidCents,
-    outPendingCents: pendingExp + pendingInv + schedOut + templatesOutCents,
+    outPendingCents,
+    outTotalCents: outPaidCents + outPendingCents,
     endOfMonthCents,
     endOfMonthKind,
   };

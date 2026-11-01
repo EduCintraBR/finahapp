@@ -40,11 +40,11 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] `PageHeader` (`src/components/layout/page-header.tsx`): voltar, título, subtítulo e ações — usado no Mais e em Lançamentos; as outras telas migram nas Fases D/E
 - [x] Painel inferior: o próprio `Dialog` (`src/components/ui/dialog.tsx`) virou painel que sobe de baixo no celular (com `safe-area`) e continua janela no desktop, sem dependência nova — "Paguei", "Pagar fatura" etc. já usam
 - [x] Script versionado `pnpm ui:shots [nome] [filtro]` (`scripts/ui-shots.ts`): banco fictício separado `finah_shots` com dados relativos a hoje + capturas 375/1280 de todas as rotas e do (+), "Paguei" e filtros, em `tmp/ui-shots/<nome>/`
-- [ ] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha → **Fase E**
+- [x] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha (Fase E1: `EntryRowItem`)
 - [x] `StickyActions` (`src/components/forms/sticky-actions.tsx`): no novo lançamento (Fase D); os outros formulários adotam na Fase E
 - [x] `CategoryPicker` (grade com ícone + busca) no novo lançamento (Fase D)
 - [ ] `Select` próprio, `CategoryPicker` nos outros formulários (fixo, compra parcelada, importação), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase E**
-- [ ] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) → **Fase E**
+- [x] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) — Fase E1: `FilterChip` em Lançamentos
 - [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) e sem card dentro de card no celular → **Fase E/F**
 - [x] Confirmações (`AlertDialog`) também como painel inferior no celular (Fase D)
 
@@ -97,15 +97,34 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Fase E — Listas e detalhes
 
-- [ ] Lançamentos: busca + filtros em botões, linhas `ListRow`, cabeçalho de data fixo ao rolar; resumo do topo com **Entrou, Saiu, Saídas (U4), A receber, A pagar** usando as queries canônicas (corrigir o cálculo atual, que soma só `EXPENSE` pagas)
+> Ajuste de execução (01/11/2026): dividida em 4 PRs, um por grupo de telas (E1 Lançamentos, E2 cartões, E3 detalhes/empréstimo/fixos, E4 o resto).
+
+### E1 — Lançamentos
+
+- [x] Resumo do topo com **Entrou, Saiu, A receber, A pagar** (os mesmos números e links da Início, `MonthKpis`) e **Saídas do mês** (U4: `outTotalCents` = Saiu + A pagar, com os atrasados). Antes somava só `EXPENSE` pagas da lista filtrada; agora é sempre o mês inteiro, com aviso quando há filtro
+- [x] Busca + **filtros em botões** (`FilterChip`: Tipo, Situação, Categoria, Meio, De quem é, Quem lançou) que abrem um painel com as opções em links; "Limpar filtros"
+- [x] Linhas `ListRow` (`EntryRowItem`): ícone da categoria no lugar da bolinha "E"; categoria · meio · de quem e "lançado por" só quando foi a outra pessoa; status só como exceção (Pendente + "Venceu dd/mm"/"Vence hoje", Agendado para dd/mm, Pago antes, Antecipado, Cancelado), sem selo "Pago"; nada cortado além da descrição. Vale também nos "Últimos lançamentos" da Início
+- [x] Cabeçalho de data preso no topo ao rolar
+- [x] D72 no extrato: os pendentes atrasados de meses anteriores aparecem no topo, em "De meses anteriores · sem baixa" (`listEntries` com `overdueAsOf`)
+- [x] "Em atraso" no lugar de "Vencida" (vale para conta e receita)
+- [x] E2E `lancamentos.spec.ts`; aceitação de `outTotalCents` e do extrato com atrasados
+
+### E2 — Cartões
+
 - [ ] Fatura: cabeçalho com total, pago e quanto falta; itens com "2/3" sempre visível; agrupamento por dia só quando há mais de um item no dia
 - [ ] Cartão: seletor horizontal de faturas (passadas ← atual → futuras) com a atual em destaque; ações (Nova compra, Parcelamento em andamento, Importar) em menu ou barra
 - [ ] Compra parcelada: parcelas em linha do tempo (paga / atual / futura); Antecipar, Estorno e Editar como botões que abrem painel, não `<details>`
+
+### E3 — Detalhes, empréstimo e fixos
+
 - [ ] Empréstimo: uma lista só de parcelas, com seleção para pagar
 - [ ] Fixos: total por grupo (contas a pagar, receitas previstas)
-- [ ] Detalhe de lançamento e de fixo: só leitura + botão "Editar" (abre formulário) + menu "⋯" com Excluir
-- [ ] Receita não recebida aparece como "Atrasada", não "Vencida"
+- [ ] Detalhe de lançamento e de fixo: só leitura + botão "Editar" (abre formulário) + menu "⋯" com Excluir; "Encerrar" do fixo sem vermelho cheio fora da confirmação
+
+### E4 — Restante
+
 - [ ] Benefícios, Projeção, Ajustes e Categorias revisados com os mesmos componentes (sem cortes de texto)
+- [ ] `CategoryPicker` nos outros formulários, `StickyActions` nos outros formulários, `MonthField`, `FilePicker` em pt-BR
 
 **Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal.
 

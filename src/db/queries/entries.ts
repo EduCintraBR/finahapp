@@ -84,15 +84,29 @@ export type EntryFilters = {
   /** id do usuário, ou 'casal' para gastos sem beneficiário */
   beneficiary?: string | undefined;
   q?: string | undefined;
+  /**
+   * Hoje: traz também os pendentes atrasados de meses anteriores, ainda sem baixa (D72), para a lista bater com o
+   * A pagar / A receber do mês. Sem isso, só o que tem data no mês.
+   */
+  overdueAsOf?: ISODate | undefined;
 };
 
 /** Extrato da conta no mês (sem cancelados nem deletados). */
 export async function listEntries(db: AnyDB, f: EntryFilters) {
+  const inMonth = sql`${effectiveDate} between ${monthStart(f.month)} and ${monthEnd(f.month)}`;
   const where: (SQL | undefined)[] = [
     isNotNull(transactions.bankAccountId),
     isNull(transactions.deletedAt),
     ne(transactions.status, 'CANCELLED'),
-    sql`${effectiveDate} between ${monthStart(f.month)} and ${monthEnd(f.month)}`,
+    f.overdueAsOf
+      ? or(
+          inMonth,
+          and(
+            eq(transactions.status, 'PENDING'),
+            lt(transactions.dueDate, overdueCutoff(f.month, f.overdueAsOf)),
+          ),
+        )
+      : inMonth,
     f.kind ? eq(transactions.kind, f.kind) : undefined,
     f.status ? eq(transactions.status, f.status) : undefined,
     f.categoryId ? eq(transactions.categoryId, f.categoryId) : undefined,

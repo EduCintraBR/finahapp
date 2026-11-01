@@ -22,7 +22,7 @@ export function dueHighlight(dueDate: ISODate, today: ISODate): DueHighlight | n
 }
 
 export const DUE_HIGHLIGHT_LABEL: Record<DueHighlight, string> = {
-  OVERDUE: 'Vencida',
+  OVERDUE: 'Em atraso', // vale para conta e receita (não "vencida")
   TODAY: 'Vence hoje',
   SOON: 'Vence em até 3 dias',
 };

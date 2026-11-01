@@ -152,7 +152,8 @@ test('receita com data futura fica agendada: não entra no saldo atual, mostra o
 }) => {
   const balanceOf = async () => {
     await page.goto('/');
-    return page.locator('[data-slot=card]').filter({ hasText: 'Saldo atual' }).first().innerText();
+    // só o saldo: A receber e a previsão do mesmo card mudam com a receita agendada, se ela cair neste mês
+    return page.getByTestId('balance-main').innerText();
   };
   const before = await balanceOf();
 

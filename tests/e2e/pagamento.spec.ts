@@ -55,7 +55,7 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Cemig vencida/ });
   await expect(row).toContainText('Pendente');
-  if (opening !== today()) await expect(row).toContainText('Vencida');
+  if (opening !== today()) await expect(row).toContainText('Venceu');
   expect(await balance()).toBe(before); // continua tudo na conta
 
   // aparece em "Pendentes" na Home, pronta para a baixa
@@ -78,7 +78,8 @@ test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
   await newExpense('Paga sem querer', 1_000, { paid: true, date: today() });
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Paga sem querer/ });
-  await expect(row).toContainText('Pago');
+  await expect(row).toBeVisible();
+  await expect(row).not.toContainText('Pendente'); // pago é o caso normal: sem selo
   await row.click();
   await page.getByRole('button', { name: 'Marcar como a pagar' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Marcar como a pagar' }).click();

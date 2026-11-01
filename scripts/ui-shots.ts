@@ -506,7 +506,10 @@ async function captureInteractions(browser: Browser, ids: Awaited<ReturnType<typ
             .click(),
         ),
     ],
-    ['lancamentos-filtros', () => open('/lancamentos', () => page.getByText('Filtros').first().click())],
+    [
+      'lancamentos-filtros',
+      () => open('/lancamentos', () => page.getByRole('button', { name: 'Categoria' }).click()),
+    ],
     [
       'categoria-painel',
       () => open('/lancamentos/novo', () => page.getByLabel('Categoria', { exact: true }).click()),

@@ -149,50 +149,68 @@ export function BalanceHero({
         )}
       </CardContent>
 
-      <div className="grid grid-cols-2 gap-x-4 border-t bg-background/30 px-4 sm:px-6">
-        <div className="py-3">
-          <KpiLink
-            slug="entrou"
-            label="Entrou"
-            cents={summary.incomeReceivedCents}
-            Icon={ArrowDownLeft}
-            tone="income"
-            suffix={suffix}
-          />
-        </div>
-        <div className="py-3">
-          <KpiLink
-            slug="saiu"
-            label="Saiu"
-            cents={summary.outPaidCents}
-            Icon={ArrowUpRight}
-            tone="expense"
-            suffix={suffix}
-          />
-        </div>
-        <div className="border-t border-dashed py-3">
-          <KpiLink
-            slug="a-receber"
-            label="A receber"
-            hint="previsto entrar"
-            cents={summary.incomePendingCents}
-            Icon={CalendarClock}
-            tone="muted"
-            suffix={suffix}
-          />
-        </div>
-        <div className="border-t border-dashed py-3">
-          <KpiLink
-            slug="a-pagar"
-            label="A pagar"
-            hint="contas e faturas"
-            cents={summary.outPendingCents}
-            Icon={Receipt}
-            tone="warning"
-            suffix={suffix}
-          />
-        </div>
-      </div>
+      <MonthKpis summary={summary} suffix={suffix} className="border-t bg-background/30" />
     </Card>
+  );
+}
+
+/**
+ * Os quatro números do mês em grade, entradas à esquerda e saídas à direita: o que já aconteceu (Entrou, Saiu) e o
+ * que ainda vai acontecer (A receber, A pagar; D72: com os atrasados). Cada um abre o detalhe em /resumo (D68).
+ */
+export function MonthKpis({
+  summary,
+  suffix = '',
+  className,
+}: {
+  summary: CashSummary;
+  suffix?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn('grid grid-cols-2 gap-x-4 px-4 sm:px-6', className)}>
+      <div className="py-3">
+        <KpiLink
+          slug="entrou"
+          label="Entrou"
+          cents={summary.incomeReceivedCents}
+          Icon={ArrowDownLeft}
+          tone="income"
+          suffix={suffix}
+        />
+      </div>
+      <div className="py-3">
+        <KpiLink
+          slug="saiu"
+          label="Saiu"
+          cents={summary.outPaidCents}
+          Icon={ArrowUpRight}
+          tone="expense"
+          suffix={suffix}
+        />
+      </div>
+      <div className="border-t border-dashed py-3">
+        <KpiLink
+          slug="a-receber"
+          label="A receber"
+          hint="previsto entrar"
+          cents={summary.incomePendingCents}
+          Icon={CalendarClock}
+          tone="muted"
+          suffix={suffix}
+        />
+      </div>
+      <div className="border-t border-dashed py-3">
+        <KpiLink
+          slug="a-pagar"
+          label="A pagar"
+          hint="contas e faturas"
+          cents={summary.outPendingCents}
+          Icon={Receipt}
+          tone="warning"
+          suffix={suffix}
+        />
+      </div>
+    </div>
   );
 }

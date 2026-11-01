@@ -147,6 +147,7 @@ test('a Viviane vê os lançamentos do Eduardo, com quem lançou', async ({ brow
   await login(p2, viviane);
   await expect(balanceCard(p2)).toContainText(brl('870,00'));
   await p2.goto('/lancamentos');
-  await expect(p2.getByRole('link', { name: /Padaria/ }).getByLabel('Lançado por Eduardo')).toBeVisible();
+  // quem lançou aparece em texto só quando foi a outra pessoa
+  await expect(p2.getByRole('link', { name: /Padaria/ })).toContainText('lançado por Eduardo');
   await ctx.close();
 });
