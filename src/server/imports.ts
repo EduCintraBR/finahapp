@@ -77,6 +77,8 @@ export async function importCardStatement(
 
   return ctx.db.transaction(async (tx) => {
     const card = await loadCard(tx, input.cardId);
+    if (card.kind === 'STORE_CREDIT')
+      throw new UserError('Importar extrato de crediário ainda não é possível.');
     const [dup] = await tx
       .select({ createdAt: importBatches.createdAt })
       .from(importBatches)

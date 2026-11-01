@@ -93,6 +93,12 @@ describe('resolveStoreCreditInvoice (D73)', () => {
     expect(r.window.dueDate).toBe('2027-02-11');
   });
 
+  it('nunca volta para antes da 1ª fatura ativa do ciclo', () => {
+    // ciclo aberto em 17/10 (vence 26/11): uma compra no mesmo dia não cria fatura de outubro
+    const r = resolveStoreCreditInvoice('2026-10-17', [inv('2026-11-26', false)], 26, shopee);
+    expect(r.window.dueDate).toBe('2026-11-26');
+  });
+
   it('respeita as datas editadas da fatura materializada', () => {
     const edited: StoreCreditInvoice = {
       referenceMonth: '2027-01-01',

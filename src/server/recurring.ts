@@ -87,6 +87,8 @@ async function templateTarget(
   if (direction !== 'EXPENSE') throw new UserError('Receita não pode ser no cartão de crédito.');
   if (!input.creditCardId) throw new UserError('Escolha o cartão da assinatura.');
   const card = await loadCard(tx, input.creditCardId);
+  if (card.kind === 'STORE_CREDIT')
+    throw new UserError('Assinatura no crediário ainda não é possível: escolha um cartão.');
   return { bankAccountId: null, creditCardId: card.id };
 }
 

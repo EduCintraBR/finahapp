@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import { isISODate, monthStart, parseMonthParam } from '@/domain/dates';
 import { MAX_BENEFIT_WALLETS } from '@/domain/benefits/credits';
+import { checkStoreCreditTerms } from '@/domain/card/store-credit';
 import { MAX_LOAN_INSTALLMENTS } from '@/domain/loans/loans';
 import { tryParseBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS } from '@/lib/labels';
@@ -142,6 +143,13 @@ const day = (label: string) =>
     .min(1, { error: `Dia de ${label} entre 1 e 31.` })
     .max(31, { error: `Dia de ${label} entre 1 e 31.` });
 
+/** Quantidade de dias (prazo do crediário). */
+const dayCount = (label: string) =>
+  z.coerce
+    .number({ error: `Informe ${label}.` })
+    .int({ error: `Informe ${label} em dias (número inteiro).` })
+    .min(0, { error: `Informe ${label} em dias.` });
+
 const checkbox = z.preprocess((v) => v === 'on' || v === 'true' || v === true, z.boolean());
 
 /** "Roxinho, nubank" → ['roxinho', 'nubank'] (minúsculas, sem acento), como os aliases das categorias. */
@@ -176,11 +184,36 @@ export const cardInput = z
     limitTotal: z
       .preprocess(blankToUndefined, money({ positive: true, label: 'o limite' }).optional())
       .transform((v) => v ?? null),
-    closingDay: day('fechamento'),
-    dueDay: day('vencimento'),
+    /** ausente = cartão de crédito; STORE_CREDIT = crediário de loja (D73) */
+    kind: z.enum(['CARD', 'STORE_CREDIT']).optional(),
+    /** cartão: dias de fechamento e vencimento */
+    closingDay: z.preprocess(blankToUndefined, day('fechamento').optional()),
+    dueDay: z.preprocess(blankToUndefined, day('vencimento').optional()),
+    /** crediário: prazo da 1ª fatura e quantos dias antes do vencimento ela fecha */
+    firstDueDays: z.preprocess(blankToUndefined, dayCount('o prazo da 1ª fatura').optional()),
+    closeBeforeDays: z.preprocess(
+      blankToUndefined,
+      dayCount('em quantos dias antes a fatura fecha').optional(),
+    ),
     botAliases: aliases,
   })
-  .refine((c) => c.closingDay !== c.dueDay, { error: 'Fechamento e vencimento não podem ser no mesmo dia.' })
+  .superRefine((c, ctx) => {
+    const issue = (path: string, message: string) => ctx.addIssue({ code: 'custom', path: [path], message });
+    if (c.kind === 'STORE_CREDIT') {
+      if (c.firstDueDays === undefined) return issue('firstDueDays', 'Informe o prazo da 1ª fatura.');
+      if (c.closeBeforeDays === undefined)
+        return issue('closeBeforeDays', 'Informe quantos dias antes do vencimento a fatura fecha.');
+      const error = checkStoreCreditTerms({
+        firstDueDays: c.firstDueDays,
+        closeBeforeDays: c.closeBeforeDays,
+      });
+      if (error) issue('closeBeforeDays', error);
+      return;
+    }
+    if (c.dueDay === undefined) return issue('dueDay', 'Informe o dia de vencimento.');
+    if (c.closingDay === undefined) return issue('closingDay', 'Informe o dia de fechamento.');
+    if (c.closingDay === c.dueDay) issue('closingDay', 'Fechamento e vencimento não podem ser no mesmo dia.');
+  })
   .refine((c) => !c.isAdditional || c.holderName !== null, {
     error: 'Informe o titular do cartão adicional.',
   });
@@ -194,7 +227,13 @@ const description = z
 
 export const cardPurchaseInput = z.object({
   cardId: uuid('Escolha o cartão.'),
+  /** total a pagar (com juros, no crediário) */
   amount: money({ positive: true }),
+  /** D73: valor da compra sem juros; ausente = sem acréscimo informado */
+  originalAmount: z.preprocess(
+    blankToUndefined,
+    money({ positive: true, label: 'o valor da compra' }).optional(),
+  ),
   installments: z.coerce
     .number({ error: 'Informe o número de parcelas.' })
     .int({ error: 'Parcelas: número inteiro.' })
@@ -218,6 +257,11 @@ export const cardPurchaseEditInput = cardPurchaseInput
   .extend({
     /** novo valor total; ausente = não muda (o formulário só o envia quando a compra permite) */
     amount: money({ positive: true }).optional(),
+    /** D73: novo valor sem juros; ausente = não muda */
+    originalAmount: z.preprocess(
+      blankToUndefined,
+      money({ positive: true, label: 'o valor da compra' }).optional(),
+    ),
   });
 export type CardPurchaseEditInput = z.output<typeof cardPurchaseEditInput>;
 
@@ -234,6 +278,8 @@ export const onboardingInput = z
     purchaseDate: isoDate,
     /** fatura (mês de vencimento) em que a parcela atual cai */
     currentInvoiceMonth: monthInput,
+    /** crediário (D73): vencimento da fatura da parcela atual (define o dia do ciclo, se ainda não houver faturas) */
+    currentInvoiceDue: z.preprocess(blankToUndefined, isoDate.optional()),
     categoryId: uuid('Escolha uma categoria.'),
     beneficiaryUserId: optionalUuid,
   })

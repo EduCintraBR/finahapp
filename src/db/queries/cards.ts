@@ -5,7 +5,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { centsFromDb } from '@/server/context';
 import { availableLimit, invoiceState, remainingToPay, type InvoiceState } from '@/domain/card/invoices';
-import { placePurchase } from '@/domain/card/store-credit';
+import { placePurchase, purchaseInterest } from '@/domain/card/store-credit';
 import { compareDates, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
 import {
@@ -342,6 +342,7 @@ export async function getPlanDetail(db: AnyDB, planId: string, today: ISODate) {
         invoiceId: invoices.id,
         referenceMonth: invoices.referenceMonth,
         closingDate: invoices.closingDate,
+        dueDate: invoices.dueDate,
       })
       .from(invoiceItems)
       .innerJoin(invoices, eq(invoices.id, invoiceItems.invoiceId))
@@ -351,8 +352,19 @@ export async function getPlanDetail(db: AnyDB, planId: string, today: ISODate) {
     db.select().from(refundRecords).where(eq(refundRecords.installmentPlanId, planId)),
     invoiceRows(db, [head.card.id]),
   ]);
+  // D73: juros embutidos, pelas parcelas como foram lançadas (antes de antecipação ou estorno)
+  const original = head.plan.originalAmountCents;
+  const interest =
+    original === null
+      ? null
+      : purchaseInterest(
+          original,
+          items.filter((i) => i.kind === 'INSTALLMENT'),
+          head.plan.purchaseDate,
+        );
   return {
     ...head,
+    interest,
     items: items.map((i) => ({ ...i, invoiceClosed: compareDates(today, i.closingDate) >= 0 })),
     anticipations,
     refunds,
@@ -364,6 +376,7 @@ export async function listActiveCards(db: AnyDB) {
   return db
     .select({
       id: creditCards.id,
+      kind: creditCards.kind,
       name: creditCards.name,
       isAdditional: creditCards.isAdditional,
       holderName: creditCards.holderName,

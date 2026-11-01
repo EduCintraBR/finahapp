@@ -4,9 +4,9 @@
  * do vencimento. Enquanto o ciclo está ativo as faturas seguem mensais, no mesmo dia; um ciclo novo só começa
  * quando todas as faturas já venceram e estão pagas. Juros: o usuário informa o valor original e o total a pagar.
  */
-import { addDays, compareDates, diffDays, monthStart, type ISODate } from '../dates';
+import { addDays, addMonths, compareDates, diffDays, monthStart, type ISODate } from '../dates';
 import { assertCents, type Cents } from '../money';
-import { cardRule, resolveInvoice, type CardTerms, type InvoiceWindow } from './invoices';
+import { cardRule, resolveInvoice, windowFor, type CardTerms, type InvoiceWindow } from './invoices';
 
 export type StoreCreditTerms = { firstDueDays: number; closeBeforeDays: number };
 
@@ -49,10 +49,20 @@ export function resolveStoreCreditInvoice(
   anchorDay: number,
   terms: StoreCreditTerms,
 ): StoreCreditPlacement {
-  const active = invoices.some((i) => compareDates(i.dueDate, purchaseDate) >= 0 || !i.settled);
-  if (active) {
+  const active = invoices
+    .filter((i) => compareDates(i.dueDate, purchaseDate) >= 0 || !i.settled)
+    .map((i) => i.referenceMonth)
+    .sort();
+  if (active.length > 0) {
+    // menor fechamento > data da compra, sem voltar para antes da 1ª fatura ativa do ciclo
     const rule = { dueDay: anchorDay, closeBeforeDays: terms.closeBeforeDays };
-    return { window: resolveInvoice(purchaseDate, invoices, rule), anchorDay, newCycle: false };
+    const lastMonth = addMonths(monthStart(purchaseDate), -1);
+    let month = compareDates(active[0]!, lastMonth) > 0 ? active[0]! : lastMonth;
+    for (;;) {
+      const w = windowFor(month, invoices, rule);
+      if (compareDates(w.closingDate, purchaseDate) > 0) return { window: w, anchorDay, newCycle: false };
+      month = addMonths(month, 1);
+    }
   }
   const dueDate = addDays(purchaseDate, terms.firstDueDays);
   return {
