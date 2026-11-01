@@ -1,8 +1,11 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useActionState, useState } from 'react';
 import { onboardingAction } from '@/app/(app)/cartoes/actions';
+import { CategoryPicker } from '@/components/categories/category-picker';
 import { Field, FormError, MoneyInput, NativeSelect } from '@/components/forms/fields';
+import { StickyActions } from '@/components/forms/sticky-actions';
+import { MonthField } from '@/components/forms/month-field';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { CategoryOption, UserOption } from '@/db/queries/lookups';
@@ -21,6 +24,7 @@ export function OnboardingForm({
   currentMonth: string;
 }) {
   const [state, action, pending] = useActionState(onboardingAction, null);
+  const [categoryId, setCategoryId] = useState('');
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="cardId" value={cardId} />
@@ -64,22 +68,23 @@ export function OnboardingForm({
         htmlFor="ob-invoice"
         hint="Mês de vencimento da fatura. As próximas parcelas vão nas faturas seguintes."
       >
-        <Input id="ob-invoice" name="currentInvoiceMonth" type="month" required defaultValue={currentMonth} />
+        <MonthField
+          id="ob-invoice"
+          name="currentInvoiceMonth"
+          required
+          around={currentMonth}
+          defaultValue={currentMonth}
+        />
       </Field>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Categoria" htmlFor="ob-cat">
-          <NativeSelect id="ob-cat" name="categoryId" required defaultValue="">
-            <option value="" disabled>
-              Escolha…
-            </option>
-            {categories
-              .filter((c) => c.kind === 'EXPENSE')
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-          </NativeSelect>
+          <CategoryPicker
+            id="ob-cat"
+            name="categoryId"
+            options={categories.filter((c) => c.kind === 'EXPENSE')}
+            value={categoryId}
+            onChange={setCategoryId}
+          />
         </Field>
         <Field label="De quem é" htmlFor="ob-ben">
           <NativeSelect id="ob-ben" name="beneficiaryUserId" defaultValue="">
@@ -97,9 +102,12 @@ export function OnboardingForm({
         passados.
       </p>
       <FormError message={state && !state.ok ? state.error : null} />
-      <Button type="submit" className="h-11 w-full" disabled={pending}>
-        {pending ? 'Salvando…' : 'Cadastrar parcelamento'}
-      </Button>
+      {/* cadastrar: o botão fica sempre à vista, acima da barra inferior e do teclado */}
+      <StickyActions>
+        <Button type="submit" className="h-11" disabled={pending}>
+          {pending ? 'Salvando…' : 'Cadastrar parcelamento'}
+        </Button>
+      </StickyActions>
     </form>
   );
 }

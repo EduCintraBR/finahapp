@@ -10,6 +10,7 @@ import {
   uploadAccountStatementAction,
 } from '@/app/(app)/importacoes/actions';
 import { Field, FormError, NativeSelect } from '@/components/forms/fields';
+import { FilePicker } from '@/components/forms/file-picker';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { LineCandidate } from '@/db/queries/imports';
@@ -43,10 +44,9 @@ export function UploadAccountStatementForm() {
         htmlFor="ofx-account-file"
         hint="No app do Nubank: Conta → Extrato → Exportar → período → OFX (ou CSV; o CSV não traz o saldo, então não dá para conferir)."
       >
-        <Input
+        <FilePicker
           id="ofx-account-file"
           name="file"
-          type="file"
           accept=".ofx,.csv,text/csv,application/x-ofx,text/plain"
           required
           onChange={(e) => {

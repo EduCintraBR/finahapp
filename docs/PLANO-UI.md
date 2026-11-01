@@ -43,9 +43,9 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha (Fase E1: `EntryRowItem`)
 - [x] `StickyActions` (`src/components/forms/sticky-actions.tsx`): no novo lançamento (Fase D); os outros formulários adotam na Fase E
 - [x] `CategoryPicker` (grade com ícone + busca) no novo lançamento (Fase D)
-- [ ] `Select` próprio, `CategoryPicker` nos outros formulários (fixo, compra parcelada, importação), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase E**
+- [x] `CategoryPicker` nos outros formulários, `MonthField` e `FilePicker` em pt-BR (Fase E4). O `Select` próprio não foi necessário: o select nativo fica (no celular abre o seletor do sistema)
 - [x] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) — Fase E1: `FilterChip` em Lançamentos
-- [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) e sem card dentro de card no celular → **Fase E/F**
+- [ ] Regra de layout: uma só largura máxima por tipo de tela (lista, detalhe, formulário) → **Fase F**. Sem card dentro de card no celular: feito nas telas de cadastro (`FormCard`, Fase E4)
 - [x] Confirmações (`AlertDialog`) também como painel inferior no celular (Fase D)
 
 **Pronto quando:** o script de capturas roda com um comando. ✅ 31/10/2026
@@ -127,10 +127,16 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ### E4 — Restante
 
-- [ ] Benefícios, Projeção, Ajustes e Categorias revisados com os mesmos componentes (sem cortes de texto)
-- [ ] `CategoryPicker` nos outros formulários, `StickyActions` nos outros formulários, `MonthField`, `FilePicker` em pt-BR
+- [x] Benefícios: histórico sem descrição cortada e com lixeira (ícone) no lugar do botão "Excluir" em cada linha; "Editar" e "Encerrar" viraram painéis (o vermelho cheio só dentro do "Encerrar")
+- [x] Projeção: cada mês numa coluna só (Receitas, Saídas e, recuadas, as partes das saídas), sem o "Recorrentes (…" cortado
+- [x] Ajustes: "Trocar senha", "Novos códigos de recuperação" e "Trocar de app autenticador" em painéis (sem `<details>`)
+- [x] Relatórios: "Filtros" num painel, com "Limpar" à vista quando há filtro
+- [x] `MonthField` (select com o mês por extenso, "Outubro de 2026") no lugar dos 8 `type=month`; `FilePicker` em pt-BR ("Escolher arquivo") nas importações; `CategoryPicker` também no fixo, no parcelamento em andamento e na edição de compra; `StickyActions` nos cadastros (fixo, empréstimo, cartão, benefício, parcelamento em andamento); `FormCard` (sem card dentro de card no celular) nas telas de cadastro
+- [x] `ActionButton` com gatilho só de ícone; `SheetAction` com conteúdo próprio no botão
+- [ ] Categorias (`/ajustes/categorias`): as linhas ainda abrem a edição com `<details>`; não corta texto, fica para uma revisão futura
+- [ ] Revisão da importação (`/importacoes/[id]`): "Não é esse? Trocar…" ainda é `<details>` → **Fase G** (já prevista lá)
 
-**Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal.
+**Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal. ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico) ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico)
 
 ---
 

@@ -39,10 +39,13 @@ export function SheetAction({
   variant = 'outline',
   icon,
   iconOnly = false,
+  triggerContent,
   className,
   children,
 }: {
   label: string;
+  /** conteúdo do botão no lugar do rótulo (ex.: "Filtros(2)"); o rótulo continua sendo o título do painel */
+  triggerContent?: React.ReactNode;
   /** só o ícone no botão (ex.: "⋯"); o rótulo vira o nome acessível */
   iconOnly?: boolean;
   title?: string;
@@ -64,7 +67,7 @@ export function SheetAction({
         ) : (
           <Button variant={variant} className={cn('w-full sm:w-auto', className)}>
             {icon}
-            {label}
+            {triggerContent ?? label}
           </Button>
         )}
       </DialogTrigger>
