@@ -159,6 +159,18 @@
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;
   }
+  /* iOS Safari: o campo de data nativo ignora altura e largura (ficava mais alto e invadia a coluna ao lado) */
+  input[type='date'],
+  input[type='month'],
+  input[type='time'] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+  }
+  input::-webkit-date-and-time-value {
+    margin: 0;
+    text-align: left;
+  }
 }
 
 @utility pb-safe {
