@@ -26,6 +26,8 @@ Cada fase termina com o app **rodando e utilizável**. Marque os itens à medida
 
 > Status (17/10/2026): validado localmente com Docker Desktop: `docker compose up -d --build` sobe do zero (db → migrate → app/worker/backup), os dois logins funcionam, manifest/ícones/service worker respondem e um backup foi restaurado num banco limpo com as mesmas contagens. Falta: subir na VPS com o perfil `vps` (Caddy + HTTPS em `finahapp.com`) e instalar o PWA num celular real.
 
+> ✅ 01/11/2026: o app roda em produção na VPS (finahapp.com) e o PWA foi instalado e testado em iPhone e Android reais, sem nenhum elemento coberto ou cortado.
+
 ---
 
 ## Fase 2 — Conta, fixos e recorrentes
@@ -40,7 +42,7 @@ Cada fase termina com o app **rodando e utilizável**. Marque os itens à medida
 - [x] `audit_log` em todas as mutações
 - [x] **Bot mínimo:** Telegram em modo webhook, só despesa à vista na conta, só texto, com confirmação e desfazer. Antecipado da Fase 5 para que vocês comecem a usar no dia a dia.
 
-**Pronto quando:** depois de um mês real, o saldo do app bate com o extrato do banco.
+**Pronto quando:** depois de um mês real, o saldo do app bate com o extrato do banco. ✅ 01/11/2026: conferido pelo Eduardo, os saldos batem.
 
 > Status (17/10/2026): todos os itens implementados e testados — 160 testes de unidade, 47 de aceitação (PGlite) e 9 E2E no navegador (Chromium, tela de 375px) cobrindo lançar, fixo, baixa em 2 toques, estorno, conferência e filtros; stack Docker local atualizada e conferida. O bot está pronto e testado com Telegram e LLM simulados, mas **desligado** (`BOT_MODE=off`, decisão D19): ligar na VPS com token do @BotFather, `ANTHROPIC_API_KEY` e os IDs numéricos do Telegram no seed (ver docs/GUIA.md). O critério "um mês real batendo com o banco" só se cumpre com o uso.
 
@@ -64,7 +66,7 @@ Primeiro `src/domain/card/` com testes; só depois os serviços e a UI.
 **Pronto quando:**
 
 - uma fatura real do Nubank é reproduzida **centavo a centavo**; ✅ 17/10/2026: fatura de novembro/2026 importada por OFX — R$ 2.359,15 a pagar no app e no arquivo;
-- o limite disponível do cartão do Eduardo bate com o app do Nubank.
+- o limite disponível do cartão do Eduardo bate com o app do Nubank. ✅ 01/11/2026: conferido pelo Eduardo, os limites batem.
 
 > Status (17/10/2026): todos os itens implementados e testados — domínio em `src/domain/card/` (43 testes, com property tests de soma e de alocação), 15 testes de aceitação que reproduzem pelos serviços de produção os cenários de referência do `card-ledger.test.ts` (limite, total de fatura, saldo e Gasto Bruto batem com as fórmulas SQL), 15 do bot (compra parcelada pelo Telegram) e 8 E2E no navegador. Decisões D25–D33 na SPEC. Os dois critérios de pronto dependem de dados reais: cadastre o cartão com os dias certos, lance as compras do mês (ou os parcelamentos em andamento) e compare a fatura e o limite com o app do Nubank.
 

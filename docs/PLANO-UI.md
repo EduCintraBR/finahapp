@@ -89,9 +89,9 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] Confirmação (`AlertDialog`) também é painel inferior no celular; no `ActionButton`, o gatilho de ação destrutiva é contorno com texto vermelho e o vermelho cheio fica só dentro da confirmação
 - [x] `pnpm ui:shots` captura também o painel de categorias, "Pagar parcelas" e a confirmação de exclusão; o filtro vale para essas interações
 - [x] E2E `acoes.spec.ts` (formulário inteiro e "Lançar" na 1ª tela; grade de categorias com busca; aviso sem categoria); helpers `pickCategory`/`categoryOffered` (select ou grade) nos testes
-- [ ] Confirmar num iPhone real que o teclado não cobre "Lançar" nem "Confirmar" → **Fase G** (aparelhos reais)
+- [x] Confirmado num iPhone real (01/11/2026): o teclado não cobre "Lançar" nem "Confirmar"
 
-**Pronto quando:** lançar uma despesa em 375×812 não exige rolar, e o teclado do iPhone não cobre o botão. ✅ 31/10/2026 (no navegador; aparelho real na Fase G)
+**Pronto quando:** lançar uma despesa em 375×812 não exige rolar, e o teclado do iPhone não cobre o botão. ✅ 31/10/2026 (no navegador) · ✅ 01/11/2026 (iPhone real)
 
 ---
 
@@ -158,6 +158,6 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] Tema claro revisado em todas as telas e painéis (`UI_SHOTS_THEME=light pnpm ui:shots claro`): sem problemas de contraste ou cor
 - [x] Tela de revisão de importação (`/importacoes/[id]`) agora nas capturas (o `ui:shots` cria um lote da fatura do Nubank); corrigido: categoria e "De quem é" cortados lado a lado no celular (agora um embaixo do outro) e a caixa com borda dentro do card da linha (só no desktop)
 - [x] Avisos de hidratação: os de `aria-hidden` não aparecem mais; os de `href` com `?mes=` só acontecem quando o formulário é enviado antes de a página hidratar (o redirecionamento da Server Action é renderizado no servidor com a URL do pedido original). Só no E2E, que clica antes de o app ficar pronto; sem efeito nos números. Investigado, sem correção
-- [ ] Teste num iPhone e num Android reais com o PWA instalado (dev.finahapp.com) → **com o usuário**, incluindo o teclado do iPhone sobre "Lançar"/"Confirmar" (Fase D)
+- [x] Teste em aparelhos reais com o PWA instalado (dev.finahapp.com), incluindo o teclado do iPhone sobre "Lançar"/"Confirmar" (Fase D): tudo certo, e o campo de data do iOS também ficou resolvido (01/11/2026)
 
-**Pronto quando:** o PWA instalado no iPhone e no Android passa pelos fluxos de lançar, dar baixa e pagar fatura sem nenhum elemento coberto ou cortado.
+**Pronto quando:** o PWA instalado no iPhone e no Android passa pelos fluxos de lançar, dar baixa e pagar fatura sem nenhum elemento coberto ou cortado. ✅ 01/11/2026
