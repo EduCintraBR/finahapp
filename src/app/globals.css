@@ -155,6 +155,11 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html,
+  body {
+    /* PWA: a página não "quica" além do fim (no iOS mostrava o fundo branco atrás do app) */
+    overscroll-behavior-y: none;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     -webkit-tap-highlight-color: transparent;

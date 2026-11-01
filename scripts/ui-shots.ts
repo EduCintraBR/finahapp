@@ -7,7 +7,7 @@
  * Nunca toca no banco de uso real. Precisa de `docker compose up -d db`.
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { chromium, devices, type Browser, type Page } from '@playwright/test';
 import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
@@ -19,6 +19,7 @@ import {
   addDays,
   addMonths,
   dateInMonth,
+  diffMonths,
   monthStart,
   toMonthParam,
   today,
@@ -31,6 +32,7 @@ import { createCardPurchase, createOnboardingPlan } from '../src/server/card-pur
 import { createCard } from '../src/server/cards';
 import { confirmPayment, createEntry } from '../src/server/entries';
 import { invoiceTotals, payInvoice } from '../src/server/invoice-ops';
+import { importCardStatement } from '../src/server/imports';
 import { createLoan } from '../src/server/loans';
 import { createTemplate, generateOccurrences } from '../src/server/recurring';
 import * as S from '../src/server/schemas';
@@ -46,6 +48,8 @@ const TOTP = base32Encode(Buffer.from('finah-ui-shots-totp!'));
 const USER = { email: 'eduardo@shots.test', password: 'senha-shots-eduardo' };
 
 const [label = 'atual', filter] = process.argv.slice(2);
+/** UI_SHOTS_THEME=light: captura no tema claro (o padrão do app é o escuro) */
+const THEME = process.env.UI_SHOTS_THEME === 'light' ? 'light' : null;
 const OUT = `tmp/ui-shots/${label}`;
 
 const dbUrl = (name: string) => {
@@ -352,6 +356,20 @@ async function populate(db: AnyDB, hoje: ISODate) {
         S.invoicePaymentInput.parse({ amount: brl(due), date: inv.dueDate, paymentMethod: 'PIX' }),
       );
   }
+
+  // um lote de importação da fatura do Nubank (a fixture do E2E, trazida para perto de hoje), para a tela de revisão;
+  // 6 dias antes: o arquivo fecha no dia 9 e o Nubank daqui fecha no dia 3
+  const shift = diffMonths(monthStart(addDays(hoje, -20)), '2026-10-01');
+  const ofx = readFileSync('tests/fixtures/nubank-card.ofx', 'latin1').replace(
+    /<(DTPOSTED|DTSTART|DTEND|DTASOF)>(\d{4})(\d{2})(\d{2})/g,
+    (_, tag: string, y: string, m: string, day: string) =>
+      `<${tag}>${addDays(addMonths(`${y}-${m}-${day}`, shift), -6).replace(/-/g, '')}`,
+  );
+  await importCardStatement(ctx(), {
+    cardId: nubank,
+    fileName: 'Nubank_fatura.ofx',
+    bytes: Buffer.from(ofx, 'latin1'),
+  });
 }
 
 async function resetDatabase(hoje: ISODate) {
@@ -384,6 +402,7 @@ async function detailIds() {
       loan: await one(`select id from loans limit 1`),
       benefit: await one(`select id from benefit_cards limit 1`),
       template: await one(`select id from recurring_templates where description = 'Aluguel apartamento'`),
+      batch: await one(`select id from import_batches order by created_at desc limit 1`),
     };
   } finally {
     await sql.end();
@@ -453,6 +472,7 @@ async function capture(browser: Browser, routes: [string, string][]) {
       locale: 'pt-BR',
       timezoneId: 'America/Sao_Paulo',
     });
+    if (THEME) await context.addInitScript((t) => localStorage.setItem('finah-theme', t), THEME);
     const page = await context.newPage();
     await login(page);
     for (const [name, path] of routes) {
@@ -486,6 +506,7 @@ async function capture(browser: Browser, routes: [string, string][]) {
 async function captureInteractions(browser: Browser, ids: Awaited<ReturnType<typeof detailIds>>) {
   mkdirSync(`${OUT}/i`, { recursive: true });
   const context = await browser.newContext({ ...MOBILE, locale: 'pt-BR', timezoneId: 'America/Sao_Paulo' });
+  if (THEME) await context.addInitScript((t) => localStorage.setItem('finah-theme', t), THEME);
   const page = await context.newPage();
   await login(page);
   const open = async (path: string, click: () => Promise<void>) => {
@@ -560,6 +581,7 @@ async function main() {
     ['cartao-novo', '/cartoes/novo'],
     ['cartao-em-andamento', `/cartoes/${ids.card}/em-andamento`],
     ['cartao-importar', `/cartoes/${ids.card}/importar`],
+    ['importacao-revisao', `/importacoes/${ids.batch}`],
     ['fatura', `/cartoes/faturas/${ids.invoice}`],
     ['compra-parcelada', `/cartoes/compras/${ids.plan}`],
     ['fixos', '/fixos'],

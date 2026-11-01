@@ -127,7 +127,7 @@ export function PendingLineActions({
       )}
 
       {showCreate && line.kind !== 'CREDIT' && !(line.blockedBefore && line.kind !== 'PAYMENT') && (
-        <form action={create} className="grid grid-cols-2 gap-3 rounded-md border p-3">
+        <form action={create} className="grid grid-cols-2 gap-3 sm:rounded-md sm:border sm:p-3">
           <input type="hidden" name="id" value={line.id} />
           {line.kind === 'PAYMENT' ? (
             <>
@@ -159,7 +159,7 @@ export function PendingLineActions({
                   defaultValue={line.description}
                 />
               </Field>
-              <Field label="Categoria" htmlFor={`cat-${line.id}`}>
+              <Field label="Categoria" htmlFor={`cat-${line.id}`} className="col-span-2 sm:col-span-1">
                 <NativeSelect
                   id={`cat-${line.id}`}
                   name="categoryId"
@@ -174,7 +174,7 @@ export function PendingLineActions({
                     ))}
                 </NativeSelect>
               </Field>
-              <Field label="De quem é" htmlFor={`ben-${line.id}`}>
+              <Field label="De quem é" htmlFor={`ben-${line.id}`} className="col-span-2 sm:col-span-1">
                 <NativeSelect id={`ben-${line.id}`} name="beneficiaryUserId" defaultValue="">
                   <option value="">Casal</option>
                   {users.map((u) => (

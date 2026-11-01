@@ -49,7 +49,10 @@ export function AppShell({
           </div>
         </header>
         {/* pb-24: espaço para a navegação inferior no celular */}
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-24 md:pb-8">{children}</main>
+        {/* espaço no fim = barra inferior (4rem) + folga + o indicador do iPhone: nada fica atrás da barra */}
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8">
+          {children}
+        </main>
       </div>
       <Suspense>
         <BottomNav />
