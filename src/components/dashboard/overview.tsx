@@ -13,7 +13,7 @@ import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import type { CashSummary } from '@/db/queries/reports';
-import { formatDateBR, formatMonthLabel, type ISODate } from '@/domain/dates';
+import { formatMonthLabel, type ISODate } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import { cn } from '@/lib/utils';
 
@@ -78,15 +78,15 @@ export function KpiLink({
 }
 
 /**
- * Saldo em destaque e o caixa do mês (Entrou × Saiu) no mesmo card. No mês atual: o saldo de agora e para onde
- * ele vai até o fim do mês. Em outro mês: o saldo no fim daquele mês (real, se já passou; estimado, se é futuro)
- * e o saldo de hoje em segundo plano.
+ * A 1ª tela da Início (U3): o saldo em destaque com a previsão do fim do mês e os quatro números do mês, em duas
+ * linhas com as entradas à esquerda e as saídas à direita: o que já aconteceu (Entrou, Saiu) e o que ainda vai
+ * acontecer (A receber, A pagar; D72: inclui os atrasados). No mês atual: o saldo de agora e para onde ele vai.
+ * Em outro mês: o saldo no fim daquele mês (real, se já passou; estimado, se é futuro) e o de hoje em segundo plano.
  */
 export function BalanceHero({
   month,
   isCurrentMonth,
   accountName,
-  startDate,
   balanceCents,
   summary,
   suffix = '',
@@ -94,42 +94,42 @@ export function BalanceHero({
   month: ISODate;
   isCurrentMonth: boolean;
   accountName: string;
-  startDate: ISODate;
   balanceCents: number;
   summary: CashSummary;
   suffix?: string;
 }) {
   const main = isCurrentMonth ? balanceCents : summary.endOfMonthCents;
   const delta = summary.endOfMonthCents - balanceCents;
-  const flow = summary.incomeReceivedCents + summary.outPaidCents;
-  const inShare = flow > 0 ? Math.round((summary.incomeReceivedCents * 100) / flow) : 0;
   const Trend = delta >= 0 ? TrendingUp : TrendingDown;
   return (
     <Card className="gap-0 overflow-hidden border-primary/20 bg-gradient-to-br from-primary/15 via-card to-card py-0">
-      <CardContent className="space-y-3 px-5 pt-5 pb-4 sm:px-6">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 text-sm text-muted-foreground">
+      <CardContent className="space-y-1.5 px-4 pt-4 pb-3.5 sm:px-6 sm:pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 truncate text-sm text-muted-foreground">
             {isCurrentMonth ? 'Saldo atual' : `Saldo no fim de ${formatMonthLabel(month)}`} · {accountName}
           </div>
-          <Button asChild variant="outline" size="sm" className="-mt-1 shrink-0 bg-background/60">
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="-my-1 h-7 shrink-0 bg-background/60 px-2.5 text-xs"
+          >
             <Link href="/conta/conferencia">Conferir</Link>
           </Button>
         </div>
-        <div>
-          <Amount
-            cents={main}
-            className={cn(
-              'block text-4xl font-semibold tracking-tight sm:text-5xl',
-              main < 0 && 'text-expense',
-            )}
-          />
-          <div className="mt-1 text-xs text-muted-foreground">desde {formatDateBR(startDate)}</div>
-        </div>
+        <Amount
+          cents={main}
+          data-testid="balance-main"
+          className={cn(
+            'block text-4xl font-semibold tracking-tight sm:text-5xl',
+            main < 0 && 'text-expense',
+          )}
+        />
         {isCurrentMonth ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm" data-testid="end-of-month">
             <Trend className={cn('size-4', delta >= 0 ? 'text-income' : 'text-expense')} aria-hidden />
             <span className="text-muted-foreground">{END_LABEL[summary.endOfMonthKind]}:</span>
-            <span className="font-medium tabular-nums">{formatBRL(summary.endOfMonthCents)}</span>
+            <span className="font-semibold tabular-nums">{formatBRL(summary.endOfMonthCents)}</span>
             {delta !== 0 && (
               <span
                 className={cn(
@@ -149,8 +149,8 @@ export function BalanceHero({
         )}
       </CardContent>
 
-      <div className="space-y-3 border-t bg-background/30 px-5 py-4 sm:px-6">
-        <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-x-4 border-t bg-background/30 px-4 sm:px-6">
+        <div className="py-3">
           <KpiLink
             slug="entrou"
             label="Entrou"
@@ -159,6 +159,8 @@ export function BalanceHero({
             tone="income"
             suffix={suffix}
           />
+        </div>
+        <div className="py-3">
           <KpiLink
             slug="saiu"
             label="Saiu"
@@ -168,42 +170,29 @@ export function BalanceHero({
             suffix={suffix}
           />
         </div>
-        {flow > 0 && (
-          <div
-            className="flex h-1.5 gap-0.5 overflow-hidden rounded-full"
-            role="img"
-            aria-label={`Entrou ${formatBRL(summary.incomeReceivedCents)}, saiu ${formatBRL(summary.outPaidCents)}`}
-          >
-            <div className="h-full rounded-full bg-income" style={{ width: `${inShare}%` }} />
-            <div className="h-full flex-1 rounded-full bg-expense/70" />
-          </div>
-        )}
+        <div className="border-t border-dashed py-3">
+          <KpiLink
+            slug="a-receber"
+            label="A receber"
+            hint="previsto entrar"
+            cents={summary.incomePendingCents}
+            Icon={CalendarClock}
+            tone="muted"
+            suffix={suffix}
+          />
+        </div>
+        <div className="border-t border-dashed py-3">
+          <KpiLink
+            slug="a-pagar"
+            label="A pagar"
+            hint="contas e faturas"
+            cents={summary.outPendingCents}
+            Icon={Receipt}
+            tone="warning"
+            suffix={suffix}
+          />
+        </div>
       </div>
     </Card>
-  );
-}
-
-/** A pagar e a receber até o fim do mês: o cabeçalho do painel de pendentes. */
-export function PendingTotals({ summary, suffix = '' }: { summary: CashSummary; suffix?: string }) {
-  return (
-    <div className="grid grid-cols-2 gap-4">
-      <KpiLink
-        slug="a-pagar"
-        label="A pagar"
-        hint="contas e faturas"
-        cents={summary.outPendingCents}
-        Icon={Receipt}
-        tone="warning"
-        suffix={suffix}
-      />
-      <KpiLink
-        slug="a-receber"
-        label="A receber"
-        cents={summary.incomePendingCents}
-        Icon={CalendarClock}
-        tone="muted"
-        suffix={suffix}
-      />
-    </div>
   );
 }

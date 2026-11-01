@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { homePending } from './home';
 import { login as loginWith2fa } from './login';
 
 test.describe.configure({ mode: 'serial' });
@@ -92,7 +93,7 @@ test('cadastrar um fixo gera a conta do mês como pendente', async () => {
 
 test('baixa em 2 toques a partir da Home, com valor real', async () => {
   await page.getByRole('link', { name: 'Início' }).click();
-  const pending = page.getByRole('listitem').filter({ hasText: 'Internet' });
+  const pending = await homePending(page, 'Internet');
   await expect(pending).toContainText('Vence hoje');
 
   await pending.getByRole('button', { name: 'Paguei' }).click(); // toque 1
@@ -116,7 +117,7 @@ test('estornar a baixa volta a pendente com o valor estimado', async () => {
 
   await page.goto('/');
   await expect(balanceCard(page)).toContainText(brl('876,55'));
-  await expect(page.getByRole('listitem').filter({ hasText: 'Internet' })).toContainText(brl('99,90'));
+  await expect(await homePending(page, 'Internet')).toContainText(brl('99,90'));
 });
 
 test('conferência de saldo lança o ajuste exato', async () => {

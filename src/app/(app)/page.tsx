@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { CategoryDonut, MonthlyBars, type MonthBar } from '@/components/dashboard/charts';
-import { BenefitRow, CardRow, LoanRow, Panel } from '@/components/dashboard/home-panels';
-import { BalanceHero, PendingTotals } from '@/components/dashboard/overview';
+import { BenefitRow, CardStrip, CardTile, LoanRow, Panel } from '@/components/dashboard/home-panels';
+import { BalanceHero } from '@/components/dashboard/overview';
 import { buildSlices } from '@/components/dashboard/slices';
 import { EntryList } from '@/components/entries/entry-list';
 import { PendingList } from '@/components/entries/pending-list';
 import { monthSuffix } from '@/components/layout/month-link';
+import { PageHeader } from '@/components/layout/page-header';
 import { Amount } from '@/components/money/amount';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card';
@@ -41,9 +42,10 @@ import { resolveMonth } from '@/lib/month';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
 
 /**
- * No celular os blocos seguem a ordem de prioridade (saldo → pendentes → gastos → cartões → extrato); no desktop
- * viram duas colunas: o mês à esquerda e os compromissos à direita. As colunas usam `contents` no celular para
- * que a ordem (`order-*`) valha entre blocos das duas colunas.
+ * U3: no celular, a 1ª tela (sem rolar) traz o saudação, o saldo com a previsão do fim do mês, Entrou/Saiu,
+ * A receber/A pagar e o começo dos pendentes; gastos, cartões, benefícios, empréstimos e o extrato vêm na rolagem.
+ * No desktop viram duas colunas: o mês à esquerda e os compromissos numa coluna lateral de largura fixa (os nomes
+ * não são cortados). As colunas usam `contents` no celular para que a ordem (`order-*`) valha entre as duas.
  */
 const MOBILE_ORDER = {
   hero: 'order-1',
@@ -102,7 +104,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     monthlySpend(db, month, end, 'category'),
     monthlySpend(db, sixMonthsAgo, end, 'month'),
     anticipationSavings(db, month, end),
-    listPending(db, month),
+    listPending(db, month, hoje),
     listCardMonthViews(db, hoje, month),
     listEntries(db, { month }),
     listCategories(db, { includeArchived: true }),
@@ -140,21 +142,20 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
   const activeLoans = loans.filter((l) => !l.summary.settled);
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Olá, {firstName}</h1>
-        <p className="text-sm text-muted-foreground first-letter:uppercase">{monthLabel}</p>
-      </div>
+    <div className="space-y-4">
+      <PageHeader
+        title={`Olá, ${firstName}`}
+        description={<span className="block first-letter:uppercase">{monthLabel}</span>}
+      />
 
-      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-3 lg:items-start lg:gap-5">
+      <div className="flex flex-col gap-5 lg:grid lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start xl:grid-cols-[minmax(0,1fr)_24rem]">
         {/* coluna principal: o mês */}
-        <div className="contents lg:col-span-2 lg:flex lg:flex-col lg:gap-5">
+        <div className="contents lg:flex lg:flex-col lg:gap-5">
           <div className={`${MOBILE_ORDER.hero} lg:order-none`}>
             <BalanceHero
               month={month}
               isCurrentMonth={isCurrentMonth}
               accountName={account.name}
-              startDate={account.openingBalanceDate}
               balanceCents={balance}
               summary={summary}
               suffix={suffix}
@@ -212,38 +213,36 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
 
         {/* coluna lateral: compromissos */}
         <div className="contents lg:flex lg:flex-col lg:gap-5">
-          <Panel
-            title="Pendentes"
-            description={`Até o fim de ${monthLabel}, incluindo atrasados`}
-            action={{ href: `/lancamentos?status=PENDING&mes=${mes}`, label: 'Ver todos' }}
-            className={`${MOBILE_ORDER.pending} lg:order-none`}
-          >
-            <div className="border-t px-5 py-4">
-              <PendingTotals summary={summary} suffix={suffix} />
-            </div>
-            <div className="border-t">
-              <PendingList entries={pending} today={hoje} wallets={payableWallets(benefitCards)} />
-            </div>
-          </Panel>
-
-          <div className={`${MOBILE_ORDER.cards} lg:order-none`}>
+          <div className={`${MOBILE_ORDER.pending} lg:order-none`}>
             <Panel
               region
+              title="Pendentes"
+              description={pending.length > 0 ? 'Até o fim do mês, com os atrasados' : undefined}
+            >
+              <div className="border-t">
+                <PendingList
+                  entries={pending}
+                  today={hoje}
+                  wallets={payableWallets(benefitCards)}
+                  limit={3}
+                />
+              </div>
+            </Panel>
+          </div>
+
+          <div className={`${MOBILE_ORDER.cards} lg:order-none`}>
+            <CardStrip
               title="Cartões"
               action={{ href: `/cartoes${suffix}`, label: cards.length > 0 ? 'Ver todos' : 'Cadastrar' }}
             >
               {cards.length > 0 ? (
-                <div className="divide-y border-t">
-                  {cards.map((c) => (
-                    <CardRow key={c.card.id} s={c} href={`/cartoes/${c.card.id}${suffix}`} />
-                  ))}
-                </div>
+                cards.map((c) => <CardTile key={c.card.id} s={c} href={`/cartoes/${c.card.id}${suffix}`} />)
               ) : (
-                <p className="border-t px-5 py-6 text-center text-sm text-muted-foreground">
+                <p className="w-full rounded-xl border bg-card px-5 py-6 text-center text-sm text-muted-foreground lg:rounded-none lg:border-0">
                   Nenhum cartão cadastrado ainda.
                 </p>
               )}
-            </Panel>
+            </CardStrip>
           </div>
 
           {benefitCards.length > 0 && (
@@ -258,7 +257,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
                     </>
                   ) : undefined
                 }
-                action={{ href: `/cartoes${suffix}`, label: 'Ver todos' }}
+                action={{ href: `/cartoes${suffix}#beneficios`, label: 'Ver todos' }}
               >
                 <div className="divide-y border-t">
                   {benefitCards.map((c) => (

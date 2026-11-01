@@ -24,6 +24,7 @@ import {
   monthStart,
   type ISODate,
 } from '@/domain/dates';
+import { pendingCountsInMonth } from '@/domain/account/rules';
 import { parseMonthArg } from '@/domain/month-ref';
 import { formatBRL } from '@/domain/money';
 import { PAYMENT_METHOD_LABEL } from '@/lib/labels';
@@ -67,25 +68,23 @@ export async function limitText(db: AnyDB, today: ISODate, cardId: string | null
 }
 
 /**
- * Contas pendentes do mês. Mês atual: o que vence no mês e o que já está atrasado (como a Home). Outro mês:
- * só o que vence nele. Inclui o que falta pagar das faturas que vencem no período.
+ * Contas pendentes do mês, como a Home: o que vence no mês e o que está atrasado de meses anteriores (D72).
+ * Inclui o que falta pagar das faturas na mesma janela.
  */
 export async function pendingMonthText(db: AnyDB, today: ISODate, month: ISODate | null): Promise<string> {
   const current = monthStart(today);
   const m = month ?? current;
   const isCurrent = m === current;
-  const end = monthEnd(m);
   const label = formatMonthLabel(m);
 
   const dueOf = (r: { dueDate: ISODate | null; date: ISODate }) => r.dueDate ?? r.date;
-  const rows = (await listPending(db, m)).filter((r) => isCurrent || compareDates(dueOf(r), m) >= 0);
+  const rows = await listPending(db, m, today);
 
   const cards = await listActiveCards(db);
   const invoices: { card: string; ref: ISODate; due: ISODate; remaining: number }[] = [];
   for (const c of cards) {
     for (const i of await listCardInvoices(db, c.id, today)) {
-      const inWindow = compareDates(i.dueDate, end) <= 0 && (isCurrent || compareDates(i.dueDate, m) >= 0);
-      if (i.remainingCents > 0 && inWindow) {
+      if (i.remainingCents > 0 && pendingCountsInMonth(i.dueDate, m, today)) {
         invoices.push({ card: c.name, ref: i.referenceMonth, due: i.dueDate, remaining: i.remainingCents });
       }
     }
@@ -102,7 +101,10 @@ export async function pendingMonthText(db: AnyDB, today: ISODate, month: ISODate
     })),
   ].sort((a, b) => compareDates(a.due, b.due));
 
-  const title = isCurrent ? `Pendentes até o fim de ${label} (com atrasados):` : `Pendentes de ${label}:`;
+  const withOverdue = items.some((i) => compareDates(i.due, m) < 0) ? ' (com atrasados)' : '';
+  const title = isCurrent
+    ? `Pendentes até o fim de ${label} (com atrasados):`
+    : `Pendentes de ${label}${withOverdue}:`;
   if (items.length === 0) return `${isCurrent ? 'Nada pendente' : `Nada pendente em ${label}`}. 🎉`;
 
   const tag = (d: ISODate) => (d < today ? ' ⚠️ atrasado' : d === today ? ' · vence hoje' : '');

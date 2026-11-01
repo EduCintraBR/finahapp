@@ -9,6 +9,7 @@
 import { asc, eq, isNull } from 'drizzle-orm';
 import { sql, type SQL } from 'drizzle-orm';
 import { addDays, addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/domain/dates';
+import { overdueCutoff } from '@/domain/account/rules';
 import type { Cents } from '@/domain/money';
 import {
   accumulate,
@@ -219,8 +220,24 @@ export type CashSummary = {
   endOfMonthKind: 'projected' | 'actual' | 'estimated';
 };
 
-/** O que falta pagar das faturas com vencimento no intervalo (Σ max(0, total − pago) por fatura). */
-async function invoicesRemaining(db: AnyDB, from: ISODate | null, to: ISODate): Promise<Cents> {
+/**
+ * Vencimento na janela de um mês (D72): até `to` e, com `from`, a partir dele **ou** antes de `overdueBefore`
+ * (atrasado de antes que continua sem baixa). Mesma regra de pendingCountsInMonth. `from` null = tudo até `to`.
+ */
+function dueWindow(col: SQL, from: ISODate | null, to: ISODate, overdueBefore: ISODate | null): SQL {
+  if (!from) return sql`${col} <= ${to}`;
+  return overdueBefore
+    ? sql`${col} <= ${to} and (${col} >= ${from} or ${col} < ${overdueBefore})`
+    : sql`${col} between ${from} and ${to}`;
+}
+
+/** O que falta pagar das faturas com vencimento na janela (Σ max(0, total − pago) por fatura). */
+async function invoicesRemaining(
+  db: AnyDB,
+  from: ISODate | null,
+  to: ISODate,
+  overdueBefore: ISODate | null = null,
+): Promise<Cents> {
   const [r] = await rows<{ v: string | null }>(
     db,
     sql`select sum(greatest(0, tot.total - coalesce(pay.paid, 0))) as v
@@ -231,24 +248,25 @@ async function invoicesRemaining(db: AnyDB, from: ISODate | null, to: ISODate): 
         left join (select paid_invoice_id, sum(amount_cents) paid from transactions
                    where kind = 'INVOICE_PAYMENT' and status = 'POSTED' and deleted_at is null group by paid_invoice_id) pay
           on pay.paid_invoice_id = v.id
-        where v.due_date <= ${to} ${from ? sql`and v.due_date >= ${from}` : sql``}`,
+        where ${dueWindow(sql`v.due_date`, from, to, overdueBefore)}`,
   );
   return centsFromDb(r?.v);
 }
 
-/** Pendentes da conta por direção (due_date no intervalo). */
+/** Pendentes da conta por direção (due_date na janela; ver dueWindow). */
 async function pendingAccount(
   db: AnyDB,
   kind: 'INCOME' | 'EXPENSE',
   from: ISODate | null,
   to: ISODate,
+  overdueBefore: ISODate | null = null,
 ): Promise<Cents> {
   const [r] = await rows<{ v: string | null }>(
     db,
     sql`select sum(t.amount_cents) as v from transactions t
         where t.kind = ${kind} and t.status = 'PENDING' and t.deleted_at is null and t.bank_account_id is not null
           and not (t.kind = 'INCOME' and (t.loan_id is not null or t.funding_for_transaction_id is not null))
-          and t.due_date <= ${to} ${from ? sql`and t.due_date >= ${from}` : sql``}`,
+          and ${dueWindow(sql`t.due_date`, from, to, overdueBefore)}`,
   );
   return centsFromDb(r?.v);
 }
@@ -332,6 +350,8 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
   if (!account) return null;
   const from = monthStart(month);
   const to = monthEnd(month);
+  // D72: o atrasado de antes acompanha o mês até a baixa (no mês atual e nos passados = tudo até o fim do mês)
+  const overdueBefore = overdueCutoff(month, today);
   const [
     balanceCents,
     incomeReceivedCents,
@@ -344,10 +364,10 @@ export async function cashSummary(db: AnyDB, month: ISODate, today: ISODate): Pr
   ] = await Promise.all([
     getAccountBalance(db, account.id, today),
     postedAccount(db, ['INCOME'], from, to, today),
-    pendingAccount(db, 'INCOME', from, to),
+    pendingAccount(db, 'INCOME', from, to, overdueBefore),
     postedAccount(db, OUT_KINDS, from, to, today),
-    pendingAccount(db, 'EXPENSE', from, to),
-    invoicesRemaining(db, from, to),
+    pendingAccount(db, 'EXPENSE', from, to, overdueBefore),
+    invoicesRemaining(db, from, to, overdueBefore),
     scheduledAccount(db, ['INCOME'], from, to, today),
     scheduledAccount(db, OUT_KINDS, from, to, today),
   ]);

@@ -55,8 +55,39 @@ const rowLink =
   'block px-5 py-3.5 transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 outline-none';
 const iconBox = 'grid size-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary';
 
-/** Um cartão de crédito numa linha: a fatura do mês escolhido, o que falta pagar e o limite. */
-export function CardRow({ s, href }: { s: CardMonthView; href: string }) {
+/**
+ * Cartões da Início: no celular, uma faixa horizontal que rola de lado (um cartão por vez, sem empurrar o resto da
+ * tela para baixo); no desktop, uma lista dentro do card da coluna lateral.
+ */
+export function CardStrip({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action: { href: string; label: string };
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      aria-label={title}
+      className="min-w-0 lg:overflow-hidden lg:rounded-xl lg:border lg:bg-card lg:shadow-sm"
+    >
+      <div className="flex items-center justify-between gap-3 pb-2 lg:px-5 lg:pt-4 lg:pb-3">
+        <h2 className="font-semibold">{title}</h2>
+        <Button asChild variant="ghost" size="sm" className="-mr-2 shrink-0 text-primary">
+          <Link href={action.href}>{action.label}</Link>
+        </Button>
+      </div>
+      <div className="-mx-4 flex snap-x snap-mandatory scroll-px-4 [scrollbar-width:none] gap-3 overflow-x-auto px-4 pb-1 lg:mx-0 lg:block lg:divide-y lg:overflow-visible lg:border-t lg:px-0 lg:pb-0">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/** Um cartão de crédito: a fatura do mês escolhido, o que falta pagar e o limite. O nome usa a linha toda. */
+export function CardTile({ s, href }: { s: CardMonthView; href: string }) {
   const shown = s.isCurrentMonth ? s.currentInvoice : s.monthInvoice;
   const alsoThisMonth =
     s.isCurrentMonth && s.monthInvoice && s.monthInvoice.referenceMonth !== s.currentInvoice.referenceMonth
@@ -64,18 +95,18 @@ export function CardRow({ s, href }: { s: CardMonthView; href: string }) {
       : null;
   const unpaid = s.isCurrentMonth ? s.unpaidClosed[0] : undefined;
   return (
-    <Link href={href} className={cn(rowLink, 'space-y-2.5')}>
-      <div className="flex items-center gap-3">
+    <Link
+      href={href}
+      className="block w-[17.5rem] shrink-0 snap-start space-y-2.5 rounded-xl border bg-card p-4 shadow-sm transition-colors outline-none only:w-full hover:bg-muted/40 focus-visible:bg-muted/40 lg:w-auto lg:rounded-none lg:border-0 lg:px-5 lg:py-3.5 lg:shadow-none"
+    >
+      <div className="flex items-start gap-3">
         <span className={iconBox}>
           <CreditCard className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-medium">
-              {s.card.name}
-              {s.card.isAdditional && <span className="font-normal text-muted-foreground"> · adicional</span>}
-            </span>
-            {shown ? <InvoiceStateBadge state={shown.state} /> : <Badge variant="outline">Sem fatura</Badge>}
+          <div className="font-medium break-words">
+            {s.card.name}
+            {s.card.isAdditional && <span className="font-normal text-muted-foreground"> · adicional</span>}
           </div>
           <div className="text-xs text-muted-foreground">
             {shown
@@ -83,10 +114,13 @@ export function CardRow({ s, href }: { s: CardMonthView; href: string }) {
               : `Nada em ${formatMonthShort(s.viewMonth)}`}
           </div>
         </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
         <Amount
           cents={shown?.totalCents ?? 0}
-          className={cn('shrink-0 font-semibold whitespace-nowrap', !shown && 'text-muted-foreground')}
+          className={cn('text-xl font-semibold whitespace-nowrap', !shown && 'text-muted-foreground')}
         />
+        {shown ? <InvoiceStateBadge state={shown.state} /> : <Badge variant="outline">Sem fatura</Badge>}
       </div>
       {unpaid && (
         <div className="rounded-md bg-warning/10 px-3 py-1.5 text-xs">
@@ -115,8 +149,8 @@ export function BenefitRow({ c, href }: { c: BenefitCardView; href: string }) {
           <Utensils className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{c.name}</div>
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="font-medium break-words">{c.name}</div>
+          <div className="text-xs text-muted-foreground">
             {c.wallets.map((w) => `${w.name} ${formatBRL(w.balanceCents)}`).join(' · ') || c.issuer}
           </div>
         </div>
@@ -148,8 +182,8 @@ export function LoanRow({ l, href }: { l: LoanView; href: string }) {
           <Landmark className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{l.name}</div>
-          <div className="truncate text-xs text-muted-foreground">
+          <div className="font-medium break-words">{l.name}</div>
+          <div className="text-xs text-muted-foreground">
             {s.paidCount} de {l.installmentCount} parcelas pagas
             {s.nextDueDate ? ` · próxima ${formatDateBR(s.nextDueDate).slice(0, 5)}` : ''}
           </div>
