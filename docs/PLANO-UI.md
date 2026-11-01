@@ -153,11 +153,11 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Fase G — Acabamento do PWA
 
-- [ ] `main` com espaço inferior = barra + `env(safe-area-inset-bottom)`; nada atrás da barra
-- [ ] Campos com fonte ≥ 16px no celular (evita o zoom do iOS); `overscroll-behavior` na página
-- [ ] Revisar o tema claro em todas as telas
-- [ ] Revisar a tela de revisão de importação (`/importacoes/[id]`), que ficou fora da auditoria por falta de lote
-- [ ] Avisos de hidratação no `next dev` (aparecem no log do E2E, sem falhar teste): links da navegação com `?mes=` renderizados sem o mês no servidor, e `aria-hidden` da sidebar quando um diálogo abre antes da hidratação
-- [ ] Teste num iPhone e num Android reais com o PWA instalado (dev.finahapp.com)
+- [x] `main` com espaço inferior = barra (4rem) + folga + `env(safe-area-inset-bottom)` (antes `pb-24` fixo: no iPhone ficava 2px atrás da barra); o espaçador do `StickyActions` passou a ter a altura da barra (antes 56px para uma barra de ~69px)
+- [x] Campos com fonte ≥ 16px no celular: já eram (`text-base`, `md:text-sm`) em Input, Textarea, select e valor; `overscroll-behavior-y: none` no `html`/`body` (a página não "quica" mostrando o fundo)
+- [x] Tema claro revisado em todas as telas e painéis (`UI_SHOTS_THEME=light pnpm ui:shots claro`): sem problemas de contraste ou cor
+- [x] Tela de revisão de importação (`/importacoes/[id]`) agora nas capturas (o `ui:shots` cria um lote da fatura do Nubank); corrigido: categoria e "De quem é" cortados lado a lado no celular (agora um embaixo do outro) e a caixa com borda dentro do card da linha (só no desktop)
+- [x] Avisos de hidratação: os de `aria-hidden` não aparecem mais; os de `href` com `?mes=` só acontecem quando o formulário é enviado antes de a página hidratar (o redirecionamento da Server Action é renderizado no servidor com a URL do pedido original). Só no E2E, que clica antes de o app ficar pronto; sem efeito nos números. Investigado, sem correção
+- [ ] Teste num iPhone e num Android reais com o PWA instalado (dev.finahapp.com) → **com o usuário**, incluindo o teclado do iPhone sobre "Lançar"/"Confirmar" (Fase D)
 
 **Pronto quando:** o PWA instalado no iPhone e no Android passa pelos fluxos de lançar, dar baixa e pagar fatura sem nenhum elemento coberto ou cortado.

@@ -12,7 +12,8 @@ export function StickyActions({ children, className }: { children: React.ReactNo
   const kb = useKeyboardInset();
   return (
     <>
-      <div aria-hidden className="h-14 md:hidden" />
+      {/* do tamanho da barra (botão h-11 + py-3 + borda), para o último campo não ficar atrás dela */}
+      <div aria-hidden className="h-[4.5rem] md:hidden" />
       <div
         data-slot="sticky-actions"
         className={cn(

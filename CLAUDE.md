@@ -25,7 +25,7 @@ Leia antes de qualquer tarefa de domínio: `docs/SPEC.md` (regras e decisões) e
 - `pnpm format` / `pnpm format:check` (Prettier; o CI checa)
 - `pnpm test` (unit + domínio, `src/**/*.test.ts`) · `pnpm test:acceptance` (PGlite + migrações, `tests/acceptance/`)
 - `pnpm test:e2e` (Playwright/Chromium em 375px contra `next dev :3100` com `NEXT_DIST_DIR=.next-e2e`, que roda ao lado do `pnpm dev` do dia a dia, e o banco **separado** `finah_e2e`; precisa de `docker compose up -d db`)
-- `pnpm ui:shots [nome] [filtro]` (capturas de todas as telas em 375px e 1280px em `tmp/ui-shots/<nome>/`, contra o banco **separado** `finah_shots` com dados fictícios e `next dev :3200`; precisa de `docker compose up -d db`)
+- `pnpm ui:shots [nome] [filtro]` (capturas de todas as telas em 375px e 1280px em `tmp/ui-shots/<nome>/`, contra o banco **separado** `finah_shots` com dados fictícios e `next dev :3200`; o filtro também vale para os painéis abertos; `UI_SHOTS_THEME=light` captura no tema claro; precisa de `docker compose up -d db`)
 - `pnpm db:generate` (drizzle-kit generate) · `pnpm db:migrate` · `pnpm db:seed` · `pnpm worker` (lêem o `.env`)
 - `docker compose up -d --build` (db, migrate one-shot, app, worker, backup; caddy com `--profile vps`)
 - `docker compose run --rm app node dist/seed.mjs` · `docker compose exec backup backup.sh` · `docker compose exec backup restore.sh latest`
