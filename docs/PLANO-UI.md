@@ -8,16 +8,13 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Decisões (31/10/2026)
 
-| #   | Tema               | Decisão                                                                                                                                                                                                                                                                                                                                                                                                |
-| --- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| U1  | Navegação inferior | **Início · Lançamentos · (+) · Relatórios · Mais.** Cartões vai para o "Mais", junto com Fixos, Empréstimos, Benefícios, Importar extrato, Conferir saldo e Ajustes. No desktop a sidebar mostra todas as seções.                                                                                                                                                                                      |
-| U2  | Botão (+)          | Abre um **painel inferior** para escolher o tipo: Despesa, Receita, Compra no cartão, Gasto no benefício. Cada opção abre o formulário já no tipo certo (2 toques, dentro da regra da SPEC).                                                                                                                                                                                                           |
-| U3  | Início sem rolar   | Na primeira tela do celular: seletor de mês, "Olá, Eduardo", o mês, **Saldo atual**, **previsão do fim do mês**, **Entrou** e **Saiu**, e logo abaixo os **pendentes**: previsto entrar (A receber) e previsto sair (A pagar). Gastos do mês, cartões, benefícios, empréstimos e últimos lançamentos ficam abaixo, na rolagem.                                                                         |
-| U4  | "Saiu" × "Saídas"  | **Saiu** = tudo o que já foi pago no mês (despesas, pagamentos de fatura e antecipações; D68). **Saídas** = Saiu + o que ainda vai sair (pendente, atrasado e agendado), que é a regra D38. Hoje a tela de Lançamentos chama de "Saídas" só as despesas pagas, sem pagamento de fatura e sem pendentes: isso é corrigido na Fase 4. Ver pergunta em aberto abaixo sobre atrasados de meses anteriores. |
-
-### Em aberto
-
-- **U4a:** Os atrasados de **meses anteriores** entram nas "Saídas" do mês escolhido? Pela D38 hoje, as saídas pendentes contam só o que vence no mês, e os atrasados antigos entram só no saldo projetado.
+| #   | Tema               | Decisão                                                                                                                                                                                                                                                                                                                             |
+| --- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| U1  | Navegação inferior | **Início · Lançamentos · (+) · Relatórios · Mais.** Cartões vai para o "Mais", junto com Fixos, Empréstimos, Benefícios, Importar extrato, Conferir saldo e Ajustes. No desktop a sidebar mostra todas as seções.                                                                                                                   |
+| U2  | Botão (+)          | Abre um **painel inferior** para escolher o tipo: Despesa, Receita, Compra no cartão, Gasto no benefício. Cada opção abre o formulário já no tipo certo (2 toques, dentro da regra da SPEC).                                                                                                                                        |
+| U3  | Início sem rolar   | Na primeira tela do celular: seletor de mês, "Olá, Eduardo", o mês, **Saldo atual**, **previsão do fim do mês**, **Entrou** e **Saiu**, e logo abaixo os **pendentes**: previsto entrar (A receber) e previsto sair (A pagar). Gastos do mês, cartões, benefícios, empréstimos e últimos lançamentos ficam abaixo, na rolagem.      |
+| U4  | "Saiu" × "Saídas"  | **Saiu** = tudo o que já foi pago no mês (despesas, pagamentos de fatura e antecipações; D68). **Saídas** = Saiu + o que ainda vai sair (pendente, atrasado e agendado), que é a regra D38. Hoje a tela de Lançamentos chama de "Saídas" só as despesas pagas, sem pagamento de fatura e sem pendentes: isso é corrigido na Fase E. |
+| U4a | Atrasados          | Conta, receita prevista ou fatura atrasada **acompanha os meses seguintes** no A pagar / A receber (e nas Saídas) até ser paga ou recebida; aí sai de todos eles e entra no Saiu/Entrou do mês do pagamento (SPEC D72, feito na Fase C).                                                                                            |
 
 ---
 
@@ -43,7 +40,7 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] `PageHeader` (`src/components/layout/page-header.tsx`): voltar, título, subtítulo e ações — usado no Mais e em Lançamentos; as outras telas migram nas Fases D/E
 - [x] Painel inferior: o próprio `Dialog` (`src/components/ui/dialog.tsx`) virou painel que sobe de baixo no celular (com `safe-area`) e continua janela no desktop, sem dependência nova — "Paguei", "Pagar fatura" etc. já usam
 - [x] Script versionado `pnpm ui:shots [nome] [filtro]` (`scripts/ui-shots.ts`): banco fictício separado `finah_shots` com dados relativos a hoje + capturas 375/1280 de todas as rotas e do (+), "Paguei" e filtros, em `tmp/ui-shots/<nome>/`
-- [ ] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha → **Fase C/E**
+- [ ] `ListRow` padrão: título, linha secundária, valor à direita; status só quando é exceção (pendente, atrasada, agendado, pago antes); quem lançou como texto discreto, não bolinha → **Fase E**
 - [ ] `StickyActions`: barra fixa no rodapé dos formulários, acima da navegação inferior e do indicador do iPhone → **Fase D**
 - [ ] `Select` e `CategoryPicker` próprios (categorias em grade com ícone + busca), `MonthField` próprio (troca o `type=month`), `FilePicker` em pt-BR → **Fase D/E**
 - [ ] `FilterChips` (filtros em botões, abrindo um painel inferior com as opções) → **Fase E**
@@ -71,13 +68,15 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 
 ## Fase C — Início (U3)
 
-- [ ] Primeira tela em 375×~700: seletor de mês, "Olá, Eduardo · Outubro de 2026", Saldo atual + previsão do fim do mês, Entrou / Saiu, A receber / A pagar (previsto entrar / sair)
-- [ ] Lista de pendentes logo abaixo, com até 3 itens + "Ver todos"; "Paguei/Recebi" abre `ResponsiveSheet`
-- [ ] Na rolagem: Gastos do mês (Mensal × Bruto + rosca), Cartões (faixa horizontal compacta), Benefícios, Empréstimos, Últimos lançamentos
-- [ ] Desktop: grade de 2 colunas sem cortar nomes (coluna lateral com largura mínima)
-- [ ] E2E: na Início em 375×812, Saldo, Entrou, Saiu, A receber e A pagar visíveis sem rolar
+- [x] Primeira tela em 375×812, sem rolar e acima da barra inferior: seletor de mês, "Olá, Eduardo" + o mês, **Saldo atual + previsão do fim do mês**, e uma grade 2×2 com as entradas à esquerda e as saídas à direita: **Entrou / Saiu** (já aconteceu) e **A receber / A pagar** (previsto entrar / sair, com os atrasados, D72)
+- [x] Pendentes logo abaixo: nome inteiro na linha, valor e vencimento embaixo ("Venceu 10/10" em vermelho, vale para conta e receita; "Vence hoje"), até 3 itens e "Ver todos os N pendentes" abre o resto no lugar (`ShowMoreList`); "Paguei/Recebi" já abre o painel inferior (Fase A)
+- [x] Na rolagem: Gastos do mês, Cartões (faixa horizontal no celular, um cartão por vez com o próximo aparecendo na borda; lista na coluna do desktop), Benefícios, Empréstimos, Últimos lançamentos. Nomes de cartão, benefício e empréstimo quebram a linha em vez de serem cortados
+- [x] Desktop: 2 colunas com a lateral de largura fixa (22rem; 24rem a partir de 1280px), sem nomes cortados
+- [x] E2E `inicio.spec.ts`: saldo, previsão, Entrou, Saiu, A receber e A pagar visíveis sem rolar e acima da barra; pendentes com até 3 e "Ver todos". Helper `homePending` para os testes que dão baixa pela Início
+- [x] Regra U4a (SPEC D72): atrasados acompanham os meses seguintes no A pagar / A receber, no detalhe `/resumo`, na lista de pendentes e no bot, com teste de domínio e de aceitação
+- [ ] `ListRow` nos "Últimos lançamentos" (bolinha "E" e selo "Pago" ainda aparecem) → **Fase E**, junto com a lista de Lançamentos, que usa o mesmo componente
 
-**Pronto quando:** os números de U3 aparecem sem rolar no celular e continuam batendo com o Resumo e os Relatórios (`fase4.spec.ts`).
+**Pronto quando:** os números de U3 aparecem sem rolar no celular e continuam batendo com o Resumo e os Relatórios (`fase4.spec.ts`). ✅ 31/10/2026
 
 ---
 
@@ -123,6 +122,7 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [ ] Campos com fonte ≥ 16px no celular (evita o zoom do iOS); `overscroll-behavior` na página
 - [ ] Revisar o tema claro em todas as telas
 - [ ] Revisar a tela de revisão de importação (`/importacoes/[id]`), que ficou fora da auditoria por falta de lote
+- [ ] Avisos de hidratação no `next dev` (aparecem no log do E2E, sem falhar teste): links da navegação com `?mes=` renderizados sem o mês no servidor, e `aria-hidden` da sidebar quando um diálogo abre antes da hidratação
 - [ ] Teste num iPhone e num Android reais com o PWA instalado (dev.finahapp.com)
 
 **Pronto quando:** o PWA instalado no iPhone e no Android passa pelos fluxos de lançar, dar baixa e pagar fatura sem nenhum elemento coberto ou cortado.

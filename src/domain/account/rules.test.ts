@@ -1,6 +1,14 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { checkNotBeforeOpening, dueHighlight, fundingNeeded, isScheduled } from './rules';
+import { addDays } from '../dates';
+import {
+  checkNotBeforeOpening,
+  dueHighlight,
+  fundingNeeded,
+  isScheduled,
+  overdueCutoff,
+  pendingCountsInMonth,
+} from './rules';
 
 describe('checkNotBeforeOpening (D18)', () => {
   it('bloqueia data anterior ao saldo inicial', () => {
@@ -62,6 +70,45 @@ describe('fundingNeeded (D69)', () => {
           if (f > 0) expect(after).toBe(0);
         },
       ),
+    );
+  });
+});
+
+describe('pendingCountsInMonth (D72): atrasado acompanha os meses seguintes até ser pago', () => {
+  const today = '2026-10-17';
+  it.each([
+    // mês atual: tudo o que vence até o fim dele, inclusive o atrasado de meses anteriores
+    ['2026-10-01', '2026-08-10', true],
+    ['2026-10-01', '2026-10-05', true],
+    ['2026-10-01', '2026-10-31', true],
+    ['2026-10-01', '2026-11-01', false],
+    // mês futuro: o que vence nele e o que já está atrasado hoje; o que ainda vai vencer no mês atual, não
+    ['2026-12-01', '2026-08-10', true],
+    ['2026-12-01', '2026-10-16', true],
+    ['2026-12-01', '2026-10-17', false],
+    ['2026-12-01', '2026-11-20', false],
+    ['2026-12-01', '2026-12-31', true],
+    ['2026-12-01', '2027-01-01', false],
+    // mês passado: o que venceu nele ou antes e continua sem baixa
+    ['2026-09-01', '2026-08-10', true],
+    ['2026-09-01', '2026-09-30', true],
+    ['2026-09-01', '2026-10-05', false],
+  ])('mês %s, vence %s → %s', (month, due, expected) =>
+    expect(pendingCountsInMonth(due, month, today)).toBe(expected),
+  );
+
+  it('o corte do atraso é o menor entre o início do mês e hoje', () => {
+    expect(overdueCutoff('2026-10-01', today)).toBe('2026-10-01');
+    expect(overdueCutoff('2026-12-01', today)).toBe(today);
+    expect(overdueCutoff('2026-09-01', today)).toBe('2026-09-01');
+  });
+
+  it('no mês atual equivale a "vence até o fim do mês" (a previsão do saldo fecha com A receber/A pagar)', () => {
+    const day = fc.integer({ min: 0, max: 400 }).map((n) => addDays('2026-07-01', n));
+    fc.assert(
+      fc.property(day, (due) => {
+        expect(pendingCountsInMonth(due, '2026-10-01', today)).toBe(due <= '2026-10-31');
+      }),
     );
   });
 });

@@ -7,6 +7,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { monthStart, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
+import { homePending } from './home';
 import { login } from './login';
 
 test.describe.configure({ mode: 'serial' });
@@ -93,7 +94,7 @@ test('dar baixa sem saldo pede o aporte, com observação; o aporte entra no sal
   const amount = bal + 12_345; // sempre R$ 123,45 a mais do que a conta tem
   await newExpense('Conta grande', amount, { paid: false, date: today() });
   await page.goto('/');
-  const item = page.getByRole('listitem').filter({ hasText: 'Conta grande' });
+  const item = await homePending(page, 'Conta grande');
   await item.getByRole('button', { name: 'Paguei' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByRole('button', { name: 'Confirmar' }).click();
@@ -137,7 +138,7 @@ test('pagar a conta com a carteira do cartão de benefícios: sai da carteira, n
 
   await newExpense('Internet pelo benefício', 10_000, { paid: false, date: today() });
   const accountBefore = await balance();
-  const item = page.getByRole('listitem').filter({ hasText: 'Internet pelo benefício' });
+  const item = await homePending(page, 'Internet pelo benefício');
   await item.getByRole('button', { name: 'Paguei' }).click();
   const dialog = page.getByRole('dialog');
   const walletOption = await dialog

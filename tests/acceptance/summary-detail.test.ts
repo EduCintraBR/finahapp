@@ -6,13 +6,14 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { AnyDB } from '@/db/client';
+import { listPending } from '@/db/queries/entries';
 import { cashSummary } from '@/db/queries/reports';
 import { summaryDetail, SUMMARY_KINDS, type SummaryKind } from '@/db/queries/summary-detail';
 import { seed, seedConfigFromEnv } from '@/db/seed';
 import { createCardPurchase } from '@/server/card-purchases';
 import { createCard } from '@/server/cards';
 import type { ServiceCtx } from '@/server/context';
-import { createEntry } from '@/server/entries';
+import { confirmPayment, createEntry } from '@/server/entries';
 import { createLoan } from '@/server/loans';
 import { createTemplate } from '@/server/recurring';
 import type { EntryInput, TemplateInput } from '@/server/schemas';
@@ -213,8 +214,12 @@ describe('o que cada card lista', () => {
       dueDate: '2026-10-16',
     });
     expect(d.invoices[0]!.invoiceId).toMatch(/^[0-9a-f-]{36}$/);
+    // D72: a fatura de 16/10 já venceu sem pagamento, então continua em novembro, antes da de novembro
     const nov = await summaryDetail(db, 'a-pagar', '2026-11-01', TODAY);
-    expect(nov.invoices.map((i) => i.remainingCents)).toEqual([30_000]);
+    expect(nov.invoices.map((i) => [i.dueDate, i.remainingCents])).toEqual([
+      ['2026-10-16', 45_000],
+      ['2026-11-16', 30_000],
+    ]);
   });
 });
 
@@ -233,9 +238,11 @@ describe('fixo recorrente aparece nos meses seguintes (correção do D68)', () =
     ]);
 
     const s = (await cashSummary(db, '2026-11-01', TODAY))!;
-    // aluguel + luz + parcela do empréstimo (R$ 1.000,00) + fatura de novembro (R$ 300,00)
-    expect(s.outPendingCents).toBe(200_000 + 25_000 + 100_000 + 30_000);
-    expect(s.incomePendingCents).toBe(800_000);
+    // aluguel + luz + parcela do empréstimo (R$ 1.000,00) + fatura de novembro (R$ 300,00), mais os atrasados que
+    // vêm de outubro (D72): o aluguel de 10/10 e a fatura de 16/10, ainda sem baixa em 17/10
+    expect(s.outPendingCents).toBe(200_000 + 25_000 + 100_000 + 30_000 + 200_000 + 45_000);
+    // o salário previsto de 05/10 também não foi recebido: segue em novembro junto com o de novembro (D72)
+    expect(s.incomePendingCents).toBe(800_000 + 800_000);
   });
 
   it('o mês atual não duplica: a ocorrência de outubro já está gravada como pendente', async () => {
@@ -259,5 +266,112 @@ describe('fixo recorrente aparece nos meses seguintes (correção do D68)', () =
     const dez = await summaryDetail(db, 'a-pagar', '2026-12-01', TODAY);
     expect(nov.projected.map((p) => p.description)).toContain('Curso');
     expect(dez.projected.map((p) => p.description)).not.toContain('Curso');
+  });
+});
+
+describe('atrasados acompanham os meses seguintes até a baixa (D72)', () => {
+  const LATER = '2026-11-20'; // um mês depois: o que venceu em outubro e não foi pago está atrasado
+  let luz: string;
+
+  beforeEach(async () => {
+    ({ id: luz } = await createEntry(
+      ctx,
+      entry({ paid: false, amount: 15_000, description: 'Luz', date: '2026-10-20' }),
+    ));
+    // receita prevista só de outubro (receita lançada à mão já nasce recebida)
+    await createTemplate(
+      ctx,
+      template({
+        direction: 'INCOME',
+        description: 'Reembolso',
+        amount: 40_000,
+        dayOfMonth: 25,
+        categoryId: salario,
+        paymentMethod: 'PIX',
+        endMonth: '2026-10-01',
+      }),
+    );
+    await createEntry(
+      ctx,
+      entry({ paid: false, amount: 9_000, description: 'Internet', date: '2026-11-25' }),
+    );
+    const card = await createCard(ctx, {
+      name: 'Cartão A',
+      issuer: 'Nubank',
+      last4: null,
+      isAdditional: false,
+      holderName: null,
+      limitTotal: 500_000,
+      closingDay: 9,
+      dueDay: 16,
+      botAliases: [],
+    });
+    await createCardPurchase(ctx, {
+      cardId: card.id,
+      amount: 45_000,
+      installments: 1,
+      description: 'Compra',
+      categoryId: mercado,
+      date: '2026-10-05', // fatura que vence em 16/10 e nunca foi paga
+      beneficiaryUserId: null,
+      notes: null,
+    });
+  });
+
+  it('a soma do detalhe continua igual ao card em todos os meses', async () => {
+    for (const month of ['2026-09-01', '2026-10-01', '2026-11-01', '2026-12-01', '2027-02-01']) {
+      const s = (await cashSummary(db, month, LATER))!;
+      for (const kind of SUMMARY_KINDS) {
+        const d = await summaryDetail(db, kind, month, LATER);
+        expect(d.totalCents, `${kind} em ${month}`).toBe(cardValue(s, kind));
+      }
+    }
+  });
+
+  it('mês atual: A pagar e A receber trazem o atrasado de outubro, e saldo + A receber − A pagar = previsão', async () => {
+    const s = (await cashSummary(db, '2026-11-01', LATER))!;
+    expect(s.outPendingCents).toBe(15_000 + 9_000 + 45_000);
+    expect(s.incomePendingCents).toBe(40_000);
+    expect(s.balanceCents + s.incomePendingCents - s.outPendingCents).toBe(s.endOfMonthCents);
+
+    const pagar = await summaryDetail(db, 'a-pagar', '2026-11-01', LATER);
+    expect(pagar.entries.map((e) => e.description).sort()).toEqual(['Internet', 'Luz']);
+    expect(pagar.invoices.map((i) => [i.dueDate, i.remainingCents])).toEqual([['2026-10-16', 45_000]]);
+  });
+
+  it('mês futuro: o atrasado continua; o que vence ainda neste mês (e não atrasou) não', async () => {
+    const s = (await cashSummary(db, '2026-12-01', LATER))!;
+    expect(s.outPendingCents).toBe(15_000 + 45_000);
+    expect(s.incomePendingCents).toBe(40_000);
+    expect((await listPending(db, '2026-12-01', LATER)).map((e) => e.description).sort()).toEqual([
+      'Luz',
+      'Reembolso',
+    ]);
+  });
+
+  it('mês passado: o que venceu nele ou antes e continua sem baixa', async () => {
+    const s = (await cashSummary(db, '2026-10-01', LATER))!;
+    expect(s.outPendingCents).toBe(15_000 + 45_000);
+    expect(s.incomePendingCents).toBe(40_000);
+  });
+
+  it('depois de pago, sai de todos os meses e entra no "Saiu" do mês em que foi pago', async () => {
+    const before = (await cashSummary(db, '2026-11-01', LATER))!;
+    const { version } = (
+      await q<{ version: number }>('select version from transactions where id = $1', [luz])
+    )[0]!;
+    await confirmPayment({ ...ctx, today: LATER }, luz, version, { date: LATER, amount: 15_000 });
+    for (const month of ['2026-10-01', '2026-11-01', '2026-12-01']) {
+      const pagar = await summaryDetail(db, 'a-pagar', month, LATER);
+      expect(
+        pagar.entries.map((e) => e.description),
+        month,
+      ).not.toContain('Luz');
+    }
+    const after = (await cashSummary(db, '2026-11-01', LATER))!;
+    expect(after.outPendingCents).toBe(before.outPendingCents - 15_000);
+    expect(after.outPaidCents).toBe(before.outPaidCents + 15_000);
+    // pagar o que já estava previsto não muda a previsão do fim do mês
+    expect(after.endOfMonthCents).toBe(before.endOfMonthCents);
   });
 });

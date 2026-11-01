@@ -1,4 +1,4 @@
-import { compareDates, diffDays, formatDateBR, type ISODate } from '../dates';
+import { compareDates, diffDays, formatDateBR, monthEnd, monthStart, type ISODate } from '../dates';
 
 /**
  * D18: nada na conta pode ter data anterior ao saldo inicial — o saldo inicial já
@@ -33,6 +33,26 @@ export const DUE_HIGHLIGHT_LABEL: Record<DueHighlight, string> = {
  */
 export function isScheduled(e: { status: string; postedDate: ISODate | null }, today: ISODate): boolean {
   return e.status === 'POSTED' && e.postedDate !== null && compareDates(e.postedDate, today) > 0;
+}
+
+/**
+ * D72: a partir de que data um pendente é "atrasado que veio de antes" para o mês: o menor entre o início do mês e
+ * hoje. Em mês futuro, o que vence entre hoje e o fim do mês atual ainda não atrasou, então fica no mês dele.
+ */
+export function overdueCutoff(month: ISODate, today: ISODate): ISODate {
+  const from = monthStart(month);
+  return compareDates(today, from) < 0 ? today : from;
+}
+
+/**
+ * D72 (U4a): um pendente (conta, receita prevista ou fatura) conta no A pagar/A receber (e nas Saídas) do mês em
+ * que vence e, enquanto não for pago ou recebido, também nos meses seguintes. Ao dar baixa, sai de todos eles.
+ */
+export function pendingCountsInMonth(dueDate: ISODate, month: ISODate, today: ISODate): boolean {
+  if (compareDates(dueDate, monthEnd(month)) > 0) return false;
+  return (
+    compareDates(dueDate, monthStart(month)) >= 0 || compareDates(dueDate, overdueCutoff(month, today)) < 0
+  );
 }
 
 /**

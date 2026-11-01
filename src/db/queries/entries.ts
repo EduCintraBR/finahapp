@@ -1,5 +1,22 @@
-import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, lte, ne, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
+import { overdueCutoff } from '@/domain/account/rules';
 import { monthEnd, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
 import {
@@ -97,8 +114,10 @@ export async function listEntries(db: AnyDB, f: EntryFilters) {
 
 export type EntryRow = Awaited<ReturnType<typeof listEntries>>[number];
 
-/** Pendentes até o fim do mês (inclui atrasados de meses anteriores), por vencimento. */
-export async function listPending(db: AnyDB, month: ISODate) {
+/** Pendentes do mês, incluindo os atrasados de meses anteriores ainda sem baixa (D72), por vencimento. */
+export async function listPending(db: AnyDB, month: ISODate, today: ISODate) {
+  // D72: o que vence no mês e o atrasado de antes (pendingCountsInMonth); em mês futuro, não o que ainda vai vencer antes dele
+  const overdueBefore = overdueCutoff(month, today);
   return baseSelect(db)
     .where(
       and(
@@ -106,6 +125,7 @@ export async function listPending(db: AnyDB, month: ISODate) {
         isNull(transactions.deletedAt),
         eq(transactions.status, 'PENDING'),
         lte(transactions.dueDate, monthEnd(month)),
+        or(gte(transactions.dueDate, monthStart(month)), lt(transactions.dueDate, overdueBefore)),
       ),
     )
     .orderBy(asc(transactions.dueDate), asc(transactions.description));
