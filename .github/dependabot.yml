@@ -39,3 +39,8 @@ updates:
       interval: weekly
       day: monday
     target-branch: dev
+    ignore:
+      # o pg_dump precisa ser da mesma versão do banco (postgres:16 no docker-compose.yml): com o dump de uma versão
+      # maior o pg_restore falha (ex.: `SET transaction_timeout` do 17+ no banco 16). Subir o banco e o backup juntos, à mão.
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']
