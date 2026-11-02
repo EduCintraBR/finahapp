@@ -5,6 +5,8 @@
  */
 import { and, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import type { AnyDB } from '@/db/client';
+import { categoryLabelSql, parentCategory } from '@/db/queries/category-label';
+import { categoryLabels } from '@/db/queries/lookups';
 import { getInvoiceDetail, listActiveCards, listCardInvoices, listCardSummaries } from '@/db/queries/cards';
 import { listPending } from '@/db/queries/entries';
 import {
@@ -186,13 +188,7 @@ export async function invoiceSummaryText(
   return lines.join('\n');
 }
 
-const categoryNames = async (db: AnyDB) =>
-  new Map(
-    (await db.select({ id: categories.id, name: categories.name }).from(categories)).map((c) => [
-      c.id,
-      c.name,
-    ]),
-  );
+const categoryNames = categoryLabels;
 
 /** Gastos do mês (Bruto = compras do mês; Mensal = o que sai da conta no mês), geral ou de uma categoria. */
 export async function spendingText(
@@ -264,12 +260,13 @@ export async function recentText(db: AnyDB): Promise<string> {
       amountCents: transactions.amountCents,
       kind: transactions.kind,
       date: transactions.transactionDate,
-      category: categories.name,
+      category: categoryLabelSql,
       method: transactions.paymentMethod,
       card: creditCards.name,
     })
     .from(transactions)
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
+    .leftJoin(parentCategory, eq(parentCategory.id, categories.parentId))
     .leftJoin(creditCards, eq(creditCards.id, transactions.creditCardId))
     .where(
       and(

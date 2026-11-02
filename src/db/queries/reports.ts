@@ -55,7 +55,10 @@ function personFilters(f: ReportFilters, alias: string): SQL {
   if (f.createdBy) parts.push(sql` and ${a}.created_by_user_id = ${f.createdBy}`);
   if (f.beneficiary === 'casal') parts.push(sql` and ${a}.beneficiary_user_id is null`);
   else if (f.beneficiary) parts.push(sql` and ${a}.beneficiary_user_id = ${f.beneficiary}`);
-  if (f.categoryId) parts.push(sql` and ${a}.category_id = ${f.categoryId}`);
+  if (f.categoryId)
+    parts.push(
+      sql` and ${a}.category_id in (select c.id from categories c where c.id = ${f.categoryId} or c.parent_id = ${f.categoryId})`,
+    );
   return sql.join(parts, sql``);
 }
 
@@ -71,9 +74,13 @@ function cardSide(f: ReportFilters, cardColumn: string): SQL {
   return f.cardId ? sql` and ${sql.raw(cardColumn)} = ${f.cardId}` : sql``;
 }
 
+/** Os relatórios somam pela categoria-mãe (D74): subcategoria conta na mãe; categoria de topo, nela mesma. */
+const rollupSql = (categoryCol: string) =>
+  `coalesce((select c.parent_id from categories c where c.id = ${categoryCol}), ${categoryCol})`;
+
 const keyExpr = (key: Key, categoryCol: string, dateCol: string) =>
   key === 'category'
-    ? sql.raw(`coalesce(${categoryCol}::text, '${NO_CATEGORY_KEY}')`)
+    ? sql.raw(`coalesce(${rollupSql(categoryCol)}::text, '${NO_CATEGORY_KEY}')`)
     : sql.raw(`to_char(date_trunc('month', ${dateCol}), 'YYYY-MM-DD')`);
 
 function add(into: Totals, list: { k: string; v: string | number }[], sign = 1) {
@@ -157,7 +164,7 @@ export async function monthlySpend(
     sql`select ${
       key === 'category'
         ? sql.raw(
-            `case when i.installment_plan_id is null then '${ADJUSTMENTS_KEY}' else coalesce(t.category_id::text, '${NO_CATEGORY_KEY}') end`,
+            `case when i.installment_plan_id is null then '${ADJUSTMENTS_KEY}' else coalesce(${rollupSql('t.category_id')}::text, '${NO_CATEGORY_KEY}') end`,
           )
         : sql.raw(`to_char(date_trunc('month', v.due_date), 'YYYY-MM-DD')`)
     } as k, sum(i.amount_cents) as v

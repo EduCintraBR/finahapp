@@ -14,6 +14,7 @@ import { getPrimaryAccount } from '@/db/queries/accounts';
 import { getAccountBalance } from '@/db/queries/balance';
 import { listActiveCards, listCardSummaries } from '@/db/queries/cards';
 import { planIdOfTransaction } from '@/db/queries/entries';
+import { categoryLabels } from '@/db/queries/lookups';
 import {
   botMessages,
   categories,
@@ -119,7 +120,7 @@ async function senderOf(db: AnyDB, telegramUserId: number) {
 }
 
 async function parseContext(db: AnyDB, today: ISODate, senderName: string): Promise<ParseContext> {
-  const [cats, people, cards] = await Promise.all([
+  const [cats, labels, people, cards] = await Promise.all([
     db
       .select({
         id: categories.id,
@@ -129,13 +130,15 @@ async function parseContext(db: AnyDB, today: ISODate, senderName: string): Prom
       })
       .from(categories)
       .where(isNull(categories.archivedAt)),
+    categoryLabels(db),
     db.select({ id: users.id, name: users.name }).from(users),
     listActiveCards(db),
   ]);
   return {
     today,
     senderName,
-    categories: cats,
+    // subcategoria aparece como "Mercado › Hortifruti" para o modelo escolher a certa (D74)
+    categories: cats.map((c) => ({ ...c, name: labels.get(c.id) ?? c.name })),
     users: people,
     cards: cards.map((c) => ({ id: c.id, name: c.name, botAliases: c.botAliases })),
   };
@@ -152,7 +155,7 @@ const installmentsText = (total: number, n: number) => {
 async function describe(db: AnyDB, d: Draft, today: ISODate): Promise<string> {
   const { input } = d;
   const [[cat], [ben], [card]] = await Promise.all([
-    db.select({ name: categories.name }).from(categories).where(eq(categories.id, input.categoryId)),
+    categoryLabels(db).then((m) => [{ name: m.get(input.categoryId) ?? 'Categoria' }]),
     input.beneficiaryUserId
       ? db.select({ name: users.name }).from(users).where(eq(users.id, input.beneficiaryUserId))
       : Promise.resolve([undefined]),
@@ -491,11 +494,16 @@ async function correctionMenu(
     };
   }
   if (action === 'kc') {
-    const cats = await deps.db
-      .select({ id: categories.id, name: categories.name })
-      .from(categories)
-      .where(and(eq(categories.kind, draftKind(c.draft)), isNull(categories.archivedAt)))
-      .orderBy(asc(categories.name));
+    const [rows, labels] = await Promise.all([
+      deps.db
+        .select({ id: categories.id })
+        .from(categories)
+        .where(and(eq(categories.kind, draftKind(c.draft)), isNull(categories.archivedAt))),
+      categoryLabels(deps.db),
+    ]);
+    const cats = rows
+      .map((k) => ({ id: k.id, name: labels.get(k.id) ?? '' }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
     return {
       text: 'Qual é a categoria?',
       buttons: cats.map((k) => ({ text: k.name, data: `k:${botMessageId}:${k.id.slice(0, 8)}` })),

@@ -14,6 +14,7 @@ import { getDb } from '@/db/client';
 import { listEntries, type EntryFilters } from '@/db/queries/entries';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { cashSummary } from '@/db/queries/reports';
+import { categoryLabel } from '@/domain/categories';
 import { monthStart, today, toMonthParam } from '@/domain/dates';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { resolveMonth } from '@/lib/month';
@@ -94,12 +95,19 @@ export default async function EntriesPage({ searchParams }: PageProps<'/lancamen
         filters.categoryId,
         'Todas as categorias',
         // mesmo nome em despesa e receita (ex.: Empréstimo): a de receita ganha o sufixo
-        categories.map((c): [string, string] => [
-          c.id,
-          c.kind === 'INCOME' && categories.some((o) => o.kind === 'EXPENSE' && o.name === c.name)
-            ? `${c.name} (receita)`
-            : c.name,
-        ]),
+        // mãe e filhas juntas: "Mercado", "Mercado › Hortifruti" (filtrar pela mãe inclui as filhas)
+        categories
+          .map((c) => ({
+            c,
+            label: categoryLabel(c.name, categories.find((p) => p.id === c.parentId)?.name ?? null),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'))
+          .map(({ c, label }): [string, string] => [
+            c.id,
+            c.kind === 'INCOME' && categories.some((o) => o.kind === 'EXPENSE' && o.name === c.name)
+              ? `${label} (receita)`
+              : label,
+          ]),
       ),
     },
     {

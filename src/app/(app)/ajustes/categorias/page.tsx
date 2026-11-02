@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
-import { CategoryRow, CreateCategoryForm } from '@/components/settings/category-forms';
+import { CategoryRow, CreateCategoryForm, type ParentOption } from '@/components/settings/category-forms';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
@@ -18,6 +18,11 @@ export default async function CategoriesPage() {
     { kind: 'INCOME' as const, title: 'Receitas' },
   ];
   const archived = all.filter((c) => c.archived);
+  const nameOf = new Map(all.map((c) => [c.id, c.name]));
+  /** categorias de topo ativas: podem receber subcategorias */
+  const parents: ParentOption[] = all
+    .filter((c) => !c.archived && c.parentId === null)
+    .map((c) => ({ id: c.id, name: c.name, kind: c.kind }));
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -32,25 +37,38 @@ export default async function CategoriesPage() {
         <CardHeader>
           <CardTitle>Nova categoria</CardTitle>
           <CardDescription>
-            Aparece na hora nos lançamentos, nos fixos, na importação e no bot (pelos apelidos).
+            Aparece na hora nos lançamentos, nos fixos, na importação e no bot (pelos apelidos). Para uma
+            subcategoria (ex.: Hortifruti dentro de Mercado), escolha a categoria em &ldquo;Dentro de&rdquo;.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <CreateCategoryForm />
+          <CreateCategoryForm parents={parents} />
         </CardContent>
       </Card>
 
       {groups.map((g) => {
-        const rows = all.filter((c) => c.kind === g.kind && !c.archived);
+        // mães ativas, cada uma seguida das suas subcategorias ativas
+        const tops = all.filter((c) => c.kind === g.kind && !c.archived && c.parentId === null);
+        const subsOf = (id: string) => all.filter((c) => c.parentId === id && !c.archived);
+        const rows = tops.flatMap((c) => [c, ...subsOf(c.id)]);
         return (
           <Card key={g.kind} className="gap-0 pb-0">
             <CardHeader className="pb-3">
               <CardTitle>{g.title}</CardTitle>
-              <CardDescription>{rows.length} ativas</CardDescription>
+              <CardDescription>
+                {rows.length} {rows.length === 1 ? 'ativa' : 'ativas'}
+              </CardDescription>
             </CardHeader>
             <CardContent className="border-t px-0">
               {rows.map((c) => (
-                <CategoryRow key={c.id} c={c} isProtected={isProtectedCategory(c.kind, c.name)} />
+                <CategoryRow
+                  key={c.id}
+                  c={c}
+                  isProtected={isProtectedCategory(c.kind, c.name)}
+                  parents={parents}
+                  parentName={c.parentId ? (nameOf.get(c.parentId) ?? null) : null}
+                  childCount={subsOf(c.id).length}
+                />
               ))}
             </CardContent>
           </Card>
@@ -68,7 +86,13 @@ export default async function CategoriesPage() {
           </CardHeader>
           <CardContent className="border-t px-0">
             {archived.map((c) => (
-              <CategoryRow key={c.id} c={c} isProtected={false} />
+              <CategoryRow
+                key={c.id}
+                c={c}
+                isProtected={false}
+                parents={parents}
+                parentName={c.parentId ? (nameOf.get(c.parentId) ?? null) : null}
+              />
             ))}
           </CardContent>
         </Card>
