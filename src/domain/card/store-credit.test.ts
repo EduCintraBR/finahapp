@@ -6,8 +6,11 @@ import { ruleInvoice } from './invoices';
 import {
   checkStoreCreditTerms,
   formatPercent,
+  planDueDayChange,
   purchaseInterest,
   resolveStoreCreditInvoice,
+  type DueDayStep,
+  type InvoiceDates,
   type StoreCreditInvoice,
 } from './store-credit';
 
@@ -216,5 +219,118 @@ describe('formatPercent', () => {
   it('formata em pt-BR com 2 casas', () => {
     expect(formatPercent(4.9123)).toBe('4,91%');
     expect(formatPercent(15)).toBe('15,00%');
+  });
+});
+
+describe('planDueDayChange (D73): mudar o dia do vencimento nas faturas seguintes', () => {
+  const row = (due: ISODate, over: Partial<InvoiceDates> = {}): InvoiceDates => ({
+    id: `i-${due}`,
+    referenceMonth: `${due.slice(0, 7)}-01`,
+    closingDate: addDays(due, -7),
+    dueDate: due,
+    paid: false,
+    ...over,
+  });
+  const dec = row('2026-12-21');
+  const jan = row('2027-01-21');
+  const feb = row('2027-02-21');
+  const plan = (invoices: InvoiceDates[], from: ISODate, newDay: number, today: ISODate = '2026-11-20') =>
+    planDueDayChange({ invoices, fromMonth: from, newDay, closeBeforeDays: 7, today });
+
+  it('21 → 20: a fatura escolhida e as seguintes vencem dia 20 e fecham 7 dias antes', () => {
+    const r = plan([dec, jan, feb], '2026-12-01', 20);
+    expect('error' in r).toBe(false);
+    const steps = (r as { steps: DueDayStep[] }).steps;
+    expect(steps.map((s) => [s.referenceMonth, s.dueDate, s.closingDate])).toEqual([
+      ['2026-12-01', '2026-12-20', '2026-12-13'],
+      ['2027-01-01', '2027-01-20', '2027-01-13'],
+      ['2027-02-01', '2027-02-20', '2027-02-13'],
+    ]);
+  });
+
+  it('não mexe nas faturas anteriores à escolhida', () => {
+    const nov = row('2026-11-21');
+    const steps = (plan([nov, dec, jan], '2026-12-01', 20) as { steps: DueDayStep[] }).steps;
+    expect(steps.map((s) => s.referenceMonth)).toEqual(['2026-12-01', '2027-01-01']);
+  });
+
+  it('fatura paga fica como está, e a escolhida não pode estar paga', () => {
+    const paid = row('2027-01-21', { paid: true });
+    const steps = (plan([dec, paid, feb], '2026-12-01', 20) as { steps: DueDayStep[] }).steps;
+    expect(steps.map((s) => s.referenceMonth)).toEqual(['2026-12-01', '2027-02-01']);
+    expect(plan([row('2026-12-21', { paid: true }), jan], '2026-12-01', 20)).toEqual({
+      error: expect.stringMatching(/já foi paga/),
+    });
+  });
+
+  it('fatura já fechada só muda o vencimento (o fechamento não se mexe)', () => {
+    const closed = row('2026-11-21'); // fechou em 14/11
+    const steps = (plan([closed, dec], '2026-11-01', 20, '2026-11-16') as { steps: DueDayStep[] }).steps;
+    expect(steps[0]).toMatchObject({
+      referenceMonth: '2026-11-01',
+      dueDate: '2026-11-20',
+      closingDate: '2026-11-14',
+    });
+    expect(steps[1]).toMatchObject({
+      referenceMonth: '2026-12-01',
+      dueDate: '2026-12-20',
+      closingDate: '2026-12-13',
+    });
+  });
+
+  it('vencimento que não passa do fechamento já ocorrido é recusado', () => {
+    const closed = row('2026-11-21'); // fechou em 14/11
+    expect(plan([closed], '2026-11-01', 14, '2026-11-16')).toEqual({
+      error: expect.stringMatching(/depois do fechamento/),
+    });
+  });
+
+  it('dia 31 vira o último dia dos meses curtos', () => {
+    const steps = (plan([jan, feb], '2027-01-01', 31) as { steps: DueDayStep[] }).steps;
+    expect(steps.map((s) => s.dueDate).sort()).toEqual(['2027-01-31', '2027-02-28']);
+    // os dois fecham mais tarde: aplicados do mais novo ao mais antigo
+    expect(steps.map((s) => s.referenceMonth)).toEqual(['2027-02-01', '2027-01-01']);
+  });
+
+  it('o que já está certo não entra; vencimentos que andam para trás vêm antes dos que andam para a frente', () => {
+    const early = row('2026-12-25'); // 25 → 23: fecha mais cedo
+    const late = row('2027-01-19'); // 19 → 23: fecha mais tarde
+    const same = row('2027-02-23');
+    const steps = (plan([early, late, same], '2026-12-01', 23) as { steps: DueDayStep[] }).steps;
+    expect(steps.map((s) => [s.referenceMonth, s.direction])).toEqual([
+      ['2026-12-01', 'earlier'],
+      ['2027-01-01', 'later'],
+    ]);
+  });
+
+  it('propriedade: cada fatura nova vence no dia pedido (ou no último do mês) e fecha antes de vencer', () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: 1, max: 31 }),
+        fc.integer({ min: 1, max: 31 }),
+        fc.integer({ min: 1, max: 20 }),
+        (oldDay, newDay, closeBefore) => {
+          const base = '2027-01-01' as ISODate;
+          const invoices = Array.from({ length: 6 }, (_, k) => {
+            const w = ruleInvoice(addMonths(base, k), { dueDay: oldDay, closeBeforeDays: closeBefore });
+            return { id: `i${k}`, ...w, paid: false };
+          });
+          const r = planDueDayChange({
+            invoices,
+            fromMonth: base,
+            newDay,
+            closeBeforeDays: closeBefore,
+            today: '2026-12-01',
+          });
+          if ('error' in r) return;
+          for (const s of r.steps) {
+            const expected = ruleInvoice(s.referenceMonth, { dueDay: newDay, closeBeforeDays: closeBefore });
+            expect(s.dueDate).toBe(expected.dueDate);
+            expect(s.closingDate).toBe(expected.closingDate);
+            expect(compareDates(s.closingDate, s.dueDate)).toBe(-1);
+          }
+        },
+      ),
+    );
   });
 });

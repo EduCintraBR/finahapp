@@ -299,7 +299,12 @@ export const invoicePaymentInput = z.object({
 });
 export type InvoicePaymentInput = z.output<typeof invoicePaymentInput>;
 
-export const invoiceDatesInput = z.object({ closingDate: isoDate, dueDate: isoDate });
+export const invoiceDatesInput = z.object({
+  closingDate: isoDate,
+  dueDate: isoDate,
+  /** crediário (D73): o dia do vencimento vale também para as faturas seguintes (o fechamento acompanha) */
+  applyToNext: checkbox.optional(),
+});
 export type InvoiceDatesInput = z.output<typeof invoiceDatesInput>;
 
 export const anticipationInput = z

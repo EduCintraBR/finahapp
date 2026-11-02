@@ -89,3 +89,33 @@ test('sem total, a compra no crediário fica sem juros', async () => {
   await page.goto(storeUrl);
   await expect(page.getByText(/^Disponível/).first()).toContainText(brl('515,00'));
 });
+
+test('corrigir o vencimento de uma fatura vale para todas as faturas do crediário', async () => {
+  await page.goto(storeUrl);
+  const tiles = page.getByRole('link', { name: /^Fatura de / });
+  const total = await tiles.count();
+  expect(total).toBeGreaterThanOrEqual(3); // a compra em 3× tem 3 faturas
+  await tiles.first().click();
+  await expect(page).toHaveURL(/\/cartoes\/faturas\//);
+
+  // "Corrigir o vencimento" abre um painel; repete o toque até a página hidratar
+  const sheet = page.getByRole('dialog', { name: 'Vencimento da fatura' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) {
+      await page.getByRole('button', { name: 'Corrigir o vencimento desta fatura' }).click();
+    }
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  await expect(sheet.getByLabel('Valer também para as próximas faturas')).toBeChecked();
+  const current = await sheet.getByLabel('Vencimento').inputValue();
+  const day = current.endsWith('-15') ? '16' : '15';
+  await sheet.getByLabel('Vencimento').fill(`${current.slice(0, 8)}${day}`);
+  await expect(sheet.getByTestId('due-day-summary')).toContainText(`todo dia ${day} e fecham 7 dias antes`);
+  await sheet.getByRole('button', { name: 'Salvar datas' }).click();
+  await expect(page.getByText(/Datas atualizadas/)).toBeVisible();
+
+  await page.goto(storeUrl);
+  const due = page.getByText(new RegExp(`^vence ${day}/\d{2}`));
+  await expect(due).toHaveCount(total);
+  await noHorizontalScroll();
+});

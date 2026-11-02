@@ -12,7 +12,7 @@ import {
   type InvoiceRule,
   type InvoiceWindow,
 } from '@/domain/card/invoices';
-import { placePurchase } from '@/domain/card/store-credit';
+import { placePurchase, planDueDayChange } from '@/domain/card/store-credit';
 import { planClosingChange, type PlanPlacement } from '@/domain/card/reallocation';
 import { addDays, addMonths, compareDates, monthStart, type ISODate } from '@/domain/dates';
 import { audit } from './audit';
@@ -245,70 +245,147 @@ export async function updateInvoiceDates(
   return ctx.db.transaction(async (tx) => {
     const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId)).for('update');
     if (!inv) throw new UserError('Fatura não encontrada.');
-    const card = await loadCard(tx, inv.creditCardId, { allowArchived: true });
-
-    if (monthStart(input.dueDate) !== inv.referenceMonth) {
-      throw new UserError(
-        'O vencimento precisa continuar no mesmo mês (a fatura é identificada pelo mês de vencimento).',
-      );
-    }
-    if (compareDates(input.closingDate, input.dueDate) >= 0) {
-      throw new UserError('O fechamento precisa ser antes do vencimento.');
-    }
-
-    const moved: InvoiceDatesResult['moved'] = [];
-    if (input.closingDate !== inv.closingDate) {
-      const all = await materialized(tx, card.id);
-      const prev = windowFor(addMonths(inv.referenceMonth, -1), all, rule(card));
-      const next = windowFor(addMonths(inv.referenceMonth, 1), all, rule(card));
-      const placements = await placementsNear(
-        tx,
-        card.id,
-        [inv.referenceMonth, next.referenceMonth],
-        ctx.today,
-      );
-      const plan = planClosingChange(
-        {
-          referenceMonth: inv.referenceMonth,
-          oldClosing: inv.closingDate,
-          newClosing: input.closingDate,
-          dueDate: input.dueDate,
-          prevClosing: prev.closingDate,
-          nextClosing: next.closingDate,
-          today: ctx.today,
-        },
-        placements,
-      );
-      if ('error' in plan) throw new UserError(plan.error);
-
-      await tx
-        .update(invoices)
-        .set({ closingDate: input.closingDate, dueDate: input.dueDate })
-        .where(eq(invoices.id, invoiceId));
-
-      for (const [list, delta, direction] of [
-        [plan.forward, 1, 'forward'],
-        [plan.backward, -1, 'backward'],
-      ] as const) {
-        for (const p of list) {
-          await shiftPlan(tx, card, p.planId, delta);
-          moved.push({ description: p.description, direction });
-        }
-      }
-    } else if (input.dueDate !== inv.dueDate) {
-      await tx.update(invoices).set({ dueDate: input.dueDate }).where(eq(invoices.id, invoiceId));
-    }
-
-    await audit(tx, {
-      userId: ctx.userId,
-      entity: 'invoices',
-      entityId: invoiceId,
-      action: 'UPDATE',
-      before: { closingDate: inv.closingDate, dueDate: inv.dueDate },
-      after: { ...input, moved },
-    });
-    return { moved };
+    const card = await loadCard(tx, inv.creditCardId, { allowArchived: true, forUpdate: true });
+    if (input.applyToNext) return changeStoreCreditDueDay(tx, ctx, inv, card, input.dueDate);
+    return applyInvoiceDates(tx, ctx, inv, card, input);
   });
+}
+
+/**
+ * Crediário (D73): o vencimento escolhido vale para a fatura e para todas as seguintes, abertas ou futuras (o dia
+ * do cadastro também muda, então as faturas novas seguem). Fechamento = vencimento − dias do cadastro. Tudo ou nada.
+ */
+async function changeStoreCreditDueDay(
+  tx: Tx,
+  ctx: ServiceCtx,
+  inv: InvoiceRow,
+  card: CardRow,
+  dueDate: ISODate,
+): Promise<InvoiceDatesResult> {
+  if (card.kind !== 'STORE_CREDIT' || card.closeBeforeDays === null) {
+    throw new UserError('Mudar o dia das próximas faturas só vale para crediário.');
+  }
+  if (monthStart(dueDate) !== inv.referenceMonth) {
+    throw new UserError(
+      'O vencimento precisa continuar no mesmo mês (a fatura é identificada pelo mês de vencimento).',
+    );
+  }
+  const newDay = Number(dueDate.slice(8));
+  const rows = await tx
+    .select()
+    .from(invoices)
+    .where(eq(invoices.creditCardId, card.id))
+    .orderBy(asc(invoices.referenceMonth))
+    .for('update');
+  const plan = planDueDayChange({
+    invoices: rows.map((r) => ({
+      id: r.id,
+      referenceMonth: r.referenceMonth,
+      closingDate: r.closingDate,
+      dueDate: r.dueDate,
+      paid: r.status === 'PAID',
+    })),
+    fromMonth: inv.referenceMonth,
+    newDay,
+    closeBeforeDays: card.closeBeforeDays,
+    today: ctx.today,
+  });
+  if ('error' in plan) throw new UserError(plan.error);
+
+  // o dia do cadastro vale para as faturas que ainda não existem (e para as vizinhas calculadas pela regra)
+  const [updated] = await tx
+    .update(creditCards)
+    .set({ dueDay: newDay })
+    .where(eq(creditCards.id, card.id))
+    .returning();
+  const moved: InvoiceDatesResult['moved'] = [];
+  for (const step of plan.steps) {
+    const row = rows.find((r) => r.id === step.id)!;
+    const r = await applyInvoiceDates(tx, ctx, row, updated!, {
+      closingDate: step.closingDate,
+      dueDate: step.dueDate,
+    });
+    moved.push(...r.moved);
+  }
+  await audit(tx, {
+    userId: ctx.userId,
+    entity: 'credit_cards',
+    entityId: card.id,
+    action: 'UPDATE',
+    before: { dueDay: card.dueDay },
+    after: { dueDay: newDay, reason: 'vencimento das próximas faturas', invoices: plan.steps.length },
+  });
+  return { moved };
+}
+
+async function applyInvoiceDates(
+  tx: Tx,
+  ctx: ServiceCtx,
+  inv: InvoiceRow,
+  card: CardRow,
+  input: Pick<InvoiceDatesInput, 'closingDate' | 'dueDate'>,
+): Promise<InvoiceDatesResult> {
+  if (monthStart(input.dueDate) !== inv.referenceMonth) {
+    throw new UserError(
+      'O vencimento precisa continuar no mesmo mês (a fatura é identificada pelo mês de vencimento).',
+    );
+  }
+  if (compareDates(input.closingDate, input.dueDate) >= 0) {
+    throw new UserError('O fechamento precisa ser antes do vencimento.');
+  }
+
+  const moved: InvoiceDatesResult['moved'] = [];
+  if (input.closingDate !== inv.closingDate) {
+    const all = await materialized(tx, card.id);
+    const prev = windowFor(addMonths(inv.referenceMonth, -1), all, rule(card));
+    const next = windowFor(addMonths(inv.referenceMonth, 1), all, rule(card));
+    const placements = await placementsNear(
+      tx,
+      card.id,
+      [inv.referenceMonth, next.referenceMonth],
+      ctx.today,
+    );
+    const plan = planClosingChange(
+      {
+        referenceMonth: inv.referenceMonth,
+        oldClosing: inv.closingDate,
+        newClosing: input.closingDate,
+        dueDate: input.dueDate,
+        prevClosing: prev.closingDate,
+        nextClosing: next.closingDate,
+        today: ctx.today,
+      },
+      placements,
+    );
+    if ('error' in plan) throw new UserError(plan.error);
+
+    await tx
+      .update(invoices)
+      .set({ closingDate: input.closingDate, dueDate: input.dueDate })
+      .where(eq(invoices.id, inv.id));
+
+    for (const [list, delta, direction] of [
+      [plan.forward, 1, 'forward'],
+      [plan.backward, -1, 'backward'],
+    ] as const) {
+      for (const p of list) {
+        await shiftPlan(tx, card, p.planId, delta);
+        moved.push({ description: p.description, direction });
+      }
+    }
+  } else if (input.dueDate !== inv.dueDate) {
+    await tx.update(invoices).set({ dueDate: input.dueDate }).where(eq(invoices.id, inv.id));
+  }
+
+  await audit(tx, {
+    userId: ctx.userId,
+    entity: 'invoices',
+    entityId: inv.id,
+    action: 'UPDATE',
+    before: { closingDate: inv.closingDate, dueDate: inv.dueDate },
+    after: { ...input, moved },
+  });
+  return { moved };
 }
 
 /** Planos cuja 1ª parcela rastreada está nas faturas dos meses dados. */
