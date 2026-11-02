@@ -11,6 +11,7 @@ import type { AnyDB } from '@/db/client';
 import { seed, seedConfigFromEnv } from '@/db/seed';
 import { reminderText, sendReminders } from '@/bot/reports';
 import { createCardPurchase } from '@/server/card-purchases';
+import { createCategory, updateCategory } from '@/server/categories';
 import { createCard } from '@/server/cards';
 import { createTemplate, generateOccurrences } from '@/server/recurring';
 import { freshDb } from './helpers';
@@ -595,6 +596,44 @@ describe('receitas e consultas (Fase 6)', () => {
 
       nextParse = query({ type: 'SPENDING', month: null, categoryId: mercado });
       expect(await reply('quanto gastei com mercado?')).toContain('Mercado em outubro de 2026');
+    });
+
+    it('subcategoria (D76): lança na subcategoria pelo apelido próprio; gastos da mãe somam e mostram por subcategoria', async () => {
+      const ctx = await ctxOf();
+      // o apelido "hortifruti" era do Mercado: passa para a subcategoria
+      await updateCategory(ctx, mercado, { name: 'Mercado', aliases: ['mercado', 'super'] });
+      const { id: horti } = await createCategory(ctx, {
+        kind: 'EXPENSE',
+        name: 'Hortifruti',
+        aliases: ['hortifruti', 'feira'],
+        parentId: mercado,
+      });
+      nextParse = parsed({ amountCents: 3_200, description: 'Hortifruti', categoryId: horti });
+      const lancado = n(lastText(await sendText(EDUARDO_TG, 'hortifruti 32 no pix')));
+      expect(lancado).toContain('✅ Lançado');
+      expect(lancado).toContain('Mercado › Hortifruti');
+      expect(
+        (
+          await q<{ category_id: string }>(`select category_id from transactions where amount_cents = 3200`)
+        )[0]!.category_id,
+      ).toBe(horti);
+
+      nextParse = parsed({ amountCents: 18_000, description: 'Mercado' });
+      await sendText(EDUARDO_TG, 'mercado 180 no pix');
+
+      // quem pergunta pela mãe vê o total das duas e a divisão
+      nextParse = query({ type: 'SPENDING', month: null, categoryId: mercado });
+      const mae = await reply('quanto gastei com mercado?');
+      expect(mae).toContain('Compras do mês (Bruto): R$ 212,00');
+      expect(mae).toContain('Por subcategoria (compras):');
+      expect(mae).toContain('• Sem subcategoria — R$ 180,00');
+      expect(mae).toContain('• Hortifruti — R$ 32,00');
+      // quem pergunta pela subcategoria vê só ela
+      nextParse = query({ type: 'SPENDING', month: null, categoryId: horti });
+      const filha = await reply('quanto gastei com hortifruti?');
+      expect(filha).toContain('Mercado › Hortifruti em outubro de 2026');
+      expect(filha).toContain('Compras do mês (Bruto): R$ 32,00');
+      expect(filha).not.toContain('Por subcategoria');
     });
 
     it('resumo do mês e últimos lançamentos', async () => {

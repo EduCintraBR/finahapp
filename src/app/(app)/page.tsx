@@ -125,7 +125,11 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     [...gross.entries()]
       .map(([key, cents]) => ({ key, name: nameOf(key), cents }))
       .sort((a, b) => b.cents - a.cents),
-  );
+  ).map((s) => ({
+    ...s,
+    // D75: da pizza da Início (Gasto Bruto) para o detalhe da categoria
+    href: `/relatorios/categoria/${s.key}?mes=${toMonthParam(month)}&visao=bruto&de=inicio`,
+  }));
 
   const bars: MonthBar[] = Array.from({ length: 6 }, (_, i) => {
     const m = addMonths(sixMonthsAgo, i);

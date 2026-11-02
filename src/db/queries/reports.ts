@@ -40,47 +40,64 @@ export type Totals = Map<string, Cents>;
 export const ADJUSTMENTS_KEY = 'ajustes';
 export const NO_CATEGORY_KEY = 'sem-categoria';
 
-async function rows<T>(db: AnyDB, q: SQL): Promise<T[]> {
+export async function rows<T>(db: AnyDB, q: SQL): Promise<T[]> {
   const r = (await db.execute(q)) as unknown;
   return (Array.isArray(r) ? r : (r as { rows: T[] }).rows) as T[];
 }
 
 /** Data do Gasto Mensal (caixa) de uma despesa da conta: vencimento (ou à vista); parcela de empréstimo paga, a data do pagamento. */
-const CASH_DATE_SQL = `case when t.loan_installment_number is not null and t.status = 'POSTED' then t.posted_date else coalesce(t.due_date, t.posted_date) end`;
+export const CASH_DATE_SQL = `case when t.loan_installment_number is not null and t.status = 'POSTED' then t.posted_date else coalesce(t.due_date, t.posted_date) end`;
 
 /** Filtros de pessoa/categoria sobre a transação `alias` (a compra ou o lançamento). */
-function personFilters(f: ReportFilters, alias: string): SQL {
+export function personFilters(f: ReportFilters, alias: string): SQL {
   const a = sql.raw(alias);
   const parts: SQL[] = [];
   if (f.createdBy) parts.push(sql` and ${a}.created_by_user_id = ${f.createdBy}`);
   if (f.beneficiary === 'casal') parts.push(sql` and ${a}.beneficiary_user_id is null`);
   else if (f.beneficiary) parts.push(sql` and ${a}.beneficiary_user_id = ${f.beneficiary}`);
-  if (f.categoryId) parts.push(sql` and ${a}.category_id = ${f.categoryId}`);
+  if (f.categoryId)
+    parts.push(
+      sql` and ${a}.category_id in (select c.id from categories c where c.id = ${f.categoryId} or c.parent_id = ${f.categoryId})`,
+    );
   return sql.join(parts, sql``);
 }
 
 /** Lado conta (Pix, débito…) — some se o filtro for de cartão. */
-function accountSide(f: ReportFilters, alias: string): SQL {
+export function accountSide(f: ReportFilters, alias: string): SQL {
   if (f.cardId || f.paymentMethod === 'CREDIT_CARD') return sql` and false`;
   return f.paymentMethod ? sql` and ${sql.raw(alias)}.payment_method = ${f.paymentMethod}` : sql``;
 }
 
 /** Lado cartão — some se o filtro for de meio de pagamento da conta. */
-function cardSide(f: ReportFilters, cardColumn: string): SQL {
+export function cardSide(f: ReportFilters, cardColumn: string): SQL {
   if (f.paymentMethod && f.paymentMethod !== 'CREDIT_CARD') return sql` and false`;
   return f.cardId ? sql` and ${sql.raw(cardColumn)} = ${f.cardId}` : sql``;
 }
 
+/** Os relatórios somam pela categoria-mãe (D74): subcategoria conta na mãe; categoria de topo, nela mesma. */
+export const rollupSql = (categoryCol: string) =>
+  `coalesce((select c.parent_id from categories c where c.id = ${categoryCol}), ${categoryCol})`;
+
 const keyExpr = (key: Key, categoryCol: string, dateCol: string) =>
   key === 'category'
-    ? sql.raw(`coalesce(${categoryCol}::text, '${NO_CATEGORY_KEY}')`)
+    ? sql.raw(`coalesce(${rollupSql(categoryCol)}::text, '${NO_CATEGORY_KEY}')`)
     : sql.raw(`to_char(date_trunc('month', ${dateCol}), 'YYYY-MM-DD')`);
 
 function add(into: Totals, list: { k: string; v: string | number }[], sign = 1) {
   for (const r of list) into.set(r.k, (into.get(r.k) ?? 0) + sign * centsFromDb(r.v));
 }
 
-const anyFilter = (f: ReportFilters) => Boolean(f.createdBy || f.beneficiary || f.categoryId);
+export const anyFilter = (f: ReportFilters) => Boolean(f.createdBy || f.beneficiary || f.categoryId);
+
+/** Filtros de meio de pagamento e cartão do Gasto Bruto sobre a transação `t`. */
+export const grossSide = (f: ReportFilters): SQL =>
+  sql`${
+    f.cardId || f.paymentMethod === 'CREDIT_CARD'
+      ? sql` and t.credit_card_id is not null`
+      : f.paymentMethod
+        ? sql` and t.payment_method = ${f.paymentMethod}`
+        : sql``
+  }${f.cardId ? sql` and t.credit_card_id = ${f.cardId}` : sql``}`;
 
 /**
  * Gasto Bruto (competência): Σ EXPENSE (conta + cartão) por transaction_date − Σ estornos por
@@ -93,13 +110,7 @@ export async function grossSpend(
   key: Key,
   f: ReportFilters = {},
 ): Promise<Totals> {
-  const sideFilter = sql`${
-    f.cardId || f.paymentMethod === 'CREDIT_CARD'
-      ? sql` and t.credit_card_id is not null`
-      : f.paymentMethod
-        ? sql` and t.payment_method = ${f.paymentMethod}`
-        : sql``
-  }${f.cardId ? sql` and t.credit_card_id = ${f.cardId}` : sql``}`;
+  const sideFilter = grossSide(f);
   const purchases = await rows<{ k: string; v: string }>(
     db,
     sql`select ${keyExpr(key, 't.category_id', 't.transaction_date')} as k, sum(t.amount_cents) as v
@@ -157,7 +168,7 @@ export async function monthlySpend(
     sql`select ${
       key === 'category'
         ? sql.raw(
-            `case when i.installment_plan_id is null then '${ADJUSTMENTS_KEY}' else coalesce(t.category_id::text, '${NO_CATEGORY_KEY}') end`,
+            `case when i.installment_plan_id is null then '${ADJUSTMENTS_KEY}' else coalesce(${rollupSql('t.category_id')}::text, '${NO_CATEGORY_KEY}') end`,
           )
         : sql.raw(`to_char(date_trunc('month', v.due_date), 'YYYY-MM-DD')`)
     } as k, sum(i.amount_cents) as v

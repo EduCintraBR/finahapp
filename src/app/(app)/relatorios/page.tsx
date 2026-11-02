@@ -21,16 +21,17 @@ import {
   total,
   type ReportFilters,
 } from '@/db/queries/reports';
+import { categoryLabel } from '@/domain/categories';
 import { addMonths, formatMonthLabel, monthEnd, parseISODate, toMonthParam } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
 import { resolveMonth } from '@/lib/month';
+import { filterParams, parseReportFilters } from '@/lib/report-filters';
 import { cn } from '@/lib/utils';
 
 export const metadata: Metadata = { title: 'Relatórios' };
 
 const str = (v: string | string[] | undefined) => (typeof v === 'string' && v !== '' ? v : undefined);
-const uuid = (v: string | undefined) => (v && /^[0-9a-f-]{36}$/i.test(v) ? v : undefined);
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const shortMonth = (m: string) => {
   const { year, month } = parseISODate(m);
@@ -66,16 +67,7 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
   const sp = await searchParams;
   const month = await resolveMonth(searchParams);
   const view: View = str(sp.visao) === 'bruto' ? 'bruto' : 'mensal';
-  const meio = str(sp.meio);
-  const filters: ReportFilters = {
-    createdBy: uuid(str(sp.lancou)),
-    beneficiary: str(sp.dequem) === 'casal' ? 'casal' : uuid(str(sp.dequem)),
-    cardId: uuid(str(sp.cartao)),
-    paymentMethod:
-      meio === 'CREDIT_CARD' || meio === 'BENEFIT_CARD' || ACCOUNT_PAYMENT_METHODS.includes(meio as never)
-        ? meio
-        : undefined,
-  };
+  const filters: ReportFilters = parseReportFilters(sp);
   const activeFilters = Object.values(filters).filter(Boolean).length;
   const db = getDb();
   const end = monthEnd(month);
@@ -95,6 +87,14 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
       listActiveCards(db),
     ]);
 
+  // filtro de categoria: mãe e subcategorias ("Mercado", "Mercado › Hortifruti"); só despesas, que são o que se gasta
+  const categoryChoices = categories
+    .filter((c) => c.kind === 'EXPENSE')
+    .map((c) => ({
+      id: c.id,
+      label: categoryLabel(c.name, categories.find((p) => p.id === c.parentId)?.name ?? null),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
   const nameOf = (key: string) =>
     key === ADJUSTMENTS_KEY
       ? 'Ajustes de fatura'
@@ -108,7 +108,10 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
   const sum = total(byCategory);
   const prevSum = total(prevByCategory);
   const max = Math.max(1, ...rows.map((r) => r.cents));
-  const slices = buildSlices(rows);
+  // D75: tocar na fatia ou na categoria abre o detalhe, no mesmo mês, modo e filtros
+  const detailHref = (key: string) =>
+    `/relatorios/categoria/${key}?${new URLSearchParams({ mes: toMonthParam(month), visao: view, ...filterParams(sp) })}`;
+  const slices = buildSlices(rows).map((s) => ({ ...s, href: detailHref(s.key) }));
 
   // a série só começa no 1º mês com algum gasto: antes disso não há histórico (não é zero)
   const months = Array.from({ length: 12 }, (_, i) => addMonths(first, i));
@@ -215,6 +218,19 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
                 {cards.map((c) => (
                   <option key={c.id} value={c.id}>
                     Só {c.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect
+                name="categoria"
+                defaultValue={filters.categoryId ?? ''}
+                aria-label="Categoria"
+                className="col-span-2"
+              >
+                <option value="">Todas as categorias</option>
+                {categoryChoices.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
                   </option>
                 ))}
               </NativeSelect>
@@ -330,7 +346,12 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
                           style={{ background: r.cents > 0 ? sliceColor(i) : 'var(--muted-foreground)' }}
                           aria-hidden
                         />
-                        <span className="min-w-0 flex-1 truncate font-medium">{r.name}</span>
+                        <Link
+                          href={detailHref(r.key)}
+                          className="min-w-0 flex-1 truncate font-medium underline-offset-4 outline-none hover:underline focus-visible:underline"
+                        >
+                          {r.name}
+                        </Link>
                         <Amount cents={r.cents} className="text-right font-semibold" />
                       </div>
                       <div className="flex items-center gap-3 pl-[18px]">

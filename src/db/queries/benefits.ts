@@ -9,6 +9,7 @@ import { addMonths, compareDates, monthEnd, monthStart, type ISODate } from '@/d
 import { formatBRL, type Cents } from '@/domain/money';
 import { centsFromDb } from '@/server/context';
 import type { AnyDB } from '../client';
+import { categoryLabelSql, parentCategory } from './category-label';
 import { benefitCards, benefitWallets, categories, transactions, users } from '../schema';
 
 export type BenefitWalletView = {
@@ -145,12 +146,13 @@ export async function listBenefitMovements(
       date: transactions.postedDate,
       source: transactions.source,
       creditMonth: transactions.benefitCreditMonth,
-      categoryName: categories.name,
+      categoryName: categoryLabelSql,
       createdByName: users.name,
     })
     .from(transactions)
     .innerJoin(benefitWallets, eq(benefitWallets.id, transactions.benefitWalletId))
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
+    .leftJoin(parentCategory, eq(parentCategory.id, categories.parentId))
     .innerJoin(users, eq(users.id, transactions.createdByUserId))
     .where(
       and(
