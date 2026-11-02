@@ -1,8 +1,16 @@
 import { asc, count, eq, inArray, isNull, or, type SQL } from 'drizzle-orm';
+import { categoryLabel } from '@/domain/categories';
 import type { AnyDB } from '../client';
 import { categories, recurringTemplates, transactions, users } from '../schema';
 
-export type CategoryOption = { id: string; name: string; kind: 'EXPENSE' | 'INCOME'; icon: string | null };
+export type CategoryOption = {
+  id: string;
+  name: string;
+  kind: 'EXPENSE' | 'INCOME';
+  icon: string | null;
+  /** mãe, quando é subcategoria (D74); o ícone da subcategoria é o da mãe quando ela não tem o seu */
+  parentId: string | null;
+};
 export type UserOption = { id: string; name: string; color: string | null };
 
 /**
@@ -20,16 +28,36 @@ export async function listCategories(
       ? or(isNull(categories.archivedAt), inArray(categories.id, keep))
       : isNull(categories.archivedAt);
   return db
-    .select({ id: categories.id, name: categories.name, kind: categories.kind, icon: categories.icon })
+    .select({
+      id: categories.id,
+      name: categories.name,
+      kind: categories.kind,
+      icon: categories.icon,
+      parentId: categories.parentId,
+    })
     .from(categories)
     .where(where)
     .orderBy(asc(categories.name));
+}
+
+/** id → "Mercado › Hortifruti" (subcategoria) ou "Mercado" (D74), para textos do bot. */
+export async function categoryLabels(db: AnyDB): Promise<Map<string, string>> {
+  const rows = await db
+    .select({ id: categories.id, name: categories.name, parentId: categories.parentId })
+    .from(categories);
+  const names = new Map(rows.map((r) => [r.id, r.name]));
+  return new Map(
+    rows.map((r) => [r.id, categoryLabel(r.name, r.parentId ? (names.get(r.parentId) ?? null) : null)]),
+  );
 }
 
 export type ManagedCategory = {
   id: string;
   name: string;
   kind: 'EXPENSE' | 'INCOME';
+  parentId: string | null;
+  /** nome do ícone Lucide (categories.icon) */
+  icon: string | null;
   botAliases: string[];
   archived: boolean;
   /** lançamentos (não apagados) + fixos ativos que usam a categoria */
@@ -57,6 +85,8 @@ export async function listManagedCategories(db: AnyDB): Promise<ManagedCategory[
     id: c.id,
     name: c.name,
     kind: c.kind,
+    parentId: c.parentId,
+    icon: c.icon,
     botAliases: c.botAliases,
     archived: c.archivedAt !== null,
     usageCount: used(c.id),

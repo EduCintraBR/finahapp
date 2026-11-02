@@ -112,6 +112,38 @@ Primeiro `src/domain/card/` com testes; só depois os serviços e a UI.
 
 ---
 
+## Fase 6 — Subcategorias (D74 a D76)
+
+Pedido do usuário (02/11/2026): reclassificar cada gasto na categoria e subcategoria reais, para ter noção exata de onde o dinheiro vai.
+
+**Etapa 1 — Modelo e gestão** (D74)
+
+- [x] Regras puras (`validateParent`, `findNameClash`, `categoryLabel`) com testes em `src/domain/categories.test.ts`
+- [x] Serviço: criar subcategoria, `moveCategory` ("Mover para dentro de…"), arquivar/restaurar com a mãe, tudo com `audit_log`
+- [x] Relatórios (Bruto, Mensal, filtros) e Lançamentos somam/filtram pela mãe; teste de aceitação: a soma por categoria-mãe é idêntica à de antes de mover
+- [x] Ajustes → Categorias com subcategorias (criar "Dentro de", mover, arquivar); seletor de 2 níveis nos formulários; rótulo "Mãe › Filha" nas listas e no bot
+
+**Etapa 2 — Detalhe da categoria** (D75)
+
+- [x] `/relatorios/categoria/[id]?mes=…` a partir da pizza da Início e de Relatórios, com subtotais por subcategoria
+- [x] Troca rápida de categoria (`setTransactionCategory`) com `audit_log`, fixos ("só este"/"este e os próximos"), empréstimo bloqueado, pagamento antecipado trocando os dois
+- [x] Fatia "Outras" com a lista das categorias restantes
+
+**Etapa 3 — Filtros e bot** (D76)
+
+- [x] Filtro por subcategoria em Lançamentos e Relatórios
+- [x] Apelidos próprios de subcategoria no bot
+
+**Ajuste depois do teste em dev** (D77, 02/11/2026)
+
+- [x] Categorias num menu próprio (`/categorias`, "Mais" e sidebar), fora de Ajustes; `/ajustes/categorias` redireciona
+- [x] Abas Categorias e Subcategorias com cadastros separados; subcategoria exige a categoria
+- [x] Edição da categoria lista as subcategorias, com remover (arquiva) e + (cadastro com a categoria já escolhida); edição da subcategoria troca a categoria dela
+
+**Pronto quando:** reclassificar qualquer lançamento (conta, cartão, crediário, benefício) em categoria/subcategoria muda só a divisão por categoria, nunca o total de nenhum mês.
+
+---
+
 ## Depois da v1 (backlog)
 
 - Migração para o NAS (Tailscale, bot em polling)

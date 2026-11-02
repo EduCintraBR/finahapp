@@ -70,7 +70,8 @@ const WARM_ROUTES = [
   '/relatorios',
   '/relatorios/projecao',
   '/ajustes',
-  '/ajustes/categorias',
+  '/categorias',
+  '/categorias/subcategorias',
 ];
 
 async function warmUp() {

@@ -4,7 +4,16 @@
  * do vencimento. Enquanto o ciclo está ativo as faturas seguem mensais, no mesmo dia; um ciclo novo só começa
  * quando todas as faturas já venceram e estão pagas. Juros: o usuário informa o valor original e o total a pagar.
  */
-import { addDays, addMonths, compareDates, diffDays, monthStart, type ISODate } from '../dates';
+import {
+  addDays,
+  addMonths,
+  compareDates,
+  dateInMonth,
+  diffDays,
+  formatDateBR,
+  monthStart,
+  type ISODate,
+} from '../dates';
 import { assertCents, type Cents } from '../money';
 import { cardRule, resolveInvoice, windowFor, type CardTerms, type InvoiceWindow } from './invoices';
 
@@ -151,4 +160,67 @@ export function placePurchase(
     card.dueDay,
     { firstDueDays: card.firstDueDays, closeBeforeDays: card.closeBeforeDays },
   );
+}
+
+export type InvoiceDates = {
+  id: string;
+  referenceMonth: ISODate;
+  closingDate: ISODate;
+  dueDate: ISODate;
+  paid: boolean;
+};
+
+export type DueDayStep = {
+  id: string;
+  referenceMonth: ISODate;
+  closingDate: ISODate;
+  dueDate: ISODate;
+  /** o fechamento anda para trás (`earlier`) ou para a frente (`later`) */
+  direction: 'earlier' | 'later';
+};
+
+/**
+ * Mudar o dia do vencimento do crediário (D73): a fatura escolhida e todas as seguintes passam a vencer nesse dia
+ * (último dia do mês nos meses curtos) e a fechar `closeBeforeDays` dias antes. Fatura paga não muda; fatura que já
+ * fechou só muda o vencimento (as compras dela já estão definidas). Os passos vêm na ordem em que podem ser aplicados
+ * sem um fechamento atropelar o da fatura vizinha: primeiro os que fecham mais cedo (do mais antigo ao mais novo),
+ * depois os que fecham mais tarde (do mais novo ao mais antigo).
+ */
+export function planDueDayChange(p: {
+  invoices: readonly InvoiceDates[];
+  fromMonth: ISODate;
+  newDay: number;
+  closeBeforeDays: number;
+  today: ISODate;
+}): { steps: DueDayStep[] } | { error: string } {
+  const from = monthStart(p.fromMonth);
+  const chosen = p.invoices.find((i) => i.referenceMonth === from);
+  if (!chosen) return { error: 'Fatura não encontrada.' };
+  if (chosen.paid) {
+    return { error: 'Esta fatura já foi paga: escolha uma fatura aberta ou futura para mudar o dia.' };
+  }
+  const steps: DueDayStep[] = [];
+  const ordered = [...p.invoices].sort((a, b) => compareDates(a.referenceMonth, b.referenceMonth));
+  for (const i of ordered) {
+    if (compareDates(i.referenceMonth, from) < 0 || i.paid) continue;
+    const dueDate = dateInMonth(i.referenceMonth, p.newDay);
+    const closed = compareDates(p.today, i.closingDate) >= 0;
+    const closingDate = closed ? i.closingDate : addDays(dueDate, -p.closeBeforeDays);
+    if (compareDates(closingDate, dueDate) >= 0) {
+      return {
+        error: `O vencimento de ${formatDateBR(dueDate)} precisa ser depois do fechamento (${formatDateBR(closingDate)}).`,
+      };
+    }
+    if (dueDate === i.dueDate && closingDate === i.closingDate) continue;
+    steps.push({
+      id: i.id,
+      referenceMonth: i.referenceMonth,
+      closingDate,
+      dueDate,
+      direction: compareDates(closingDate, i.closingDate) > 0 ? 'later' : 'earlier',
+    });
+  }
+  const earlier = steps.filter((s) => s.direction === 'earlier');
+  const later = steps.filter((s) => s.direction === 'later').reverse();
+  return { steps: [...earlier, ...later] };
 }

@@ -19,6 +19,7 @@ import { alias } from 'drizzle-orm/pg-core';
 import { overdueCutoff } from '@/domain/account/rules';
 import { monthEnd, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
+import { categoryIconSql, categoryLabelSql, parentCategory } from './category-label';
 import {
   balanceCheckpoints,
   categories,
@@ -45,8 +46,8 @@ const entryColumns = {
   paymentMethod: transactions.paymentMethod,
   creditCardId: transactions.creditCardId,
   categoryId: transactions.categoryId,
-  categoryName: categories.name,
-  categoryIcon: categories.icon,
+  categoryName: categoryLabelSql,
+  categoryIcon: categoryIconSql,
   date: effectiveDate,
   transactionDate: transactions.transactionDate,
   dueDate: transactions.dueDate,
@@ -71,6 +72,7 @@ const baseSelect = (db: AnyDB) =>
     .select(entryColumns)
     .from(transactions)
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
+    .leftJoin(parentCategory, eq(parentCategory.id, categories.parentId))
     .innerJoin(createdBy, eq(createdBy.id, transactions.createdByUserId))
     .leftJoin(beneficiary, eq(beneficiary.id, transactions.beneficiaryUserId));
 
@@ -109,7 +111,13 @@ export async function listEntries(db: AnyDB, f: EntryFilters) {
       : inMonth,
     f.kind ? eq(transactions.kind, f.kind) : undefined,
     f.status ? eq(transactions.status, f.status) : undefined,
-    f.categoryId ? eq(transactions.categoryId, f.categoryId) : undefined,
+    // categoria-mãe inclui as subcategorias (D74); subcategoria filtra só ela
+    f.categoryId
+      ? inArray(
+          transactions.categoryId,
+          sql`(select c.id from categories c where c.id = ${f.categoryId} or c.parent_id = ${f.categoryId})`,
+        )
+      : undefined,
     f.paymentMethod
       ? eq(transactions.paymentMethod, f.paymentMethod as (typeof transactions.$inferSelect)['paymentMethod'])
       : undefined,

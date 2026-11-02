@@ -8,6 +8,7 @@ import { availableLimit, invoiceState, remainingToPay, type InvoiceState } from 
 import { placePurchase, purchaseInterest } from '@/domain/card/store-credit';
 import { compareDates, monthStart, type ISODate } from '@/domain/dates';
 import type { AnyDB } from '../client';
+import { categoryIconSql, categoryLabelSql, parentCategory } from './category-label';
 import {
   anticipationRecords,
   categories,
@@ -242,8 +243,8 @@ export async function getInvoiceDetail(db: AnyDB, invoiceId: string, today: ISOD
       installmentNumber: invoiceItems.installmentNumber,
       planId: invoiceItems.installmentPlanId,
       installmentCount: installmentPlans.installmentCount,
-      categoryName: categories.name,
-      categoryIcon: categories.icon,
+      categoryName: categoryLabelSql,
+      categoryIcon: categoryIconSql,
       createdById: transactions.createdByUserId,
       createdByName: users.name,
       createdByColor: users.color,
@@ -252,6 +253,7 @@ export async function getInvoiceDetail(db: AnyDB, invoiceId: string, today: ISOD
     .leftJoin(installmentPlans, eq(installmentPlans.id, invoiceItems.installmentPlanId))
     .leftJoin(transactions, eq(transactions.id, installmentPlans.transactionId))
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
+    .leftJoin(parentCategory, eq(parentCategory.id, categories.parentId))
     .leftJoin(users, eq(users.id, transactions.createdByUserId))
     // Compra excluída (deleted_at) some da fatura; cancelada por estorno continua, como histórico.
     .where(and(eq(invoiceItems.invoiceId, invoiceId), isNull(transactions.deletedAt)))
@@ -321,13 +323,14 @@ export async function getPlanDetail(db: AnyDB, planId: string, today: ISODate) {
       plan: installmentPlans,
       purchase: transactions,
       card: creditCards,
-      categoryName: categories.name,
+      categoryName: categoryLabelSql,
       createdByName: users.name,
     })
     .from(installmentPlans)
     .innerJoin(transactions, eq(transactions.id, installmentPlans.transactionId))
     .innerJoin(creditCards, eq(creditCards.id, installmentPlans.creditCardId))
     .leftJoin(categories, eq(categories.id, transactions.categoryId))
+    .leftJoin(parentCategory, eq(parentCategory.id, categories.parentId))
     .innerJoin(users, eq(users.id, transactions.createdByUserId))
     .where(eq(installmentPlans.id, planId));
   if (!head || head.purchase.deletedAt) return null;
