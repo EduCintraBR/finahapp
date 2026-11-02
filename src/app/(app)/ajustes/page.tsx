@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { LogOut } from 'lucide-react';
 import { eq } from 'drizzle-orm';
 import { auth, signOut } from '@/auth';
@@ -84,17 +83,6 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent>
           <ThemeSwitch />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Categorias</CardTitle>
-          <CardDescription>Crie, renomeie, ajuste os apelidos do bot ou arquive categorias.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link href="/ajustes/categorias">Gerenciar categorias</Link>
-          </Button>
         </CardContent>
       </Card>
       {account && (

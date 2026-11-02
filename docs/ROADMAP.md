@@ -134,6 +134,12 @@ Pedido do usuário (02/11/2026): reclassificar cada gasto na categoria e subcate
 - [x] Filtro por subcategoria em Lançamentos e Relatórios
 - [x] Apelidos próprios de subcategoria no bot
 
+**Ajuste depois do teste em dev** (D77, 02/11/2026)
+
+- [x] Categorias num menu próprio (`/categorias`, "Mais" e sidebar), fora de Ajustes; `/ajustes/categorias` redireciona
+- [x] Abas Categorias e Subcategorias com cadastros separados; subcategoria exige a categoria
+- [x] Edição da categoria lista as subcategorias, com remover (arquiva) e + (cadastro com a categoria já escolhida); edição da subcategoria troca a categoria dela
+
 **Pronto quando:** reclassificar qualquer lançamento (conta, cartão, crediário, benefício) em categoria/subcategoria muda só a divisão por categoria, nunca o total de nenhum mês.
 
 ---

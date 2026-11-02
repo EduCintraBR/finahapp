@@ -22,7 +22,9 @@ describe('activeItem', () => {
     expect(activeItem(`/cartoes/faturas/${id}`, bottom)).toBe(NAV_ITEMS.cards);
     expect(activeItem(`/beneficios/${id}`, bottom)).toBe(NAV_ITEMS.benefits);
     expect(activeItem('/conta/conferencia', bottom)).toBe(NAV_ITEMS.checkpoint);
-    expect(activeItem('/ajustes/categorias', bottom)).toBe(NAV_ITEMS.settings);
+    expect(activeItem('/categorias', bottom)).toBe(NAV_ITEMS.categories);
+    expect(activeItem(`/categorias/${id}`, bottom)).toBe(NAV_ITEMS.categories);
+    expect(activeItem('/categorias/subcategorias/nova', bottom)).toBe(NAV_ITEMS.categories);
     expect(activeItem('/mais', bottom)).toBe(NAV_ITEMS.more);
   });
 
