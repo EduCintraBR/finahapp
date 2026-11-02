@@ -122,27 +122,52 @@ export async function createCategory(
   });
 }
 
+/** Subcategoria nasce sempre dentro de uma categoria e herda o tipo dela (D77). O tipo nunca muda (D49). */
+export async function createSubcategory(
+  ctx: ServiceCtx,
+  input: { parentId: string; name: string; aliases: string[] },
+): Promise<{ id: string }> {
+  const [parent] = await ctx.db
+    .select({ kind: categories.kind })
+    .from(categories)
+    .where(eq(categories.id, input.parentId));
+  if (!parent) throw new UserError('Categoria não encontrada.');
+  return createCategory(ctx, { ...input, kind: parent.kind });
+}
+
+/**
+ * Renomeia e troca os apelidos. Com `parentId`, também troca a subcategoria de categoria na mesma transação
+ * (edição da subcategoria, D77), com as mesmas regras de `moveCategory`.
+ */
 export async function updateCategory(
   ctx: ServiceCtx,
   id: string,
-  input: { name: string; aliases: string[] },
+  input: { name: string; aliases: string[]; parentId?: string | null },
 ) {
   return ctx.db.transaction(async (tx) => {
     const row = await loadForUpdate(tx, id);
+    const parentId = input.parentId === undefined ? row.parentId : input.parentId;
+    const moves = parentId !== row.parentId;
+    if (moves) {
+      await checkParent(tx, row, parentId);
+      if (row.archivedAt && parentId !== null) throw new UserError('Restaure a categoria antes de movê-la.');
+    }
     const others = (await sameKind(tx, row.kind)).filter((o) => o.id !== id);
     let name = row.name;
     if (input.name.replace(/\s+/g, ' ').trim() !== row.name) {
       if (isProtectedCategory(row.kind, row.name)) {
         throw new UserError(`"${row.name}" é usada pelo bot e pelas importações e não pode ser renomeada.`);
       }
-      name = checkName(input.name, await siblingsOf(tx, row.kind, row.parentId), id);
+      name = checkName(input.name, await siblingsOf(tx, row.kind, parentId), id);
+    } else if (moves) {
+      checkName(row.name, await siblingsOf(tx, row.kind, parentId), id);
     }
     // só confere os apelidos que mudaram (não bloqueia por conflito antigo)
     const added = input.aliases.filter((a) => !row.botAliases.includes(a));
     if (!row.archivedAt) checkAliases(added, others);
     const [updated] = await tx
       .update(categories)
-      .set({ name, botAliases: input.aliases })
+      .set({ name, botAliases: input.aliases, parentId })
       .where(eq(categories.id, id))
       .returning();
     await audit(tx, {

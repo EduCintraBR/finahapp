@@ -56,6 +56,8 @@ export type ManagedCategory = {
   name: string;
   kind: 'EXPENSE' | 'INCOME';
   parentId: string | null;
+  /** nome do ícone Lucide (categories.icon) */
+  icon: string | null;
   botAliases: string[];
   archived: boolean;
   /** lançamentos (não apagados) + fixos ativos que usam a categoria */
@@ -84,6 +86,7 @@ export async function listManagedCategories(db: AnyDB): Promise<ManagedCategory[
     name: c.name,
     kind: c.kind,
     parentId: c.parentId,
+    icon: c.icon,
     botAliases: c.botAliases,
     archived: c.archivedAt !== null,
     usageCount: used(c.id),

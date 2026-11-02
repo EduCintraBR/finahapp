@@ -133,7 +133,7 @@ Cada fase termina com o app utilizável. Marque os itens à medida que forem con
 - [x] Relatórios: "Filtros" num painel, com "Limpar" à vista quando há filtro
 - [x] `MonthField` (select com o mês por extenso, "Outubro de 2026") no lugar dos 8 `type=month`; `FilePicker` em pt-BR ("Escolher arquivo") nas importações; `CategoryPicker` também no fixo, no parcelamento em andamento e na edição de compra; `StickyActions` nos cadastros (fixo, empréstimo, cartão, benefício, parcelamento em andamento); `FormCard` (sem card dentro de card no celular) nas telas de cadastro
 - [x] `ActionButton` com gatilho só de ícone; `SheetAction` com conteúdo próprio no botão
-- [ ] Categorias (`/ajustes/categorias`): as linhas ainda abrem a edição com `<details>`; não corta texto, fica para uma revisão futura
+- [x] Categorias: as linhas abrem uma tela de edição (`/categorias/[id]`) em vez do `<details>` (D77, 02/11/2026)
 - [ ] Revisão da importação (`/importacoes/[id]`): "Não é esse? Trocar…" ainda é `<details>` → **Fase G** (já prevista lá)
 
 **Pronto quando:** nenhum texto relevante é cortado em 375px e não sobra nenhum `<details>` para ação principal. ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico) ✅ 01/11/2026 (sobram `<details>` só em ações secundárias: editar categoria, trocar o match na importação e "Ver em tabela" no gráfico)

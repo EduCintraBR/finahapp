@@ -29,6 +29,7 @@ import { deriveKey, seal } from '../src/server/auth/secret-box';
 import { base32Encode, totpCode, totpStep } from '../src/server/auth/totp';
 import { createBenefitCard, createBenefitSpend, generateBenefitCredits } from '../src/server/benefits';
 import { createCardPurchase, createOnboardingPlan } from '../src/server/card-purchases';
+import { createSubcategory } from '../src/server/categories';
 import { createCard } from '../src/server/cards';
 import { confirmPayment, createEntry } from '../src/server/entries';
 import { invoiceTotals, payInvoice } from '../src/server/invoice-ops';
@@ -99,6 +100,9 @@ async function populate(db: AnyDB, hoje: ISODate) {
     cats.find((c) => c.name === name && c.kind === kind)!.id;
   const who = (w?: string) => (w === 'v' ? vivi : w === 'e' ? edu : undefined);
   const ctx = (day: ISODate = hoje, userId = edu) => ({ db, userId, today: day });
+  // subcategorias (D77): as telas do menu Categorias não ficam vazias
+  for (const name of ['Hortifruti', 'Açougue'])
+    await createSubcategory(ctx(), { parentId: cat('Mercado'), name, aliases: [] });
 
   const tpl = (o: Record<string, string>) =>
     createTemplate(ctx(start), S.templateInput.parse({ startMonth: month(-2), paymentMethod: 'PIX', ...o }));
@@ -403,6 +407,7 @@ async function detailIds() {
       benefit: await one(`select id from benefit_cards limit 1`),
       template: await one(`select id from recurring_templates where description = 'Aluguel apartamento'`),
       batch: await one(`select id from import_batches order by created_at desc limit 1`),
+      category: await one(`select id from categories where name = 'Mercado' and parent_id is null`),
     };
   } finally {
     await sql.end();
@@ -598,7 +603,11 @@ async function main() {
     ['resumo-entrou', '/resumo/entrou'],
     ['resumo-saiu', '/resumo/saiu'],
     ['ajustes', '/ajustes'],
-    ['categorias', '/ajustes/categorias'],
+    ['categorias', '/categorias'],
+    ['subcategorias', '/categorias/subcategorias'],
+    ['categoria', `/categorias/${ids.category}`],
+    ['categoria-nova', '/categorias/nova'],
+    ['subcategoria-nova', `/categorias/subcategorias/nova?categoria=${ids.category}`],
   ];
 
   const server = startServer();

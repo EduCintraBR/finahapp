@@ -9,6 +9,7 @@ import {
   Repeat,
   Scale,
   Settings,
+  Tags,
   Utensils,
   type LucideIcon,
 } from 'lucide-react';
@@ -67,11 +68,17 @@ export const NAV_ITEMS = {
     description: 'Comparar com o saldo do banco',
     match: ['/conta'],
   },
+  categories: {
+    href: '/categorias',
+    label: 'Categorias',
+    icon: Tags,
+    description: 'Categorias e subcategorias dos gastos e receitas',
+  },
   settings: {
     href: '/ajustes',
     label: 'Ajustes',
     icon: Settings,
-    description: 'Senha, tema, categorias e conta',
+    description: 'Senha, tema e conta',
   },
 } satisfies Record<string, NavItem>;
 
@@ -88,6 +95,7 @@ export const MORE_GROUPS: { title: string; items: NavItem[] }[] = [
     items: [NAV_ITEMS.cards, NAV_ITEMS.benefits, NAV_ITEMS.recurring, NAV_ITEMS.loans],
   },
   { title: 'Conta', items: [NAV_ITEMS.import, NAV_ITEMS.checkpoint] },
+  { title: 'Cadastros', items: [NAV_ITEMS.categories] },
   { title: 'App', items: [NAV_ITEMS.settings] },
 ];
 

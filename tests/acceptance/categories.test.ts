@@ -9,7 +9,13 @@ import { listEntries } from '@/db/queries/entries';
 import { listCategories, listManagedCategories } from '@/db/queries/lookups';
 import { grossSpend, monthlySpend } from '@/db/queries/reports';
 import { seed, seedConfigFromEnv } from '@/db/seed';
-import { createCategory, moveCategory, setCategoryArchived, updateCategory } from '@/server/categories';
+import {
+  createCategory,
+  createSubcategory,
+  moveCategory,
+  setCategoryArchived,
+  updateCategory,
+} from '@/server/categories';
 import type { ServiceCtx } from '@/server/context';
 import { createEntry, updateEntry } from '@/server/entries';
 import { freshDb } from './helpers';
@@ -335,5 +341,54 @@ describe('subcategorias (D74)', () => {
     await expect(setCategoryArchived(ctx, id, false)).rejects.toThrow('Restaure a categoria "Mercado"');
     await setCategoryArchived(ctx, cat['Mercado']!, false);
     await expect(setCategoryArchived(ctx, id, false)).resolves.toBeUndefined();
+  });
+
+  it('subcategoria nova herda o tipo da categoria escolhida (D77)', async () => {
+    const { id } = await createSubcategory(ctx, { parentId: cat['Salário CLT']!, name: '13º', aliases: [] });
+    const [row] = await q<{ kind: string; parent_id: string }>(
+      `select kind, parent_id from categories where id = $1`,
+      [id],
+    );
+    expect(row).toEqual({ kind: 'INCOME', parent_id: cat['Salário CLT'] });
+    await expect(
+      createSubcategory(ctx, { parentId: '0b7c1f6e-3a1d-4c4e-9a52-0d0c6c2b7a11', name: 'X', aliases: [] }),
+    ).rejects.toThrow('Categoria não encontrada.');
+  });
+
+  it('editar a subcategoria troca nome, apelidos e categoria numa transação só (D77)', async () => {
+    const { id } = await sub('Aplicativo', cat['Lazer']!);
+    await entry(id, 'Corrida');
+    await updateCategory(ctx, id, {
+      name: 'Apps de corrida',
+      aliases: ['corrida app'],
+      parentId: cat['Transporte']!,
+    });
+    const [row] = await q<{ name: string; parent_id: string; bot_aliases: string[] }>(
+      `select name, parent_id, bot_aliases from categories where id = $1`,
+      [id],
+    );
+    expect(row).toEqual({
+      name: 'Apps de corrida',
+      parent_id: cat['Transporte'],
+      bot_aliases: ['corrida app'],
+    });
+    expect((await gross()).get(cat['Transporte']!)).toBe(5_000); // o histórico vai junto
+    expect((await gross()).get(cat['Lazer']!)).toBeUndefined();
+    const logs = await q(`select 1 from audit_log where entity = 'categories' and entity_id = $1`, [id]);
+    expect(logs).toHaveLength(2); // criação + uma edição
+
+    // nome repetido na categoria nova: nada muda (nem a categoria, nem o nome)
+    await sub('Ônibus', cat['Lazer']!);
+    await expect(
+      updateCategory(ctx, id, { name: 'onibus', aliases: ['corrida app'], parentId: cat['Lazer']! }),
+    ).rejects.toThrow('Já existe uma categoria chamada "Ônibus"');
+    await expect(
+      updateCategory(ctx, id, { name: 'Apps de corrida', aliases: [], parentId: cat['Salário CLT']! }),
+    ).rejects.toThrow('mesmo tipo');
+    const [same] = await q<{ name: string; parent_id: string }>(
+      `select name, parent_id from categories where id = $1`,
+      [id],
+    );
+    expect(same).toEqual({ name: 'Apps de corrida', parent_id: cat['Transporte'] });
   });
 });
