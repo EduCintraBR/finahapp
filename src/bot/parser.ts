@@ -185,7 +185,7 @@ Decida primeiro:
 Para LANÇAMENTO:
 - "kind": EXPENSE para gasto; INCOME para dinheiro que ENTROU ("recebi", "caiu", "salário", "me pagaram", "pix recebido", "reembolso").
 - "amount": copie o valor exatamente como o usuário escreveu (ex.: "180", "12,50", "1.234,56"). Não converta, não arredonde, não some.
-- "category_id": escolha pelo id da lista de categorias do mesmo tipo (despesa/receita), usando o nome e os apelidos. Se nenhuma servir com segurança, use null.
+- "category_id": escolha pelo id da lista de categorias do mesmo tipo (despesa/receita), usando o nome e os apelidos. Subcategorias aparecem como "Categoria › Subcategoria": se a mensagem citar a subcategoria (pelo nome ou apelido), escolha a subcategoria; se citar só a categoria, escolha a categoria. Se nenhuma servir com segurança, use null.
 - "payment_method": PIX, DEBIT (débito), CASH (dinheiro/espécie), BOLETO, BANK_TRANSFER (TED/transferência), AUTO_DEBIT (débito automático), CREDIT_CARD (cartão de crédito: "no crédito", o nome ou apelido de um cartão da lista, ou compra parcelada), OTHER. Se não foi dito, use null. Receita nunca é CREDIT_CARD.
 - "card_id": se for cartão de crédito, o id do cartão da lista (pelo nome ou apelido). Se não der para saber qual, null.
 - "installments": número de parcelas se a mensagem disser ("em 3x", "3 vezes"); à vista = null.
@@ -198,7 +198,7 @@ Para PERGUNTA, "query_type":
 - LIMIT: limite disponível dos cartões ("limite do nubank", "quanto sobra de limite").
 - PENDING: contas a pagar/receber pendentes ("o que falta pagar?", "contas do mês", "pendentes de novembro").
 - INVOICE: fatura de um cartão ("fatura do nubank", "resumo da fatura de outubro").
-- SPENDING: quanto se gastou ("quanto gastei esse mês?", "gastos com mercado em setembro"); se citar uma categoria, preencha query_category_id.
+- SPENDING: quanto se gastou ("quanto gastei esse mês?", "gastos com mercado em setembro"); se citar uma categoria, preencha query_category_id (a categoria já inclui as suas subcategorias; se citar uma subcategoria, use o id dela).
 - MONTH_SUMMARY: resumo do mês (entrou, saiu, o que falta).
 - RECENT: últimos lançamentos ("o que lancei por último?").
 - Se citar um cartão, preencha query_card_id com o id da lista.

@@ -219,7 +219,31 @@ export async function spendingText(
     `Compras do mês (Bruto): ${formatBRL(total(gross))}`,
     `Sai da conta no mês (Mensal): ${formatBRL(total(monthly))}`,
   ];
-  if (!categoryId) {
+  if (categoryId) {
+    // categoria-mãe: o total já inclui as subcategorias; mostra quanto foi para cada uma (D76)
+    const kids = await db
+      .select({ id: categories.id, name: categories.name })
+      .from(categories)
+      .where(eq(categories.parentId, categoryId));
+    if (kids.length > 0) {
+      const perKid = await Promise.all(
+        kids.map(async (k) => ({
+          name: k.name,
+          cents: total(await grossSpend(db, m, to, 'category', { categoryId: k.id })),
+        })),
+      );
+      const direct = total(gross) - perKid.reduce((s, k) => s + k.cents, 0);
+      const parts = [...perKid, { name: 'Sem subcategoria', cents: direct }]
+        .filter((p) => p.cents !== 0)
+        .sort((a, b) => b.cents - a.cents);
+      if (parts.length > 0)
+        lines.push(
+          '',
+          'Por subcategoria (compras):',
+          ...parts.map((p) => `• ${p.name} — ${formatBRL(p.cents)}`),
+        );
+    }
+  } else {
     const top = [...gross.entries()]
       .filter(([, v]) => v > 0)
       .sort((a, b) => b[1] - a[1])

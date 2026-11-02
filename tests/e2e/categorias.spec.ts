@@ -137,7 +137,20 @@ test('subcategoria: criar dentro de uma categoria, escolher em 2 passos, ver o r
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('link', { name: /Feira da semana/ })).toContainText('Mercado › Hortifruti');
 
+  // filtro por subcategoria em Relatórios (D76): só o que foi para ela; a mãe inclui a filha
+  await page.goto('/relatorios?visao=bruto');
+  await page.getByRole('button', { name: /^Filtros/ }).click();
+  await page.getByLabel('Categoria', { exact: true }).selectOption({ label: 'Mercado › Hortifruti' });
+  await page.getByRole('button', { name: 'Filtrar', exact: true }).click();
+  await expect(page).toHaveURL(/categoria=/);
+  await expect(page.getByTestId('report-total')).toHaveText(/32,00/);
+  await page.getByRole('button', { name: /^Filtros/ }).click();
+  await page.getByLabel('Categoria', { exact: true }).selectOption({ label: 'Mercado' });
+  await page.getByRole('button', { name: 'Filtrar', exact: true }).click();
+  await expect(page.getByTestId('report-total')).toHaveText(/32,00/); // Mercado só tem a Feira neste banco
+
   // limpa: exclui o lançamento e arquiva a subcategoria (os outros testes escolhem "Mercado" direto)
+  await page.goto('/lancamentos');
   await page.getByRole('link', { name: /Feira da semana/ }).click();
   await moreAction(page, 'Excluir');
   await page.getByRole('alertdialog').getByRole('button', { name: 'Excluir' }).click();

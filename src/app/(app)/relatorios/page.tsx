@@ -21,6 +21,7 @@ import {
   total,
   type ReportFilters,
 } from '@/db/queries/reports';
+import { categoryLabel } from '@/domain/categories';
 import { addMonths, formatMonthLabel, monthEnd, parseISODate, toMonthParam } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import { ACCOUNT_PAYMENT_METHODS, PAYMENT_METHOD_LABEL } from '@/lib/labels';
@@ -86,6 +87,14 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
       listActiveCards(db),
     ]);
 
+  // filtro de categoria: mãe e subcategorias ("Mercado", "Mercado › Hortifruti"); só despesas, que são o que se gasta
+  const categoryChoices = categories
+    .filter((c) => c.kind === 'EXPENSE')
+    .map((c) => ({
+      id: c.id,
+      label: categoryLabel(c.name, categories.find((p) => p.id === c.parentId)?.name ?? null),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
   const nameOf = (key: string) =>
     key === ADJUSTMENTS_KEY
       ? 'Ajustes de fatura'
@@ -209,6 +218,19 @@ export default async function ReportsPage({ searchParams }: PageProps<'/relatori
                 {cards.map((c) => (
                   <option key={c.id} value={c.id}>
                     Só {c.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <NativeSelect
+                name="categoria"
+                defaultValue={filters.categoryId ?? ''}
+                aria-label="Categoria"
+                className="col-span-2"
+              >
+                <option value="">Todas as categorias</option>
+                {categoryChoices.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
                   </option>
                 ))}
               </NativeSelect>

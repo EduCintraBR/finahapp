@@ -131,8 +131,8 @@ Pedido do usuário (02/11/2026): reclassificar cada gasto na categoria e subcate
 
 **Etapa 3 — Filtros e bot** (D76)
 
-- [ ] Filtro por subcategoria em Lançamentos e Relatórios
-- [ ] Apelidos próprios de subcategoria no bot
+- [x] Filtro por subcategoria em Lançamentos e Relatórios
+- [x] Apelidos próprios de subcategoria no bot
 
 **Pronto quando:** reclassificar qualquer lançamento (conta, cartão, crediário, benefício) em categoria/subcategoria muda só a divisão por categoria, nunca o total de nenhum mês.
 
