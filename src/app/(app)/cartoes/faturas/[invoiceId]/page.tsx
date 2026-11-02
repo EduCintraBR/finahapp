@@ -43,6 +43,11 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
   for (const i of items) byDay.set(i.postingDate, [...(byDay.get(i.postingDate) ?? []), i]);
   const groups = [...byDay].sort(([a], [b]) => compareDates(b, a));
   const closingEditable = compareDates(hoje, inv.closingDate) < 0;
+  // crediário (D73): o vencimento pode valer também para as faturas seguintes (fatura paga não entra)
+  const storeCredit =
+    card.kind === 'STORE_CREDIT' && card.closeBeforeDays !== null && inv.state !== 'PAID'
+      ? { closeBeforeDays: card.closeBeforeDays }
+      : undefined;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 lg:max-w-5xl">
@@ -139,9 +144,15 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
             )}
 
             <SheetAction
-              label="O banco mudou as datas desta fatura?"
-              title="Datas da fatura"
-              description="Mudar o fechamento realoca as compras afetadas."
+              label={
+                storeCredit ? 'Corrigir o vencimento desta fatura' : 'O banco mudou as datas desta fatura?'
+              }
+              title={storeCredit ? 'Vencimento da fatura' : 'Datas da fatura'}
+              description={
+                storeCredit
+                  ? 'O cálculo automático pode errar por um dia. Mudar o fechamento realoca as compras afetadas.'
+                  : 'Mudar o fechamento realoca as compras afetadas.'
+              }
               variant="ghost"
               className="text-muted-foreground"
             >
@@ -150,6 +161,7 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
                 closingDate={inv.closingDate}
                 dueDate={inv.dueDate}
                 closingEditable={closingEditable}
+                storeCredit={storeCredit}
               />
             </SheetAction>
           </>
