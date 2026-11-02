@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  categoryChangeBlock,
   categoryLabel,
   findAliasConflicts,
   findNameClash,
@@ -115,5 +116,27 @@ describe('subcategorias (D74)', () => {
   it('rótulo "Mãe › Filha" só quando há mãe', () => {
     expect(categoryLabel('Hortifruti', 'Mercado')).toBe('Mercado › Hortifruti');
     expect(categoryLabel('Mercado', null)).toBe('Mercado');
+  });
+});
+
+describe('trocar a categoria de um lançamento (D75)', () => {
+  const base = { kind: 'EXPENSE', loanId: null, benefitWalletId: null } as const;
+
+  it('despesa e receita comuns podem trocar', () => {
+    expect(categoryChangeBlock(base)).toBeNull();
+    expect(categoryChangeBlock({ ...base, kind: 'INCOME' })).toBeNull();
+    expect(categoryChangeBlock({ ...base, benefitWalletId: 'w' })).toBeNull(); // gasto no cartão de benefícios
+  });
+
+  it('empréstimo (parcela ou valor recebido) é bloqueado', () => {
+    expect(categoryChangeBlock({ ...base, loanId: 'l' })).toContain('empréstimo');
+    expect(categoryChangeBlock({ ...base, kind: 'INCOME', loanId: 'l' })).toContain('empréstimo');
+  });
+
+  it('crédito de benefício, pagamento de fatura e antecipação não têm categoria para trocar', () => {
+    expect(categoryChangeBlock({ ...base, kind: 'INCOME', benefitWalletId: 'w' })).toContain('benefício');
+    expect(categoryChangeBlock({ ...base, kind: 'INVOICE_PAYMENT' })).toContain('não tem categoria');
+    expect(categoryChangeBlock({ ...base, kind: 'ANTICIPATION_PAYMENT' })).toContain('não tem categoria');
+    expect(categoryChangeBlock({ ...base, kind: 'TRANSFER_IN' })).toContain('não tem categoria');
   });
 });

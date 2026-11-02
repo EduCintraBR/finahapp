@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Bar,
   BarChart,
@@ -15,7 +17,8 @@ import {
 import type { NameType, ValueType } from 'recharts/types/component/DefaultTooltipContent';
 import { formatBRL } from '@/domain/money';
 
-export type Slice = { key: string; name: string; cents: number; color: string };
+/** `href`: para onde ir ao tocar na fatia ou na legenda (detalhe da categoria, D75). */
+export type Slice = { key: string; name: string; cents: number; color: string; href?: string };
 export type MonthBar = { month: string; label: string; cents: number; selected: boolean };
 
 const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part * 100) / whole) : 0);
@@ -37,6 +40,7 @@ export function CategoryDonut({
   /** false quando a tela mostra a sua própria lista ao lado (Relatórios) */
   legend?: boolean;
 }) {
+  const router = useRouter();
   if (slices.length === 0 || totalCents <= 0) {
     return <p className="py-8 text-center text-sm text-muted-foreground">Sem gastos neste mês ainda.</p>;
   }
@@ -61,7 +65,12 @@ export function CategoryDonut({
               isAnimationActive={false}
             >
               {slices.map((s) => (
-                <Cell key={s.key} fill={s.color} />
+                <Cell
+                  key={s.key}
+                  fill={s.color}
+                  className={s.href ? 'cursor-pointer' : undefined}
+                  onClick={s.href ? () => router.push(s.href!) : undefined}
+                />
               ))}
             </Pie>
             <Tooltip content={(props) => <DonutTooltip {...props} total={totalCents} />} />
@@ -77,7 +86,16 @@ export function CategoryDonut({
           {slices.map((s) => (
             <li key={s.key} className="flex items-center gap-2 text-sm">
               <span className="size-2.5 shrink-0 rounded-full" style={{ background: s.color }} aria-hidden />
-              <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              {s.href ? (
+                <Link
+                  href={s.href}
+                  className="min-w-0 flex-1 truncate underline-offset-4 outline-none hover:underline focus-visible:underline"
+                >
+                  {s.name}
+                </Link>
+              ) : (
+                <span className="min-w-0 flex-1 truncate">{s.name}</span>
+              )}
               <span className="w-9 text-right text-xs text-muted-foreground tabular-nums">
                 {pct(s.cents, totalCents)}%
               </span>

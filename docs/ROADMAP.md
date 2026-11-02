@@ -125,9 +125,9 @@ Pedido do usuário (02/11/2026): reclassificar cada gasto na categoria e subcate
 
 **Etapa 2 — Detalhe da categoria** (D75)
 
-- [ ] `/relatorios/categoria/[id]?mes=…` a partir da pizza da Início e de Relatórios, com subtotais por subcategoria
-- [ ] Troca rápida de categoria (`setTransactionCategory`) com `audit_log`, fixos ("só este"/"este e os próximos"), empréstimo bloqueado, pagamento antecipado trocando os dois
-- [ ] Fatia "Outras" com a lista das categorias restantes
+- [x] `/relatorios/categoria/[id]?mes=…` a partir da pizza da Início e de Relatórios, com subtotais por subcategoria
+- [x] Troca rápida de categoria (`setTransactionCategory`) com `audit_log`, fixos ("só este"/"este e os próximos"), empréstimo bloqueado, pagamento antecipado trocando os dois
+- [x] Fatia "Outras" com a lista das categorias restantes
 
 **Etapa 3 — Filtros e bot** (D76)
 

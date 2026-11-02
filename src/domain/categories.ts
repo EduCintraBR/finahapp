@@ -121,3 +121,21 @@ export function findNameClash<T extends { id: string; name: string }>(
 /** "Mercado › Hortifruti" para subcategoria; só o nome para categoria de topo. */
 export const categoryLabel = (name: string, parentName: string | null): string =>
   parentName ? `${parentName} › ${name}` : name;
+
+/**
+ * Por que a categoria de um lançamento não pode ser trocada por aqui (null = pode). Empréstimo tem categoria própria
+ * do sistema e o crédito de benefício também; pagamentos de fatura e antecipações não são gasto (invariante 6).
+ */
+export function categoryChangeBlock(t: {
+  kind: string;
+  loanId: string | null;
+  benefitWalletId: string | null;
+}): string | null {
+  if (t.kind !== 'EXPENSE' && t.kind !== 'INCOME')
+    return 'Este tipo de lançamento não tem categoria para trocar.';
+  if (t.loanId !== null)
+    return 'A categoria do empréstimo é do sistema e não muda: parcelas e valor recebido são tratados na tela do empréstimo.';
+  if (t.kind === 'INCOME' && t.benefitWalletId !== null)
+    return 'O crédito do benefício tem categoria própria e não muda.';
+  return null;
+}
