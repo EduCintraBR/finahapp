@@ -115,7 +115,7 @@ test('corrigir o vencimento de uma fatura vale para todas as faturas do crediár
   await expect(page.getByText(/Datas atualizadas/)).toBeVisible();
 
   await page.goto(storeUrl);
-  const due = page.getByText(new RegExp(`^vence ${day}/\d{2}`));
+  const due = page.getByText(new RegExp('^vence ' + day + '/[0-9]{2}'));
   await expect(due).toHaveCount(total);
   await noHorizontalScroll();
 });
