@@ -10,6 +10,7 @@ import {
   Scale,
   Settings,
   Tags,
+  Target,
   Utensils,
   type LucideIcon,
 } from 'lucide-react';
@@ -29,6 +30,12 @@ export const NAV_ITEMS = {
   entries: { href: '/lancamentos', label: 'Lançamentos', icon: ArrowLeftRight },
   reports: { href: '/relatorios', label: 'Relatórios', icon: ChartPie },
   more: { href: '/mais', label: 'Mais', icon: Ellipsis },
+  budgets: {
+    href: '/orcamentos',
+    label: 'Orçamentos',
+    icon: Target,
+    description: 'Teto do mês e limite por categoria, com alertas',
+  },
   cards: {
     href: '/cartoes',
     label: 'Cartões',
@@ -92,7 +99,7 @@ export const BOTTOM_NAV = {
 export const MORE_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: 'Planejamento',
-    items: [NAV_ITEMS.cards, NAV_ITEMS.benefits, NAV_ITEMS.recurring, NAV_ITEMS.loans],
+    items: [NAV_ITEMS.budgets, NAV_ITEMS.cards, NAV_ITEMS.benefits, NAV_ITEMS.recurring, NAV_ITEMS.loans],
   },
   { title: 'Conta', items: [NAV_ITEMS.import, NAV_ITEMS.checkpoint] },
   { title: 'Cadastros', items: [NAV_ITEMS.categories] },
@@ -140,6 +147,8 @@ const MONTH_ROUTES = [
   /^\/cartoes$/,
   /^\/cartoes\/[0-9a-f-]{36}$/i,
   /^\/beneficios\/[0-9a-f-]{36}$/i,
+  /^\/orcamentos$/,
+  /^\/orcamentos\/[0-9a-f-]{36}$/i,
 ];
 
 export function isMonthRoute(pathname: string): boolean {

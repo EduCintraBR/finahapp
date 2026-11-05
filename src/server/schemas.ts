@@ -489,3 +489,16 @@ export const loanPaymentInput = z.object({
   ...fundingFields,
 });
 export type LoanPaymentInput = z.output<typeof loanPaymentInput>;
+
+/** Orçamento (D79): categoria-mãe de despesa, ou vazio = teto do mês; o valor vale a partir do mês escolhido. */
+export const budgetInput = z.object({
+  categoryId: optionalUuid,
+  amount: money({ positive: true, label: 'o valor do orçamento' }),
+  fromMonth: monthInput,
+});
+export type BudgetInput = z.output<typeof budgetInput>;
+
+export const stopBudgetInput = z.object({
+  id: uuid('Orçamento inválido.'),
+  fromMonth: monthInput,
+});

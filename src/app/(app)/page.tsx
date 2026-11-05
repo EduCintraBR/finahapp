@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { auth } from '@/auth';
 import { CategoryDonut, MonthlyBars, type MonthBar } from '@/components/dashboard/charts';
+import { BudgetBar, LevelBadge } from '@/components/budgets/budget-bar';
 import { BenefitRow, CardStrip, CardTile, LoanRow, Panel } from '@/components/dashboard/home-panels';
 import { BalanceHero } from '@/components/dashboard/overview';
 import { buildSlices } from '@/components/dashboard/slices';
@@ -15,6 +16,7 @@ import { getDb } from '@/db/client';
 import { getPrimaryAccount } from '@/db/queries/accounts';
 import { getAccountBalance } from '@/db/queries/balance';
 import { benefitCreditsTotal, listBenefitCards, payableWallets } from '@/db/queries/benefits';
+import { budgetMonthView } from '@/db/queries/budgets';
 import { listLoans } from '@/db/queries/loans';
 import { listCardMonthViews } from '@/db/queries/cards';
 import { listEntries, listPending } from '@/db/queries/entries';
@@ -43,18 +45,19 @@ import { ensureOccurrences } from '@/server/ensure-occurrences';
 
 /**
  * U3: no celular, a 1ª tela (sem rolar) traz o saudação, o saldo com a previsão do fim do mês, Entrou/Saiu,
- * A receber/A pagar e o começo dos pendentes; gastos, cartões, benefícios, empréstimos e o extrato vêm na rolagem.
+ * A receber/A pagar e o começo dos pendentes; orçamentos (D79), gastos, cartões, benefícios, empréstimos e o extrato vêm na rolagem.
  * No desktop viram duas colunas: o mês à esquerda e os compromissos numa coluna lateral de largura fixa (os nomes
  * não são cortados). As colunas usam `contents` no celular para que a ordem (`order-*`) valha entre as duas.
  */
 const MOBILE_ORDER = {
   hero: 'order-1',
   pending: 'order-2',
-  spend: 'order-3',
-  cards: 'order-4',
-  benefits: 'order-5',
-  loans: 'order-6',
-  recent: 'order-7',
+  budgets: 'order-3',
+  spend: 'order-4',
+  cards: 'order-5',
+  benefits: 'order-6',
+  loans: 'order-7',
+  recent: 'order-8',
 } as const;
 
 export default async function HomePage({ searchParams }: PageProps<'/'>) {
@@ -97,6 +100,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     benefitCards,
     benefitCredited,
     loans,
+    budgetView,
   ] = await Promise.all([
     getAccountBalance(db, account.id, hoje),
     cashSummary(db, month, hoje),
@@ -111,6 +115,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
     listBenefitCards(db, hoje, month),
     benefitCreditsTotal(db, month, end),
     listLoans(db, hoje),
+    budgetMonthView(db, month),
   ]);
   if (!summary) return null;
 
@@ -239,6 +244,52 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
               </div>
             </Panel>
           </div>
+
+          {(budgetView.cap || budgetView.lines.length > 0) && (
+            <div className={`${MOBILE_ORDER.budgets} lg:order-none`}>
+              <Panel
+                region
+                title="Orçamentos"
+                description={
+                  budgetView.alerts.length > 0
+                    ? `${budgetView.alerts.length === 1 ? '1 alerta' : `${budgetView.alerts.length} alertas`} no mês`
+                    : 'Tudo no controle no mês'
+                }
+                action={{ href: `/orcamentos?mes=${mes}`, label: 'Ver todos' }}
+              >
+                <div className="divide-y border-t" data-testid="home-budgets">
+                  {budgetView.cap && (
+                    <Link
+                      href={`/orcamentos/${budgetView.cap.id}?mes=${mes}`}
+                      className="block space-y-1.5 px-5 py-3.5 transition-colors hover:bg-muted/40"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">{budgetView.cap.name}</span>
+                        <LevelBadge level={budgetView.cap.level} />
+                      </div>
+                      <BudgetBar {...budgetView.cap} size="sm" />
+                    </Link>
+                  )}
+                  {budgetView.lines
+                    .filter((l) => l.level !== 'ok')
+                    .slice(0, 3)
+                    .map((l) => (
+                      <Link
+                        key={l.id}
+                        href={`/orcamentos/${l.id}?mes=${mes}`}
+                        className="block space-y-1.5 px-5 py-3.5 transition-colors hover:bg-muted/40"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{l.name}</span>
+                          <LevelBadge level={l.level} />
+                        </div>
+                        <BudgetBar {...l} size="sm" />
+                      </Link>
+                    ))}
+                </div>
+              </Panel>
+            </div>
+          )}
 
           <div className={`${MOBILE_ORDER.cards} lg:order-none`}>
             <CardStrip

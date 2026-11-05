@@ -103,4 +103,4 @@ Implementações de referência em SQL em `tests/acceptance/card-ledger.test.ts`
 
 ## Fora do escopo (v1)
 
-Orçamento/metas por categoria, divisão de gastos entre o casal, conta PJ, investimentos/poupança, áudio no bot, multi-tenant, WhatsApp.
+Divisão de gastos entre o casal, conta PJ, investimentos/poupança (metas de economia), áudio no bot, multi-tenant, WhatsApp. (Orçamento por categoria e teto do mês entraram depois, na D79.)

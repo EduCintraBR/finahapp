@@ -594,6 +594,36 @@ export const importLines = pgTable('import_lines', {
   index('line_batch_status').on(t.batchId, t.status),
 ]);
 
+// ─────────────────────────── orçamentos (D79) ───────────────────────────
+/**
+ * Orçamento do mês: limite de Gasto Mensal de uma categoria-mãe (as subcategorias somam nela) ou, com
+ * `category_id` nulo, o **teto do mês** (todos os gastos). Um por categoria (e um teto só), reaproveitado ao voltar.
+ * O gasto e o % nunca são armazenados: vêm do Gasto Mensal (fórmula canônica).
+ */
+export const budgets = pgTable('budgets', {
+  id: pk(),
+  categoryId: uuid('category_id').references(() => categories.id), // null = teto do mês
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [unique('budgets_category').on(t.categoryId).nullsNotDistinct()]);
+
+/**
+ * Valor do orçamento a partir de um mês: vale até a próxima linha. `amount_cents` nulo = parou de acompanhar a
+ * partir desse mês. Mudar o valor "a partir de" um mês não mexe nos meses anteriores.
+ */
+export const budgetAmounts = pgTable('budget_amounts', {
+  id: pk(),
+  budgetId: uuid('budget_id').notNull().references(() => budgets.id),
+  startMonth: day('start_month').notNull(),           // dia 1 do mês
+  amountCents: money('amount_cents'),                 // null = sem orçamento a partir daqui
+  createdAt: createdAt(),
+}, (t) => [
+  unique('budget_amounts_budget_month').on(t.budgetId, t.startMonth),
+  check('budget_amounts_start_is_month', sql`extract(day from ${t.startMonth}) = 1`),
+  check('budget_amounts_positive', sql`${t.amountCents} is null or ${t.amountCents} > 0`),
+]);
+
 // ─────────────────────────── bot ───────────────────────────
 export const botMessages = pgTable('bot_messages', {
   id: pk(),
