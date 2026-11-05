@@ -175,7 +175,7 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 - [ ] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
 - [ ] Código `PREFIXO-NN` por produto (prefixo sugerido sem acento e editável, número nunca reaproveitado)
-- [ ] Etiquetas: página de impressão A4 com uma etiqueta por embalagem (código, produto, conteúdo, selagem, validade, QR do lote), tamanho configurável; `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
+- [ ] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
 - [ ] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
 
 **Etapa 3 — Reposição** (D86)
