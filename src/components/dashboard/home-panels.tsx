@@ -21,6 +21,7 @@ export function Panel({
   title,
   description,
   action,
+  badge,
   region,
   className,
   children,
@@ -28,6 +29,8 @@ export function Panel({
   title: string;
   description?: React.ReactNode;
   action?: { href: string; label: string };
+  /** destaque à direita do título (ex.: o total do painel) */
+  badge?: React.ReactNode;
   region?: boolean;
   className?: string;
   children: React.ReactNode;
@@ -39,6 +42,7 @@ export function Panel({
           <h2 className="font-semibold">{title}</h2>
           {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
         </div>
+        {badge}
         {action && (
           <Button asChild variant="ghost" size="sm" className="-mt-1 -mr-2 shrink-0 text-primary">
             <Link href={action.href}>{action.label}</Link>
