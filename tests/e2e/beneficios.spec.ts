@@ -1,6 +1,7 @@
 /**
  * Cartão de benefícios no navegador (375px, D65): cadastro com duas carteiras, gasto que sai do saldo da carteira
- * (e não da conta), saldo insuficiente, exclusão que devolve o valor e encerramento sem perder o histórico.
+ * (e não da conta), saldo insuficiente, edição pelo histórico (D78), filtro por carteira, exclusão que devolve o
+ * valor e encerramento sem perder o histórico.
  * Os créditos automáticos (último dia útil) são cobertos nos testes de aceitação, que controlam a data.
  */
 import { expect, test, type Page } from '@playwright/test';
@@ -99,6 +100,48 @@ test('sem saldo suficiente na carteira, não lança', async () => {
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'Saldo insuficiente' })).toBeVisible();
   await expect(page).toHaveURL(/\/lancamentos\/novo/);
+});
+
+test('editar o gasto pelo histórico: o novo valor sai da carteira e volta para o cartão (D78)', async () => {
+  await page.goto(cardUrl);
+  await page.getByRole('link', { name: /Almoço no restaurante/ }).click();
+  await expect(page).toHaveURL(/\/lancamentos\/[0-9a-f-]{36}/);
+  await expect(page.getByText('Refeição e alimentação').first()).toBeVisible();
+  // "Editar" abre um painel; repete o toque até a página hidratar
+  const sheet = page.getByRole('dialog', { name: 'Editar lançamento' });
+  await expect(async () => {
+    if (!(await sheet.isVisible())) await page.getByRole('button', { name: 'Editar', exact: true }).click();
+    await expect(sheet).toBeVisible({ timeout: 1_000 });
+  }).toPass();
+  await expect(sheet.getByLabel('Carteira')).toContainText('Refeição e alimentação');
+  await sheet.getByLabel('Valor').fill('30,00');
+  await noHorizontalScroll();
+  await sheet.getByRole('button', { name: 'Salvar alterações' }).click();
+
+  await expect(page).toHaveURL(cardUrl);
+  await expect(saldo('Refeição e alimentação')).toContainText(brl('70,00'));
+});
+
+test('o histórico filtra por carteira', async () => {
+  await page.goto(cardUrl);
+  const filtro = page.getByRole('navigation', { name: 'Carteira' });
+  await filtro.getByRole('link', { name: 'Refeição e alimentação' }).click();
+  await expect(page).toHaveURL(/carteira=/);
+  await expect(filtro.getByRole('link', { name: 'Refeição e alimentação' })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(page.getByText('Almoço no restaurante')).toBeVisible();
+  await expect(page.getByText('Saldo inicial · Multibenefícios')).toHaveCount(0);
+  await noHorizontalScroll();
+
+  await filtro.getByRole('link', { name: 'Multibenefícios' }).click();
+  await expect(page.getByText('Saldo inicial · Multibenefícios')).toBeVisible();
+  await expect(page.getByText('Almoço no restaurante')).toHaveCount(0);
+
+  await filtro.getByRole('link', { name: 'Todas' }).click();
+  await expect(page.getByText('Almoço no restaurante')).toBeVisible();
+  await expect(page.getByText('Saldo inicial · Multibenefícios')).toBeVisible();
 });
 
 test('excluir o gasto devolve o valor para a carteira', async () => {

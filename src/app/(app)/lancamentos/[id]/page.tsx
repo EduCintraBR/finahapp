@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { Ellipsis, Pencil, Repeat } from 'lucide-react';
+import { deleteBenefitSpendAction } from '@/app/(app)/beneficios/actions';
 import { ConfirmPaymentDialog } from '@/components/entries/confirm-payment-dialog';
 import { EntryForm } from '@/components/entries/entry-form';
 import { HighlightBadge } from '@/components/entries/entry-list';
@@ -16,6 +17,7 @@ import { getDb } from '@/db/client';
 import { listBenefitCards, payableWallets } from '@/db/queries/benefits';
 import { getAnticipationLink, getEntry, planIdOfTransaction } from '@/db/queries/entries';
 import { paymentAdjustment } from '@/domain/account/early-payment';
+import { isPlainBenefitSpend } from '@/domain/benefits/spend';
 import { isScheduled } from '@/domain/account/rules';
 import { listCategories, listUsers } from '@/db/queries/lookups';
 import { formatDateBR, monthStart, today } from '@/domain/dates';
@@ -48,15 +50,35 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
     if (planId) redirect(`/cartoes/compras/${planId}`);
   }
 
+  const hoje = today();
+  // cartão de benefícios (D65, D78): de qual cartão/carteira é; o crédito da carteira não se edita nem se exclui
+  const benefitCards = entry.benefitWalletId ? await listBenefitCards(db, hoje, monthStart(hoje)) : [];
+  const benefitCard = benefitCards.find((c) => c.wallets.some((w) => w.id === entry.benefitWalletId));
+  const wallet = benefitCard?.wallets.find((w) => w.id === entry.benefitWalletId);
+  const walletSpend = entry.benefitWalletId !== null && entry.kind === 'EXPENSE';
+  const plainWalletSpend =
+    walletSpend &&
+    entry.status === 'POSTED' &&
+    isPlainBenefitSpend({ ...entry, anticipatesTransactionId: entry.anticipatesId });
+
   const back =
     typeof voltar === 'string' && voltar.startsWith('/') && !voltar.startsWith('//')
       ? voltar
-      : '/lancamentos';
-  const hoje = today();
+      : benefitCard
+        ? `/beneficios/${benefitCard.id}`
+        : '/lancamentos';
   const editable =
     (entry.kind === 'INCOME' || entry.kind === 'EXPENSE') &&
     entry.status !== 'CANCELLED' &&
-    entry.status !== 'ANTICIPATED';
+    entry.status !== 'ANTICIPATED' &&
+    !(entry.benefitWalletId !== null && entry.kind === 'INCOME');
+  // editar o gasto do benefício: as carteiras do mesmo cartão (o saldo da atual ainda tem o gasto descontado)
+  const walletOptions = plainWalletSpend
+    ? (benefitCard?.wallets ?? []).map((w) => ({
+        id: w.id,
+        label: `${w.name} · saldo ${formatBRL(w.balanceCents)}`,
+      }))
+    : [];
   // pagamento antecipado (D70): o vínculo entre a conta original (vencimento) e o pagamento (mês em que saiu o dinheiro)
   const link = await getAnticipationLink(db, entry);
   const isPayment = entry.anticipatesId !== null;
@@ -84,17 +106,23 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
     (entry.source === 'MANUAL' || entry.source === 'BOT') &&
     editable;
 
-  const removeConfirm = isOccurrence
+  const removeConfirm = walletSpend
     ? {
-        title: 'Cancelar esta ocorrência?',
-        description: 'Ela não vai mais aparecer neste mês. O fixo continua valendo nos outros meses.',
-        confirmLabel: 'Cancelar ocorrência',
-      }
-    : {
-        title: 'Excluir lançamento?',
-        description: 'Ele sai do saldo e do extrato (fica registrado no histórico de auditoria).',
+        title: 'Excluir este gasto?',
+        description: `${entry.description} volta para o saldo de ${wallet?.name ?? 'carteira'} e sai dos relatórios. Fica registrado no histórico de alterações.`,
         confirmLabel: 'Excluir',
-      };
+      }
+    : isOccurrence
+      ? {
+          title: 'Cancelar esta ocorrência?',
+          description: 'Ela não vai mais aparecer neste mês. O fixo continua valendo nos outros meses.',
+          confirmLabel: 'Cancelar ocorrência',
+        }
+      : {
+          title: 'Excluir lançamento?',
+          description: 'Ele sai do saldo e do extrato (fica registrado no histórico de auditoria).',
+          confirmLabel: 'Excluir',
+        };
   const canRemove = editable && !isPayment;
   // ações raras ficam no menu "⋯"; a principal (dar baixa, estornar) fica à vista
   const hasMore = canReopen || canRemove;
@@ -129,10 +157,11 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 )}
                 {canRemove && (
                   <ActionButton
-                    action={removeEntryAction}
-                    fields={fields}
+                    // gasto no benefício sai pela carteira (devolve o valor; conta paga volta para "a pagar")
+                    action={walletSpend ? deleteBenefitSpendAction : removeEntryAction}
+                    fields={walletSpend ? { id: entry.id, returnTo: back } : fields}
                     variant="destructive"
-                    label={isOccurrence ? 'Cancelar esta ocorrência' : 'Excluir'}
+                    label={isOccurrence && !walletSpend ? 'Cancelar esta ocorrência' : 'Excluir'}
                     confirm={removeConfirm}
                   />
                 )}
@@ -175,7 +204,17 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 : KIND_LABEL[entry.kind]}
             </dd>
             <dt className="text-muted-foreground">Meio</dt>
-            <dd>{PAYMENT_METHOD_LABEL[entry.paymentMethod]}</dd>
+            <dd>
+              {PAYMENT_METHOD_LABEL[entry.paymentMethod]}
+              {benefitCard && wallet && (
+                <>
+                  {' · '}
+                  <Link href={`/beneficios/${benefitCard.id}`} className="text-primary hover:underline">
+                    {benefitCard.name} · {wallet.name}
+                  </Link>
+                </>
+              )}
+            </dd>
             {entry.dueDate && (
               <>
                 <dt className="text-muted-foreground">Vencimento</dt>
@@ -276,7 +315,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
             }
           />
         )}
-        {entry.status === 'POSTED' && entry.dueDate && editable && (
+        {entry.status === 'POSTED' && entry.dueDate && editable && !walletSpend && (
           <ActionButton
             action={revertPaymentAction}
             fields={fields}
@@ -308,7 +347,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
             }}
           />
         )}
-        {editable && (
+        {editable && (!walletSpend || plainWalletSpend) && (
           <SheetAction label="Editar" title="Editar lançamento" icon={<Pencil aria-hidden />}>
             <EntryForm
               key={entry.version} // depois de uma baixa o formulário recomeça com os valores novos, não os de antes
@@ -316,6 +355,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
               users={users}
               today={hoje}
               returnTo={back}
+              wallets={walletOptions}
               defaults={{
                 id: entry.id,
                 version: entry.version,
@@ -328,6 +368,7 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 beneficiaryUserId: entry.beneficiaryId,
                 notes: entry.notes,
                 pending,
+                ...(plainWalletSpend && entry.benefitWalletId ? { walletId: entry.benefitWalletId } : {}),
               }}
             />
           </SheetAction>

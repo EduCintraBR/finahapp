@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { DetailColumns } from '@/components/layout/detail-columns';
+import { MONTH_PARAM } from '@/components/layout/month-link';
 import { BenefitEditForm, EndBenefitForm } from '@/components/benefits/benefit-forms';
 import { ActionButton } from '@/components/forms/action-button';
 import { Amount } from '@/components/money/amount';
@@ -40,11 +41,22 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
   const db = getDb();
   const hoje = today();
   const month = await resolveMonth(searchParams);
-  const [card, movements] = await Promise.all([
-    getBenefitCard(db, id, hoje, month),
-    listBenefitMovements(db, id),
-  ]);
+  const { carteira, [MONTH_PARAM]: mes } = await searchParams;
+  const card = await getBenefitCard(db, id, hoje, month);
   if (!card) notFound();
+  // filtro do histórico por carteira (D78): ?carteira=<id>; id que não é deste cartão vale como "Todas"
+  const filtered = card.wallets.find((w) => w.id === carteira);
+  const movements = await listBenefitMovements(db, id, { walletId: filtered?.id });
+  const pageHref = (walletId?: string) => {
+    const qs = new URLSearchParams();
+    if (typeof mes === 'string') qs.set(MONTH_PARAM, mes);
+    if (walletId) qs.set('carteira', walletId);
+    const s = qs.toString();
+    return `/beneficios/${id}${s ? `?${s}` : ''}`;
+  };
+  // tocar no gasto abre o lançamento (editar, excluir) e o "Voltar" traz de volta com o mesmo filtro
+  const entryHref = (entryId: string) =>
+    `/lancamentos/${entryId}?voltar=${encodeURIComponent(pageHref(filtered?.id))}`;
 
   const current = monthStart(hoje);
   // sugestão para encerrar: o mês atual se o crédito dele já caiu, senão o mês anterior
@@ -170,46 +182,85 @@ export default async function BenefitCardPage({ params, searchParams }: PageProp
           <CardHeader className="pb-3">
             <CardTitle>Histórico</CardTitle>
             <CardDescription>
-              Créditos, saldo inicial e gastos, do mais recente para o mais antigo.
+              {filtered ? `Só ${filtered.name}: c` : 'C'}réditos, saldo inicial e gastos, do mais recente para
+              o mais antigo. Toque num gasto para editar.
             </CardDescription>
+            {card.wallets.length > 1 && (
+              <nav aria-label="Carteira" className="flex flex-wrap gap-2 pt-2">
+                {[{ id: undefined, name: 'Todas' }, ...card.wallets].map((w) => (
+                  <Link
+                    key={w.id ?? 'todas'}
+                    href={pageHref(w.id)}
+                    scroll={false}
+                    aria-current={filtered?.id === w.id ? 'true' : undefined}
+                    className={cn(
+                      'rounded-full border px-3 py-1.5 text-sm transition-colors',
+                      filtered?.id === w.id
+                        ? 'border-primary bg-primary/10 font-medium text-primary'
+                        : 'hover:bg-accent',
+                    )}
+                  >
+                    {w.name}
+                  </Link>
+                ))}
+              </nav>
+            )}
           </CardHeader>
           <CardContent className="divide-y border-t px-0">
             {movements.length === 0 ? (
-              <p className="px-4 py-6 text-center text-sm text-muted-foreground">Nada lançado ainda.</p>
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                {filtered ? `Nada lançado em ${filtered.name}.` : 'Nada lançado ainda.'}
+              </p>
             ) : (
-              movements.map((m) => (
-                <div key={m.id} className="flex items-center gap-3 px-4 py-3 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium break-words">{m.description}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDateBR(m.date)} · {m.walletName}
-                      {m.type === 'SPEND' && m.categoryName ? ` · ${m.categoryName}` : ''}
-                      {m.type === 'SPEND' ? ` · por ${m.createdByName}` : ''}
+              movements.map((m) => {
+                const body = (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium break-words">{m.description}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {formatDateBR(m.date)} · {m.walletName}
+                        {m.type === 'SPEND' && m.categoryName ? ` · ${m.categoryName}` : ''}
+                        {m.type === 'SPEND' ? ` · por ${m.createdByName}` : ''}
+                      </div>
                     </div>
+                    <Amount
+                      cents={m.amountCents}
+                      direction={m.kind === 'INCOME' ? 'in' : 'out'}
+                      className="font-medium"
+                    />
+                  </>
+                );
+                return (
+                  <div key={m.id} className="flex items-center gap-3 px-4 py-3 text-sm">
+                    {m.type === 'SPEND' ? (
+                      <Link
+                        href={entryHref(m.id)}
+                        className="-my-3 flex min-w-0 flex-1 items-center gap-3 py-3 hover:opacity-80"
+                      >
+                        {body}
+                      </Link>
+                    ) : (
+                      body
+                    )}
+                    {m.type === 'SPEND' && (
+                      <div className="shrink-0">
+                        <ActionButton
+                          action={deleteBenefitSpendAction}
+                          fields={{ id: m.id }}
+                          label="Excluir"
+                          variant="destructive"
+                          icon={<Trash2 aria-hidden />}
+                          confirm={{
+                            title: 'Excluir este gasto?',
+                            description: `${m.description} volta para o saldo de ${m.walletName} e sai dos relatórios. Fica registrado no histórico de alterações.`,
+                            confirmLabel: 'Excluir',
+                          }}
+                        />
+                      </div>
+                    )}
                   </div>
-                  <Amount
-                    cents={m.amountCents}
-                    direction={m.kind === 'INCOME' ? 'in' : 'out'}
-                    className={cn('font-medium')}
-                  />
-                  {m.type === 'SPEND' && (
-                    <div className="shrink-0">
-                      <ActionButton
-                        action={deleteBenefitSpendAction}
-                        fields={{ id: m.id }}
-                        label="Excluir"
-                        variant="destructive"
-                        icon={<Trash2 aria-hidden />}
-                        confirm={{
-                          title: 'Excluir este gasto?',
-                          description: `${m.description} volta para o saldo de ${m.walletName} e sai dos relatórios. Fica registrado no histórico de alterações.`,
-                          confirmLabel: 'Excluir',
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-              ))
+                );
+              })
             )}
           </CardContent>
         </Card>

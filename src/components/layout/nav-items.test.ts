@@ -26,6 +26,7 @@ describe('activeItem', () => {
     expect(activeItem(`/categorias/${id}`, bottom)).toBe(NAV_ITEMS.categories);
     expect(activeItem('/categorias/subcategorias/nova', bottom)).toBe(NAV_ITEMS.categories);
     expect(activeItem('/mais', bottom)).toBe(NAV_ITEMS.more);
+    expect(activeItem(`/orcamentos/${id}`, bottom)).toBe(NAV_ITEMS.budgets);
   });
 
   it('não confunde prefixo de palavra', () => {
@@ -43,6 +44,8 @@ describe('isMonthRoute', () => {
       '/cartoes',
       `/cartoes/${id}`,
       `/beneficios/${id}`,
+      '/orcamentos',
+      `/orcamentos/${id}`,
     ])
       expect(isMonthRoute(p), p).toBe(true);
   });
