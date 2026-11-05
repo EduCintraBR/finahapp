@@ -30,6 +30,8 @@ export type EntryFormDefaults = {
   beneficiaryUserId: string | null;
   notes: string | null;
   pending: boolean;
+  /** gasto no cartão de benefícios (D78): a carteira dele; o formulário abre no modo Benefício */
+  walletId?: string;
 };
 
 type Mode = 'EXPENSE' | 'INCOME' | 'CARD' | 'BENEFIT';
@@ -100,8 +102,9 @@ export function EntryForm({
   const [entryState, entryAction, entryPending] = useActionState(saveEntryAction, null);
   const [cardState, cardAction, cardPending] = useActionState(cardPurchaseAction, null);
   const [benefitState, benefitAction, benefitPending] = useActionState(benefitSpendAction, null);
+  const editMode: Mode | undefined = defaults ? (defaults.walletId ? 'BENEFIT' : defaults.kind) : undefined;
   const [mode, setMode] = useState<Mode>(
-    defaults?.kind ??
+    editMode ??
       (initialMode === 'CARD' && cards.length
         ? 'CARD'
         : initialMode === 'BENEFIT' && wallets.length
@@ -130,8 +133,8 @@ export function EntryForm({
   const kinds = new Set(cards.map((c) => c.kind));
   const state = isCard ? cardState : isBenefit ? benefitState : entryState;
   const pending = isCard ? cardPending : isBenefit ? benefitPending : entryPending;
-  const modes: Mode[] = defaults
-    ? [defaults.kind]
+  const modes: Mode[] = editMode
+    ? [editMode]
     : [
         'EXPENSE',
         'INCOME',
@@ -304,7 +307,7 @@ export function EntryForm({
             id="walletId"
             name="walletId"
             required
-            defaultValue={initialWalletId ?? wallets[0]?.id}
+            defaultValue={defaults?.walletId ?? initialWalletId ?? wallets[0]?.id}
           >
             {wallets.map((w) => (
               <option key={w.id} value={w.id}>

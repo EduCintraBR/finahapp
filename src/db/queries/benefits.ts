@@ -129,11 +129,11 @@ export type BenefitMovement = {
   type: 'CREDIT' | 'OPENING' | 'SPEND';
 };
 
-/** Histórico de uma carteira ou do cartão todo (mais recente primeiro). */
+/** Histórico do cartão todo ou só de uma carteira (`walletId`), mais recente primeiro. */
 export async function listBenefitMovements(
   db: AnyDB,
   cardId: string,
-  opts: { limit?: number } = {},
+  opts: { limit?: number; walletId?: string | undefined } = {},
 ): Promise<BenefitMovement[]> {
   const rows = await db
     .select({
@@ -157,6 +157,7 @@ export async function listBenefitMovements(
     .where(
       and(
         eq(benefitWallets.benefitCardId, cardId),
+        opts.walletId ? eq(benefitWallets.id, opts.walletId) : undefined,
         eq(transactions.status, 'POSTED'),
         isNull(transactions.deletedAt),
       ),

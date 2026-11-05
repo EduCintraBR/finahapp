@@ -10,6 +10,7 @@ import {
   deleteBenefitSpend,
   endBenefitCard,
   updateBenefitCard,
+  updateBenefitSpend,
 } from '@/server/benefits';
 import { runAction } from '@/server/context';
 import {
@@ -18,12 +19,18 @@ import {
   benefitSpendInput,
   endBenefitInput,
   firstIssue,
+  versionInput,
 } from '@/server/schemas';
 import { getServiceCtx } from '@/server/session';
 
 type Prev = ActionResult<null> | null;
 const refresh = () => revalidatePath('/', 'layout');
 const text = (fd: FormData, key: string) => String(fd.get(key) ?? '');
+/** Só caminhos internos; vazio quando o formulário não informou para onde voltar. */
+const returnTo = (fd: FormData) => {
+  const v = text(fd, 'returnTo');
+  return v.startsWith('/') && !v.startsWith('//') ? v : '';
+};
 
 /** Carteiras do formulário: campos `w0name`, `w0credit`, `w0opening`, `w1name`… (linhas sem nome são ignoradas). */
 function walletsFromForm(fd: FormData) {
@@ -84,19 +91,31 @@ export async function endBenefitCardAction(_p: Prev, fd: FormData): Promise<Acti
   return { ok: true, data: null };
 }
 
-/** Gasto no cartão de benefícios; depois de lançar, volta para a tela do cartão (D59). */
+/**
+ * Gasto no cartão de benefícios; depois de lançar, volta para a tela do cartão (D59). Com `id`, edita o gasto (D78)
+ * e volta de onde veio.
+ */
 export async function benefitSpendAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const parsed = benefitSpendInput.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
-  const r = await runAction(async () => createBenefitSpend(await getServiceCtx(), parsed.data));
+  const id = text(fd, 'id');
+  const r = await runAction(async () => {
+    const ctx = await getServiceCtx();
+    return id
+      ? updateBenefitSpend(ctx, id, versionInput.parse(fd.get('version')), parsed.data)
+      : createBenefitSpend(ctx, parsed.data);
+  });
   if (!r.ok) return r;
   refresh();
-  redirect(`/beneficios/${r.data.cardId}`);
+  redirect((id && returnTo(fd)) || `/beneficios/${r.data.cardId}`);
 }
 
+/** Exclui o gasto; com `returnTo` (vindo do detalhe do lançamento), volta para lá. */
 export async function deleteBenefitSpendAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const r = await runAction(async () => deleteBenefitSpend(await getServiceCtx(), text(fd, 'id')));
   if (!r.ok) return r;
   refresh();
+  const to = returnTo(fd);
+  if (to) redirect(to);
   return { ok: true, data: null };
 }
