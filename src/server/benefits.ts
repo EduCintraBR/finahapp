@@ -13,6 +13,7 @@ import {
   type CreditRule,
   type CreditSchedule,
 } from '@/domain/benefits/credits';
+import { isPlainBenefitSpend, spendEditLimit } from '@/domain/benefits/spend';
 import { addMonths, compareDates, formatMonthLabel, monthStart, type ISODate } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
 import { audit } from './audit';
@@ -269,6 +270,88 @@ export async function createBenefitSpend(
       after: t,
     });
     return { transactionId: t!.id, cardId: row.card.id };
+  });
+}
+
+/**
+ * Edita um gasto do cartão de benefícios (D78): valor, carteira, data, descrição, categoria, de quem é e observações.
+ * Trocar de carteira devolve o valor para a antiga. O saldo da carteira nunca fica negativo: o novo valor tem que
+ * caber no saldo da carteira escolhida, contando o que o próprio gasto já tirou dela.
+ */
+export async function updateBenefitSpend(
+  ctx: ServiceCtx,
+  id: string,
+  version: number,
+  input: BenefitSpendInput,
+): Promise<{ cardId: string }> {
+  return ctx.db.transaction(async (tx) => {
+    const [t] = await tx
+      .select()
+      .from(transactions)
+      .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+      .for('update');
+    if (!t || !t.benefitWalletId || t.kind !== 'EXPENSE' || t.status !== 'POSTED') {
+      throw new UserError('Gasto não encontrado.');
+    }
+    if (t.version !== version) {
+      throw new UserError('Este gasto foi alterado por outra pessoa. Recarregue a página e tente de novo.');
+    }
+    if (!isPlainBenefitSpend(t)) {
+      throw new UserError(
+        'Conta paga com o cartão de benefícios: para mudar, exclua o gasto e pague de novo.',
+      );
+    }
+    // trava as duas carteiras em ordem fixa (sem deadlock com outro gasto lançado ao mesmo tempo)
+    const walletIds = [...new Set([t.benefitWalletId, input.walletId])].sort();
+    const locked = await tx
+      .select({ id: benefitWallets.id, name: benefitWallets.name, cardId: benefitWallets.benefitCardId })
+      .from(benefitWallets)
+      .where(inArray(benefitWallets.id, walletIds))
+      .orderBy(asc(benefitWallets.id))
+      .for('update');
+    const wallet = locked.find((w) => w.id === input.walletId);
+    if (!wallet) throw new UserError('Carteira não encontrada.');
+    if (compareDates(input.date, ctx.today) > 0)
+      throw new UserError('A data do gasto não pode estar no futuro.');
+    const account = await getPrimaryAccount(tx);
+    const dateError = checkNotBeforeOpening(input.date, account.openingBalanceDate);
+    if (dateError) throw new UserError(dateError);
+    await checkExpenseCategory(tx, input.categoryId, t.categoryId); // a categoria atual vale mesmo arquivada (D49)
+    await checkUser(tx, input.beneficiaryUserId);
+    const balance = spendEditLimit(
+      { walletId: t.benefitWalletId, amountCents: t.amountCents },
+      wallet.id,
+      await walletBalance(tx, wallet.id),
+    );
+    if (input.amount > balance) {
+      throw new UserError(
+        `Saldo insuficiente em ${wallet.name}: tem ${formatBRL(balance)} e o gasto é de ${formatBRL(input.amount)}.`,
+      );
+    }
+    const [after] = await tx
+      .update(transactions)
+      .set({
+        description: input.description,
+        notes: input.notes,
+        amountCents: input.amount,
+        benefitWalletId: wallet.id,
+        categoryId: input.categoryId,
+        transactionDate: input.date,
+        postedDate: input.date,
+        beneficiaryUserId: input.beneficiaryUserId,
+        version: sql`${transactions.version} + 1`,
+      })
+      .where(eq(transactions.id, id))
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'transactions',
+      entityId: id,
+      action: 'UPDATE',
+      before: t,
+      after,
+    });
+    return { cardId: wallet.cardId };
   });
 }
 

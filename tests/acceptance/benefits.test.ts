@@ -23,6 +23,7 @@ import {
   endBenefitCard,
   generateBenefitCredits,
   updateBenefitCard,
+  updateBenefitSpend,
 } from '@/server/benefits';
 import type { ServiceCtx } from '@/server/context';
 import { freshDb } from './helpers';
@@ -244,6 +245,125 @@ describe('gastos', () => {
     );
     expect(raw).toEqual([{ deleted: true }]);
     await expect(deleteBenefitSpend(ctx, transactionId)).rejects.toThrow('não encontrado');
+  });
+
+  it('editar o valor ajusta o saldo da carteira e os relatórios (D78)', async () => {
+    const { transactionId } = await spend(refeicao, 4_500, '2026-10-30');
+    const before = (
+      await q<{ version: number }>(`select version from transactions where id = $1`, [transactionId])
+    )[0]!;
+    await updateBenefitSpend(at('2026-10-30'), transactionId, before.version, {
+      walletId: refeicao,
+      amount: 5_000,
+      description: 'Almoço de sexta',
+      categoryId: mercado,
+      date: '2026-10-29',
+      beneficiaryUserId: null,
+      notes: 'com sobremesa',
+    });
+    const ws = await wallets('2026-10-30');
+    expect(ws['Refeição e alimentação']!.balanceCents).toBe(70_400 - 5_000);
+    expect(total(await grossSpend(db, '2026-10-01', '2026-10-31', 'category'))).toBe(5_000);
+    const [row] = await q<{
+      description: string;
+      transaction_date: string;
+      posted_date: string;
+      version: number;
+    }>(
+      `select description, transaction_date::text, posted_date::text, version from transactions where id = $1`,
+      [transactionId],
+    );
+    expect(row).toEqual({
+      description: 'Almoço de sexta',
+      transaction_date: '2026-10-29',
+      posted_date: '2026-10-29',
+      version: before.version + 1,
+    });
+    const audits = await q(`select 1 from audit_log where entity_id = $1 and action = 'UPDATE'`, [
+      transactionId,
+    ]);
+    expect(audits).toHaveLength(1);
+  });
+
+  it('o novo valor tem que caber no saldo: o próprio gasto conta na mesma carteira', async () => {
+    const { transactionId } = await spend(refeicao, 70_000, '2026-10-30');
+    const edit = (walletId: string, amount: number, version = 1) =>
+      updateBenefitSpend(at('2026-10-30'), transactionId, version, {
+        walletId,
+        amount,
+        description: 'Almoço',
+        categoryId: mercado,
+        date: '2026-10-30',
+        beneficiaryUserId: null,
+        notes: null,
+      });
+    // saldo de 400 + os 70.000 do próprio gasto
+    await expect(edit(refeicao, 70_401)).rejects.toThrow('Saldo insuficiente em Refeição e alimentação');
+    await edit(refeicao, 70_400);
+    expect((await wallets('2026-10-30'))['Refeição e alimentação']!.balanceCents).toBe(0);
+    // versão antiga: outra pessoa já mudou
+    await expect(edit(refeicao, 100, 1)).rejects.toThrow('alterado por outra pessoa');
+  });
+
+  it('trocar de carteira devolve o valor para a antiga e tira da nova', async () => {
+    const { transactionId } = await spend(refeicao, 4_500, '2026-10-30');
+    const input = {
+      walletId: multi,
+      amount: 4_500,
+      description: 'Almoço',
+      categoryId: mercado,
+      date: '2026-10-30',
+      beneficiaryUserId: null,
+      notes: null,
+    };
+    await expect(
+      updateBenefitSpend(at('2026-10-30'), transactionId, 1, { ...input, amount: 80_000 + 150_000 + 1 }),
+    ).rejects.toThrow('Saldo insuficiente em Multibenefícios');
+    const { cardId: returned } = await updateBenefitSpend(at('2026-10-30'), transactionId, 1, input);
+    expect(returned).toBe(cardId);
+    const ws = await wallets('2026-10-30');
+    expect(ws['Refeição e alimentação']!.balanceCents).toBe(70_400);
+    expect(ws['Multibenefícios']!.balanceCents).toBe(80_000 + 150_000 - 4_500);
+    // o total de gastos não muda: só mudou de carteira
+    expect(total(await grossSpend(db, '2026-10-01', '2026-10-31', 'category'))).toBe(4_500);
+  });
+
+  it('editar recusa data no futuro, crédito e gasto excluído', async () => {
+    const { transactionId } = await spend(multi, 1_000, '2026-10-30');
+    const input = {
+      walletId: multi,
+      amount: 1_000,
+      description: 'Almoço',
+      categoryId: mercado,
+      date: '2026-10-31',
+      beneficiaryUserId: null,
+      notes: null,
+    };
+    await expect(updateBenefitSpend(at('2026-10-30'), transactionId, 1, input)).rejects.toThrow('futuro');
+    const [credit] = await q<{ id: string }>(
+      `select id from transactions where benefit_credit_month is not null limit 1`,
+    );
+    await expect(
+      updateBenefitSpend(at('2026-10-30'), credit!.id, 1, { ...input, date: '2026-10-30' }),
+    ).rejects.toThrow('não encontrado');
+    await deleteBenefitSpend(ctx, transactionId);
+    await expect(
+      updateBenefitSpend(at('2026-10-30'), transactionId, 2, { ...input, date: '2026-10-30' }),
+    ).rejects.toThrow('não encontrado');
+  });
+
+  it('o histórico filtra por carteira', async () => {
+    await spend(refeicao, 4_500, '2026-10-30', 'Almoço');
+    await spend(multi, 3_000, '2026-10-30', 'Farmácia');
+    const all = await listBenefitMovements(db, cardId);
+    expect(all.map((m) => m.walletName)).toContain('Multibenefícios');
+    const onlyMeal = await listBenefitMovements(db, cardId, { walletId: refeicao });
+    expect(onlyMeal.length).toBeGreaterThan(0);
+    expect(onlyMeal.every((m) => m.walletId === refeicao)).toBe(true);
+    expect(onlyMeal.map((m) => m.description)).toEqual(['Almoço', 'Crédito Refeição e alimentação']);
+    const onlyMulti = await listBenefitMovements(db, cardId, { walletId: multi });
+    expect(onlyMulti.every((m) => m.walletId === multi)).toBe(true);
+    expect(onlyMeal.length + onlyMulti.length).toBe(all.length);
   });
 
   it('não dá para excluir um crédito por aqui', async () => {
