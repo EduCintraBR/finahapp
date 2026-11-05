@@ -158,9 +158,47 @@ Pedido do usuário (04/11/2026): cadastro de orçamento e metas, com gráficos e
 
 ---
 
+## Fase 8 — Casa: estoque da casa (D81 a D87)
+
+Pedido do usuário (05/11/2026): guardar no app também as informações da casa, começando por um estoque de despensa (alimentos e água estocados, grãos envasados em garrafas PET), limpeza, lavanderia, higiene e remédios, "para nunca mais comprar o que já tenho". Decisões: área separada das Finanças e sem preço; quantidade mista (unidades, gramas, ml); validade por lote; despensa e água primeiro.
+
+**Etapa 1 — Base** (D81 a D83)
+
+- [ ] Regras puras em `src/domain/stock/`: quantidade do lote e do produto a partir dos movimentos, recusa de saída que deixaria o lote negativo, total em g/ml (embalagens × conteúdo), ordem FEFO; property tests (Σ movimentos = quantidade; nenhuma sequência aceita deixa lote negativo)
+- [ ] Schema: categorias e locais da Casa, produtos, lotes, movimentos (`cancelled_at`), com CHECKs (quantidade ≠ 0, conteúdo > 0, inteiros); serviços em `db.transaction()` com `audit_log`
+- [ ] Chave Finanças/Casa no topo, menu e Início da Casa (`/casa`); botão "Usar categorias sugeridas"; cadastro de locais
+- [ ] Cadastro de produto; entrada (lote com embalagem, conteúdo, validade); "Usei", "Descartei" e "Contei" (ajuste) com lote sugerido trocável; desfazer movimento
+- [ ] Estoque por categoria (grade → lista com quantidade, local e próxima validade), detalhe do produto com os lotes, busca única
+- [ ] Teste de aceitação: quantidade das telas = Σ movimentos não cancelados; nenhuma operação da Casa muda Saldo, Gasto Bruto ou Gasto Mensal
+
+**Etapa 2 — Envase, rodízio e etiquetas** (D84, D85, D87)
+
+- [ ] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
+- [ ] Código `PREFIXO-NN` por produto (prefixo sugerido sem acento e editável, número nunca reaproveitado)
+- [ ] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
+- [ ] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
+
+**Etapa 3 — Reposição** (D86)
+
+- [ ] Acabando (abaixo do mínimo) e lista de compras gerada (falta para a meta), com "Comprei" abrindo a entrada preenchida
+
+**Etapa 4 — Remédios** (decisões a registrar antes de começar)
+
+- [ ] Princípio ativo (busca por "dipirona" acha a marca), dosagem, forma, para quem, validade depois de aberto; contagem por unidade solta
+
+**Etapa 5 — Bot** (decisões a registrar antes de começar)
+
+- [ ] "tenho dipirona?", "comprei 6 galões de água de 5 L", "usei 2 leites", "o que vence esse mês?"
+
+**Pronto quando:** a quantidade mostrada de qualquer produto é exatamente Σ dos movimentos não cancelados dos seus lotes, nenhum lote fica negativo, o envase tira das origens e cria o lote novo de uma vez (ou nada), e nada na Casa muda nenhum número das Finanças.
+
+---
+
 ## Depois da v1 (backlog)
 
 - Migração para o NAS (Tailscale, bot em polling)
 - Áudio no bot (transcrição)
 - Alertas de orçamento pelo Telegram
 - Exportação CSV dos relatórios
+- Casa: leitura de código de barras pela câmera (cadastro e baixa)
+- Casa: autonomia do estoque (ex.: quantos dias a água dura para 2 pessoas)
