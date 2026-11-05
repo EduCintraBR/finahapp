@@ -13,7 +13,7 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { createDb, type AnyDB } from '../src/db/client';
-import { benefitWallets, categories, invoices, transactions, users } from '../src/db/schema';
+import { benefitWallets, categories, invoices, stockCategories, transactions, users } from '../src/db/schema';
 import { seed, seedConfigFromEnv } from '../src/db/seed';
 import {
   addDays,
@@ -38,6 +38,14 @@ import { importCardStatement } from '../src/server/imports';
 import { createLoan } from '../src/server/loans';
 import { createTemplate, generateOccurrences } from '../src/server/recurring';
 import * as S from '../src/server/schemas';
+import {
+  addStockLot,
+  consumeStock,
+  createStockLocation,
+  createStockProduct,
+  createSuggestedStockCategories,
+} from '../src/server/stock';
+import { stockLotInput, stockProductInput } from '../src/server/stock-schemas';
 
 if (!process.env.DATABASE_URL)
   throw new Error('ui:shots: defina DATABASE_URL no .env (Postgres do docker compose).');
@@ -389,6 +397,149 @@ async function populate(db: AnyDB, hoje: ISODate) {
       S.budgetInput.parse({ categoryId: name ? cat(name) : '', amount: value, fromMonth: month(-3) }),
     );
   }
+  // Casa (D81 a D83): categorias sugeridas, locais e um estoque de despensa, água, limpeza e remédios
+  await createSuggestedStockCategories(ctx());
+  const stockCat = async (name: string) =>
+    (await db.select().from(stockCategories).where(eq(stockCategories.name, name)))[0]!.id;
+  const despensa = (await createStockLocation(ctx(), 'Despensa')).id;
+  const area = (await createStockLocation(ctx(), 'Área de serviço')).id;
+  const banheiro = (await createStockLocation(ctx(), 'Armário do banheiro')).id;
+  const products: [string, string, string, Record<string, string>, Record<string, string>[]][] = [
+    [
+      'Arroz branco',
+      'Grãos',
+      'WEIGHT',
+      { minText: '10', minUnit: 'kg', targetText: '30', targetUnit: 'kg', defaultLocationId: despensa },
+      [
+        {
+          packages: '2',
+          packageName: 'pacote',
+          contentText: '5',
+          contentUnit: 'kg',
+          expiryDate: addDays(hoje, 240),
+          locationId: despensa,
+          entryDate: addDays(hoje, -40),
+        },
+        {
+          packages: '11',
+          packageName: 'garrafa PET',
+          contentText: '1,8',
+          contentUnit: 'kg',
+          expiryDate: addDays(hoje, 25),
+          locationId: despensa,
+          entryDate: addDays(hoje, -200),
+        },
+      ],
+    ],
+    [
+      'Feijão preto',
+      'Grãos',
+      'WEIGHT',
+      { minText: '5', minUnit: 'kg', defaultLocationId: despensa },
+      [
+        {
+          packages: '3',
+          packageName: 'pacote',
+          contentText: '1',
+          contentUnit: 'kg',
+          expiryDate: addDays(hoje, -3),
+          locationId: despensa,
+          entryDate: addDays(hoje, -300),
+        },
+      ],
+    ],
+    [
+      'Macarrão',
+      'Massas',
+      'WEIGHT',
+      { defaultLocationId: despensa },
+      [
+        {
+          packages: '6',
+          packageName: 'pacote',
+          contentText: '500',
+          contentUnit: 'g',
+          expiryDate: addDays(hoje, 400),
+          locationId: despensa,
+          entryDate: addDays(hoje, -10),
+        },
+      ],
+    ],
+    [
+      'Água mineral',
+      'Água',
+      'VOLUME',
+      { minText: '40', minUnit: 'L', defaultLocationId: area },
+      [
+        {
+          packages: '6',
+          packageName: 'galão',
+          contentText: '5',
+          contentUnit: 'L',
+          expiryDate: addDays(hoje, 150),
+          locationId: area,
+          entryDate: addDays(hoje, -20),
+        },
+      ],
+    ],
+    [
+      'Detergente',
+      'Limpeza',
+      'UNIT',
+      { minText: '2', minUnit: 'un', defaultLocationId: area },
+      [{ packages: '4', packageName: 'frasco', locationId: area, entryDate: addDays(hoje, -15) }],
+    ],
+    [
+      'Sabão em pó',
+      'Lavanderia',
+      'WEIGHT',
+      { defaultLocationId: area },
+      [
+        {
+          packages: '1',
+          packageName: 'caixa',
+          contentText: '1,6',
+          contentUnit: 'kg',
+          locationId: area,
+          entryDate: addDays(hoje, -30),
+        },
+      ],
+    ],
+    [
+      'Dipirona 500 mg',
+      'Remédios',
+      'UNIT',
+      { defaultLocationId: banheiro },
+      [
+        {
+          packages: '2',
+          packageName: 'caixa',
+          contentText: '10',
+          contentUnit: 'un',
+          expiryDate: addDays(hoje, 500),
+          locationId: banheiro,
+          entryDate: addDays(hoje, -60),
+        },
+      ],
+    ],
+  ];
+  for (const [name, category, measure, fields, lots] of products) {
+    const product = await createStockProduct(
+      ctx(),
+      stockProductInput.parse({ name, categoryId: await stockCat(category), measure, ...fields }),
+    );
+    for (const lot of lots) await addStockLot(ctx(), stockLotInput.parse({ productId: product.id, ...lot }));
+    // o detergente acabando (abaixo do mínimo), com a baixa no histórico
+    if (name === 'Detergente')
+      await consumeStock(ctx(), {
+        productId: product.id,
+        kind: 'USE',
+        packages: 3,
+        lotId: null,
+        date: hoje,
+        notes: null,
+      });
+  }
 }
 
 async function resetDatabase(hoje: ISODate) {
@@ -424,6 +575,8 @@ async function detailIds() {
       batch: await one(`select id from import_batches order by created_at desc limit 1`),
       category: await one(`select id from categories where name = 'Mercado' and parent_id is null`),
       budget: await one(`select id from budgets where category_id is null`),
+      stockProduct: await one(`select id from stock_products where name = 'Arroz branco'`),
+      stockCategory: await one(`select id from stock_categories where name = 'Alimentos'`),
     };
   } finally {
     await sql.end();
@@ -626,6 +779,17 @@ async function main() {
     ['categoria', `/categorias/${ids.category}`],
     ['categoria-nova', '/categorias/nova'],
     ['subcategoria-nova', `/categorias/subcategorias/nova?categoria=${ids.category}`],
+    ['casa', '/casa'],
+    ['casa-estoque', '/casa/estoque'],
+    ['casa-estoque-categoria', `/casa/estoque?categoria=${ids.stockCategory}`],
+    ['casa-produto', `/casa/produtos/${ids.stockProduct}`],
+    ['casa-produto-editar', `/casa/produtos/${ids.stockProduct}/editar`],
+    ['casa-produto-novo', '/casa/produtos/novo'],
+    ['casa-entrada', `/casa/entrada?produto=${ids.stockProduct}`],
+    ['casa-buscar', '/casa/buscar?q=arroz'],
+    ['casa-categorias', '/casa/categorias'],
+    ['casa-locais', '/casa/locais'],
+    ['casa-mais', '/casa/mais'],
   ];
 
   const server = startServer();

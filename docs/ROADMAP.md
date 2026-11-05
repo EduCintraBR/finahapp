@@ -164,17 +164,17 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 **Etapa 1 — Base** (D81 a D83)
 
-- [ ] Regras puras em `src/domain/stock/`: quantidade do lote e do produto a partir dos movimentos, recusa de saída que deixaria o lote negativo, total em g/ml (embalagens × conteúdo), ordem FEFO; property tests (Σ movimentos = quantidade; nenhuma sequência aceita deixa lote negativo)
-- [ ] Schema: categorias e locais da Casa, produtos, lotes, movimentos (`cancelled_at`), com CHECKs (quantidade ≠ 0, conteúdo > 0, inteiros); serviços em `db.transaction()` com `audit_log`
-- [ ] Chave Finanças/Casa no topo, menu e Início da Casa (`/casa`); botão "Usar categorias sugeridas"; cadastro de locais
-- [ ] Cadastro de produto; entrada (lote com embalagem, conteúdo, validade); "Usei", "Descartei" e "Contei" (ajuste) com lote sugerido trocável; desfazer movimento
-- [ ] Estoque por categoria (grade → lista com quantidade, local e próxima validade), detalhe do produto com os lotes, busca única
-- [ ] Teste de aceitação: quantidade das telas = Σ movimentos não cancelados; nenhuma operação da Casa muda Saldo, Gasto Bruto ou Gasto Mensal
+- [x] Regras puras em `src/domain/stock/`: quantidade do lote e do produto a partir dos movimentos, recusa de saída que deixaria o lote negativo, total em g/ml (embalagens × conteúdo), ordem FEFO; property tests (Σ movimentos = quantidade; nenhuma sequência aceita deixa lote negativo)
+- [x] Schema: categorias e locais da Casa, produtos, lotes, movimentos (`cancelled_at`), com CHECKs (quantidade ≠ 0, conteúdo > 0, inteiros); serviços em `db.transaction()` com `audit_log`
+- [x] Chave Finanças/Casa no topo, menu e Início da Casa (`/casa`); botão "Usar categorias sugeridas"; cadastro de locais
+- [x] Cadastro de produto; entrada (lote com embalagem, conteúdo, validade); "Usei", "Descartei" e "Contei" (ajuste) com lote sugerido trocável; desfazer movimento; arquivar produto sem estoque
+- [x] Estoque por categoria (grade → lista com quantidade, local e próxima validade), detalhe do produto com os lotes, busca única
+- [x] Teste de aceitação: quantidade das telas = Σ movimentos não cancelados; nenhuma operação da Casa muda Saldo, Gasto Bruto ou Gasto Mensal
+- [x] Código do lote `PREFIXO-NN` adiantado da etapa 2: o prefixo vem no cadastro do produto e a busca acha pelo código
 
 **Etapa 2 — Envase, rodízio e etiquetas** (D84, D85, D87)
 
 - [ ] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
-- [ ] Código `PREFIXO-NN` por produto (prefixo sugerido sem acento e editável, número nunca reaproveitado)
 - [ ] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
 - [ ] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
 

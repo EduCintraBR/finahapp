@@ -420,7 +420,7 @@ Pedido do usuário (05/11/2026): o app passa a guardar também as informações 
   - `WEIGHT`: peso, em **gramas inteiras** (arroz, feijão);
   - `VOLUME`: volume, em **mililitros inteiros** (água, amaciante).
 - Peso e volume seguem a regra do dinheiro: inteiros, nunca `float`; kg e L só na apresentação.
-- **Lote** = cada coisa que entra no estoque: produto, local, **embalagem** (pacote, garrafa PET, galão, caixa…), **conteúdo por embalagem** (em g ou ml; obrigatório para `WEIGHT`/`VOLUME`), data de entrada, **validade** (opcional), origem (`PURCHASE` ou `REPACK`) e **código** (D87).
+- **Lote** = cada coisa que entra no estoque: produto, local, **embalagem** (pacote, garrafa PET, galão, caixa…), **conteúdo por embalagem** (em g ou ml, obrigatório para `WEIGHT`/`VOLUME`; em `UNIT`, opcional = quantas unidades vêm na embalagem, ex.: caixa com 10 comprimidos), data de entrada, **validade** (opcional), origem (`PURCHASE` ou `REPACK`) e **código** (D87).
 - **Quantidade nunca é armazenada:** a quantidade de um lote é Σ dos seus movimentos, em **embalagens inteiras**; a do produto é Σ dos lotes (e, em `WEIGHT`/`VOLUME`, Σ embalagens × conteúdo, mostrada como "11 garrafas ≈ 19,8 kg").
 - **Movimentos:** entrada (`IN`), uso (`USE`), descarte (`DISCARD`, venceu ou estragou), ajuste de contagem (`ADJUST`, para mais ou para menos), saída para envase (`REPACK_OUT`) e entrada de envase (`REPACK_IN`). Quantidade sempre inteira e diferente de zero, assinada pela direção.
 - **Lote nunca fica negativo:** a regra de domínio recusa a saída que passaria de zero (mensagem em pt-BR) antes do banco. Lote zerado sai das listas, mas continua no histórico.
@@ -451,6 +451,6 @@ Para grãos guardados em garrafas PET seladas.
 
 ### 12.6 Código do lote e etiquetas (D87)
 
-- Cada lote ganha um **código curto e único**: o **prefixo** do produto (3 letras, sugerido do nome sem acento e editável no cadastro, ex.: `ARR`) + número sequencial do produto (`ARR-03`). O número nunca é reaproveitado, nem de lote zerado.
+- Cada lote ganha um **código curto e único**: o **prefixo** do produto (de 2 a 4 letras ou números, único entre os produtos, sugerido do nome sem acento com 3 letras e editável no cadastro enquanto o produto não tem lotes, ex.: `ARR`) + número sequencial do produto (`ARR-03`). O número nunca é reaproveitado, nem de lote zerado.
 - **Etiquetas para imprimir:** a partir de um lote (ou de vários), uma página de impressão gera **uma etiqueta por embalagem** (quantidade ajustável), com o código em destaque, produto, conteúdo, data de selagem ou entrada, validade e um **QR code** que abre o lote no app (`/casa/lotes/[id]`), para dar baixa pela câmera do celular.
 - Impressão pelo navegador (`@page` em A4, retrato, sem depender de impressora específica). **Etiqueta = 1/4 de folha A4** (105 × 148,5 mm; decisão do usuário, 05/11/2026): 4 etiquetas por folha em grade 2 × 2, com marcas de corte, papel comum. Folha incompleta deixa os quadros vazios em branco. Pelo tamanho, o código e a validade saem grandes, legíveis de longe na prateleira.

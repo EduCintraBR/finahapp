@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import type { ISODate } from '@/domain/dates';
 import { Toaster } from '@/components/ui/toaster';
 import { BottomNav } from './bottom-nav';
-import { Logo } from './logo';
+import { AreaMenu } from './area-switch';
 import { MonthSelector } from './month-selector';
 import { ThemeQuickToggle } from '@/components/theme/theme-controls';
 import { NAV_ITEMS } from './nav-items';
@@ -27,8 +27,9 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4">
+            {/* celular: o logo abre a troca de área (Finanças ou Casa, D81); no desktop ela fica na sidebar */}
             <div className="md:hidden">
-              <Logo />
+              <AreaMenu />
             </div>
             {/* o meio do cabeçalho existe mesmo nas telas sem seletor de mês: tema e perfil ficam sempre à direita */}
             <div className="flex min-w-0 flex-1 justify-center md:justify-start">
