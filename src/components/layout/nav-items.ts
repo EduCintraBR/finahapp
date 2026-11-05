@@ -1,17 +1,22 @@
 import {
   ArrowLeftRight,
+  Boxes,
   ChartPie,
   CreditCard,
   Ellipsis,
   FileUp,
   House,
   Landmark,
+  MapPin,
+  Package,
   Repeat,
   Scale,
+  Search,
   Settings,
   Tags,
   Target,
   Utensils,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -81,6 +86,12 @@ export const NAV_ITEMS = {
     icon: Tags,
     description: 'Categorias e subcategorias dos gastos e receitas',
   },
+  casa: {
+    href: '/casa',
+    label: 'Casa',
+    icon: Package,
+    description: 'Estoque da despensa, água, limpeza e remédios',
+  },
   settings: {
     href: '/ajustes',
     label: 'Ajustes',
@@ -103,6 +114,7 @@ export const MORE_GROUPS: { title: string; items: NavItem[] }[] = [
   },
   { title: 'Conta', items: [NAV_ITEMS.import, NAV_ITEMS.checkpoint] },
   { title: 'Cadastros', items: [NAV_ITEMS.categories] },
+  { title: 'Outras áreas', items: [NAV_ITEMS.casa] },
   { title: 'App', items: [NAV_ITEMS.settings] },
 ];
 
@@ -111,9 +123,84 @@ export const MORE_ITEMS: NavItem[] = MORE_GROUPS.flatMap((g) => g.items);
 /** Sidebar do desktop: tudo, agrupado. */
 export const SIDEBAR_GROUPS: { title?: string; items: NavItem[] }[] = [
   { items: [NAV_ITEMS.home, NAV_ITEMS.entries, NAV_ITEMS.reports] },
-  ...MORE_GROUPS.filter((g) => g.title !== 'App'),
+  // a Casa fica nas abas de área, no topo da sidebar
+  ...MORE_GROUPS.filter((g) => g.title !== 'App' && g.title !== 'Outras áreas'),
   { items: [NAV_ITEMS.settings] },
 ];
+
+// ───────────── Casa (D81): área separada, com menu e Início próprios ─────────────
+
+export const CASA_ITEMS = {
+  home: { href: '/casa', label: 'Início', icon: House },
+  stock: {
+    href: '/casa/estoque',
+    label: 'Estoque',
+    icon: Boxes,
+    match: ['/casa/estoque', '/casa/produtos', '/casa/entrada'],
+  },
+  search: { href: '/casa/buscar', label: 'Buscar', icon: Search },
+  more: { href: '/casa/mais', label: 'Mais', icon: Ellipsis },
+  categories: {
+    href: '/casa/categorias',
+    label: 'Categorias',
+    icon: Tags,
+    description: 'Alimentos, Água, Limpeza… e as subcategorias',
+  },
+  locations: {
+    href: '/casa/locais',
+    label: 'Locais',
+    icon: MapPin,
+    description: 'Onde as coisas ficam: despensa, área de serviço…',
+  },
+  finances: {
+    href: '/',
+    label: 'Finanças',
+    icon: Wallet,
+    description: 'Conta, cartões, contas e orçamentos',
+  },
+} satisfies Record<string, NavItem>;
+
+export const CASA_BOTTOM_NAV = {
+  left: [CASA_ITEMS.home, CASA_ITEMS.stock],
+  right: [CASA_ITEMS.search, CASA_ITEMS.more],
+} satisfies Record<string, NavItem[]>;
+
+/** Telas do "Mais" da Casa (celular); no desktop, na sidebar. */
+export const CASA_MORE_GROUPS: { title: string; items: NavItem[] }[] = [
+  { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
+  { title: 'Outras áreas', items: [CASA_ITEMS.finances] },
+  { title: 'App', items: [NAV_ITEMS.settings] },
+];
+
+export const CASA_MORE_ITEMS: NavItem[] = CASA_MORE_GROUPS.flatMap((g) => g.items);
+
+export const CASA_SIDEBAR_GROUPS: { title?: string; items: NavItem[] }[] = [
+  { items: [CASA_ITEMS.home, CASA_ITEMS.stock, CASA_ITEMS.search] },
+  { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
+  { items: [NAV_ITEMS.settings] },
+];
+
+export type Area = 'financas' | 'casa';
+
+export const AREAS: Record<Area, { href: string; label: string; description: string; icon: LucideIcon }> = {
+  financas: {
+    href: '/',
+    label: 'Finanças',
+    description: 'Conta, cartões, contas e orçamentos',
+    icon: Wallet,
+  },
+  casa: {
+    href: '/casa',
+    label: 'Casa',
+    description: 'Estoque da despensa, água, limpeza e remédios',
+    icon: Package,
+  },
+};
+
+/** A área de uma rota: tudo em /casa é da Casa; o resto (inclusive Ajustes) é das Finanças. */
+export function areaOf(pathname: string): Area {
+  return pathname === '/casa' || pathname.startsWith('/casa/') ? 'casa' : 'financas';
+}
 
 function routePrefixes(item: NavItem): string[] {
   return item.match ?? [item.href.split('#')[0]!];

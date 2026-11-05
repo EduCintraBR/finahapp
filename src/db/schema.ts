@@ -624,6 +624,120 @@ export const budgetAmounts = pgTable('budget_amounts', {
   check('budget_amounts_positive', sql`${t.amountCents} is null or ${t.amountCents} > 0`),
 ]);
 
+// ─────────────────────────── casa: estoque (D81 a D87) ───────────────────────────
+/**
+ * Estoque da Casa: área separada das Finanças (nenhuma tabela daqui aponta para lançamentos, e não há preço).
+ * A quantidade NUNCA é armazenada: a de um lote é Σ stock_movements não cancelados (embalagens inteiras); a do
+ * produto, Σ dos lotes. Peso e volume em gramas e mililitros inteiros, como os centavos.
+ */
+export const stockMeasure = pgEnum('stock_measure', ['UNIT', 'WEIGHT', 'VOLUME']);
+export const stockLotOrigin = pgEnum('stock_lot_origin', [
+  'PURCHASE', // entrou comprado
+  'REPACK',   // nasceu de um envase (D84)
+]);
+export const stockMovementKind = pgEnum('stock_movement_kind', [
+  'IN',         // + entrada (comprei)
+  'USE',        // - usei / abri
+  'DISCARD',    // - descartei (venceu, estragou)
+  'ADJUST',     // ± contei e deu outra quantidade
+  'REPACK_OUT', // - saiu para um envase
+  'REPACK_IN',  // + entrou de um envase
+]);
+
+/** Categorias da Casa, em 2 níveis (como D74), independentes das categorias financeiras. */
+export const stockCategories = pgTable('stock_categories', {
+  id: pk(),
+  name: varchar('name', { length: 60 }).notNull(),
+  parentId: uuid('parent_id').references((): AnyPgColumn => stockCategories.id),
+  icon: varchar('icon', { length: 40 }),   // nome do ícone Lucide
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: createdAt(),
+}, (t) => [unique('stock_categories_parent_name').on(t.parentId, t.name).nullsNotDistinct()]);
+
+/** Onde as coisas ficam (Despensa, Área de serviço…), para saber onde procurar. */
+export const stockLocations = pgTable('stock_locations', {
+  id: pk(),
+  name: varchar('name', { length: 60 }).notNull().unique(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/**
+ * Produto do catálogo. `prefix` dá o código dos lotes (ARR-03, D87). Mínimo e meta ficam na medida do produto
+ * (unidades, g ou ml). `default_package`/`default_content` só pré-preenchem a entrada.
+ */
+export const stockProducts = pgTable('stock_products', {
+  id: pk(),
+  name: varchar('name', { length: 80 }).notNull(),
+  categoryId: uuid('category_id').notNull().references(() => stockCategories.id),
+  defaultLocationId: uuid('default_location_id').references(() => stockLocations.id),
+  measure: stockMeasure('measure').notNull(),
+  prefix: varchar('prefix', { length: 4 }).notNull().unique(),
+  minQuantity: bigint('min_quantity', { mode: 'number' }),
+  targetQuantity: bigint('target_quantity', { mode: 'number' }),
+  defaultPackage: varchar('default_package', { length: 40 }),
+  defaultContent: bigint('default_content', { mode: 'number' }),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  check('stock_products_prefix', sql`${t.prefix} ~ '^[A-Z0-9]{2,4}$'`),
+  check('stock_products_min', sql`${t.minQuantity} is null or ${t.minQuantity} > 0`),
+  check('stock_products_target', sql`${t.targetQuantity} is null or ${t.targetQuantity} > 0`),
+  check('stock_products_target_min', sql`${t.minQuantity} is null or ${t.targetQuantity} is null or ${t.targetQuantity} >= ${t.minQuantity}`),
+  check('stock_products_content', sql`${t.defaultContent} is null or ${t.defaultContent} > 0`),
+  index('stock_products_category').on(t.categoryId),
+]);
+
+/**
+ * Lote = cada coisa que entrou: embalagem, conteúdo de cada uma (g/ml/unidades; obrigatório em peso e volume),
+ * validade. `number` é sequencial por produto e nunca reaproveitado (lote não se apaga).
+ */
+export const stockLots = pgTable('stock_lots', {
+  id: pk(),
+  productId: uuid('product_id').notNull().references(() => stockProducts.id),
+  number: integer('number').notNull(),
+  locationId: uuid('location_id').references(() => stockLocations.id),
+  packageName: varchar('package_name', { length: 40 }).notNull(),
+  contentPerPackage: bigint('content_per_package', { mode: 'number' }),
+  entryDate: day('entry_date').notNull(),
+  expiryDate: day('expiry_date'),
+  origin: stockLotOrigin('origin').notNull().default('PURCHASE'),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+}, (t) => [
+  unique('stock_lots_product_number').on(t.productId, t.number),
+  check('stock_lots_number', sql`${t.number} > 0`),
+  check('stock_lots_content', sql`${t.contentPerPackage} is null or ${t.contentPerPackage} > 0`),
+]);
+
+/** Movimentos do lote, em embalagens inteiras e assinados pela direção. Errado se desfaz com `cancelled_at`. */
+export const stockMovements = pgTable('stock_movements', {
+  id: pk(),
+  lotId: uuid('lot_id').notNull().references(() => stockLots.id),
+  kind: stockMovementKind('kind').notNull(),
+  quantity: integer('quantity').notNull(),
+  movementDate: day('movement_date').notNull(),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  createdAt: createdAt(),
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelledByUserId: uuid('cancelled_by_user_id').references(() => users.id),
+}, (t) => [
+  check('stock_movements_nonzero', sql`${t.quantity} <> 0`),
+  check(
+    'stock_movements_direction',
+    sql`(${t.kind} in ('IN', 'REPACK_IN') and ${t.quantity} > 0)
+      or (${t.kind} in ('USE', 'DISCARD', 'REPACK_OUT') and ${t.quantity} < 0)
+      or ${t.kind} = 'ADJUST'`,
+  ),
+  index('stock_movements_lot').on(t.lotId),
+]);
+
 // ─────────────────────────── bot ───────────────────────────
 export const botMessages = pgTable('bot_messages', {
   id: pk(),

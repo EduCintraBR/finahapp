@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { withMonth } from './month-link';
-import { BOTTOM_NAV, MORE_ITEMS, NAV_ITEMS, activeItem, isMonthRoute } from './nav-items';
+import {
+  BOTTOM_NAV,
+  CASA_BOTTOM_NAV,
+  CASA_ITEMS,
+  CASA_MORE_ITEMS,
+  MORE_ITEMS,
+  NAV_ITEMS,
+  activeItem,
+  areaOf,
+  isMonthRoute,
+} from './nav-items';
 
 const bottom = [...BOTTOM_NAV.left, ...BOTTOM_NAV.right, ...MORE_ITEMS];
 const id = '0b7c1f6e-3a1d-4c4e-9a52-0d0c6c2b7a11';
@@ -31,6 +41,36 @@ describe('activeItem', () => {
 
   it('não confunde prefixo de palavra', () => {
     expect(activeItem('/cartoesx', bottom)).toBeUndefined();
+  });
+});
+
+describe('área Casa (D81)', () => {
+  const casa = [...CASA_BOTTOM_NAV.left, ...CASA_BOTTOM_NAV.right, ...CASA_MORE_ITEMS];
+
+  it('tudo em /casa é da Casa; o resto, inclusive Ajustes, das Finanças', () => {
+    expect(areaOf('/casa')).toBe('casa');
+    expect(areaOf(`/casa/produtos/${id}`)).toBe('casa');
+    expect(areaOf('/')).toBe('financas');
+    expect(areaOf('/ajustes')).toBe('financas');
+    expect(areaOf('/casas')).toBe('financas');
+  });
+
+  it('produto e entrada acendem o Estoque; cadastros acendem o próprio item', () => {
+    expect(activeItem('/casa', casa)).toBe(CASA_ITEMS.home);
+    expect(activeItem(`/casa/produtos/${id}`, casa)).toBe(CASA_ITEMS.stock);
+    expect(activeItem('/casa/entrada', casa)).toBe(CASA_ITEMS.stock);
+    expect(activeItem('/casa/buscar', casa)).toBe(CASA_ITEMS.search);
+    expect(activeItem('/casa/locais', casa)).toBe(CASA_ITEMS.locations);
+  });
+
+  it('o Mais das Finanças leva à Casa, e o da Casa volta às Finanças', () => {
+    expect(MORE_ITEMS).toContain(NAV_ITEMS.casa);
+    expect(CASA_MORE_ITEMS).toContain(CASA_ITEMS.finances);
+  });
+
+  it('a Casa não mostra o seletor de mês', () => {
+    for (const p of ['/casa', '/casa/estoque', `/casa/produtos/${id}`])
+      expect(isMonthRoute(p), p).toBe(false);
   });
 });
 

@@ -72,6 +72,13 @@ const WARM_ROUTES = [
   '/ajustes',
   '/categorias',
   '/categorias/subcategorias',
+  '/casa',
+  '/casa/estoque',
+  '/casa/entrada',
+  '/casa/produtos/novo',
+  '/casa/buscar',
+  '/casa/locais',
+  '/casa/mais',
 ];
 
 async function warmUp() {
