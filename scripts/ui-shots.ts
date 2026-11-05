@@ -28,6 +28,7 @@ import {
 import { deriveKey, seal } from '../src/server/auth/secret-box';
 import { base32Encode, totpCode, totpStep } from '../src/server/auth/totp';
 import { createBenefitCard, createBenefitSpend, generateBenefitCredits } from '../src/server/benefits';
+import { setBudget } from '../src/server/budgets';
 import { createCardPurchase, createOnboardingPlan } from '../src/server/card-purchases';
 import { createSubcategory } from '../src/server/categories';
 import { createCard } from '../src/server/cards';
@@ -374,6 +375,20 @@ async function populate(db: AnyDB, hoje: ISODate) {
     fileName: 'Nubank_fatura.ofx',
     bytes: Buffer.from(ofx, 'latin1'),
   });
+
+  // orçamentos (D79): o teto e algumas categorias, desde 3 meses atrás; Mercado mais apertado para mostrar os alertas
+  for (const [name, value] of [
+    [null, '9.000,00'],
+    ['Mercado', '700,00'],
+    ['Alimentação fora', '500,00'],
+    ['Lazer', '400,00'],
+    ['Moradia', '3.500,00'],
+  ] as const) {
+    await setBudget(
+      ctx(),
+      S.budgetInput.parse({ categoryId: name ? cat(name) : '', amount: value, fromMonth: month(-3) }),
+    );
+  }
 }
 
 async function resetDatabase(hoje: ISODate) {
@@ -408,6 +423,7 @@ async function detailIds() {
       template: await one(`select id from recurring_templates where description = 'Aluguel apartamento'`),
       batch: await one(`select id from import_batches order by created_at desc limit 1`),
       category: await one(`select id from categories where name = 'Mercado' and parent_id is null`),
+      budget: await one(`select id from budgets where category_id is null`),
     };
   } finally {
     await sql.end();
@@ -598,6 +614,8 @@ async function main() {
     ['emprestimo', `/emprestimos/${ids.loan}`],
     ['beneficio', `/beneficios/${ids.benefit}`],
     ['beneficio-novo', '/beneficios/novo'],
+    ['orcamentos', '/orcamentos'],
+    ['orcamento', `/orcamentos/${ids.budget}`],
     ['relatorios', '/relatorios'],
     ['projecao', '/relatorios/projecao'],
     ['resumo-entrou', '/resumo/entrou'],

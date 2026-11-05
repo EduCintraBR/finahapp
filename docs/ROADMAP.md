@@ -144,9 +144,23 @@ Pedido do usuário (02/11/2026): reclassificar cada gasto na categoria e subcate
 
 ---
 
+## Fase 7 — Orçamentos (D79)
+
+Pedido do usuário (04/11/2026): cadastro de orçamento e metas, com gráficos e alertas para saber se o casal está passando do orçamento. Decisões: meta = teto do mês; medida = Gasto Mensal; alertas no app; valor fixo com ajuste a partir de um mês.
+
+- [x] Regras puras (`amountForMonth`, `nextAmounts`, `budgetStatus`) com property tests em `src/domain/budgets/`
+- [x] Schema `budgets` + `budget_amounts` (valor por mês, nulo = parou), serviço `setBudget`/`stopBudget` com `audit_log`
+- [x] Queries: gasto de cada orçamento = Gasto Mensal canônico (categoria-mãe com subcategorias; teto = tudo), histórico de 6 meses; teste de aceitação comparando com `monthlySpend`
+- [x] `/orcamentos` (alertas, teto com gráfico, categorias) e `/orcamentos/[id]` (gráfico, valores, mudar valor, parar); item no "Mais" e na sidebar
+- [x] Painel "Orçamentos" na Início com o teto e as categorias perto ou acima do limite
+
+**Pronto quando:** o gasto mostrado em cada orçamento é exatamente o Gasto Mensal da categoria (ou do mês, no teto) e mudar o valor a partir de um mês nunca muda os meses anteriores.
+
+---
+
 ## Depois da v1 (backlog)
 
 - Migração para o NAS (Tailscale, bot em polling)
 - Áudio no bot (transcrição)
-- Orçamento por categoria
+- Alertas de orçamento pelo Telegram
 - Exportação CSV dos relatórios
