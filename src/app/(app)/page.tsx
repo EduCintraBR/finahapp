@@ -40,6 +40,7 @@ import {
   toMonthParam,
 } from '@/domain/dates';
 import { formatBRL } from '@/domain/money';
+import { pendingPayableCents } from '@/domain/pending-total';
 import { resolveMonth } from '@/lib/month';
 import { ensureOccurrences } from '@/server/ensure-occurrences';
 
@@ -149,6 +150,7 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
   const monthLabel = formatMonthLabel(month);
   const mes = toMonthParam(month);
   const activeLoans = loans.filter((l) => !l.summary.settled);
+  const pendingPayable = pendingPayableCents(pending);
 
   return (
     <div className="space-y-4">
@@ -233,6 +235,16 @@ export default async function HomePage({ searchParams }: PageProps<'/'>) {
               region
               title="Pendentes"
               description={pending.length > 0 ? 'Até o fim do mês, com os atrasados' : undefined}
+              badge={
+                pendingPayable > 0 ? (
+                  <span
+                    className="shrink-0 rounded-full bg-expense/15 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-expense tabular-nums"
+                    data-testid="pending-total"
+                  >
+                    −{formatBRL(pendingPayable)}
+                  </span>
+                ) : undefined
+              }
             >
               <div className="border-t">
                 <PendingList

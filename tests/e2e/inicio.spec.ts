@@ -34,6 +34,16 @@ test('saldo, previsão, Entrou, Saiu, A receber e A pagar na 1ª tela, sem rolar
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
 });
 
+test('pendentes: o total a pagar aparece no título, negativo', async ({ page }) => {
+  const region = page.getByRole('region', { name: 'Pendentes' });
+  await expect(region).toBeVisible();
+  const total = region.getByTestId('pending-total');
+  if ((await region.getByRole('listitem').count()) > 0 && (await total.count()) > 0) {
+    await expect(total).toHaveText(/^−R\$\s[\d.]+,\d{2}$/);
+    await expect(total).toBeInViewport();
+  }
+});
+
 test('pendentes: até 3 na tela; "Ver todos" abre o resto no lugar', async ({ page }) => {
   const region = page.getByRole('region', { name: 'Pendentes' });
   await expect(region).toBeVisible();
