@@ -190,9 +190,10 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 - [x] "Abri" no lote e no produto (atômico, desfaz inteiro); lote aberto em unidades soltas para comprimido e cápsula
 - [x] Testes de aceitação (total conservado, nunca negativo, nada toca as Finanças) e e2e
 
-**Etapa 5 — Bot** (decisões a registrar antes de começar)
+**Etapa 5 — Bot** (adiada por decisão do usuário em 06/11/2026; a Fase 8 vai a produção sem ela)
 
 - [ ] "tenho dipirona?", "comprei 6 galões de água de 5 L", "usei 2 leites", "o que vence esse mês?"
+- Decisões a registrar antes de retomar: (1) o bot muda o estoque direto ou pede confirmação, como nas Finanças; (2) nome ambíguo ("leite" com 3 produtos): pergunta qual ou usa o de validade mais próxima; (3) compra de produto que não existe: cria o produto ou só avisa
 
 **Pronto quando:** a quantidade mostrada de qualquer produto é exatamente Σ dos movimentos não cancelados dos seus lotes, nenhum lote fica negativo, o envase tira das origens e cria o lote novo de uma vez (ou nada), e nada na Casa muda nenhum número das Finanças.
 
@@ -205,4 +206,5 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 - Alertas de orçamento pelo Telegram
 - Exportação CSV dos relatórios
 - Casa: leitura de código de barras pela câmera (cadastro e baixa)
+- Casa: bot do Telegram para o estoque (Fase 8, Etapa 5)
 - Casa: autonomia do estoque (ex.: quantos dias a água dura para 2 pessoas)
