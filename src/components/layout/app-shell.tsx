@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import type { ISODate } from '@/domain/dates';
 import { Toaster } from '@/components/ui/toaster';
 import { BottomNav } from './bottom-nav';
-import { Logo } from './logo';
+import { AreaMenu } from './area-switch';
 import { MonthSelector } from './month-selector';
 import { ThemeQuickToggle } from '@/components/theme/theme-controls';
 import { NAV_ITEMS } from './nav-items';
@@ -25,10 +25,11 @@ export function AppShell({
         <Sidebar />
       </Suspense>
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur">
+        <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur print:hidden">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4">
+            {/* celular: o logo abre a troca de área (Finanças ou Casa, D81); no desktop ela fica na sidebar */}
             <div className="md:hidden">
-              <Logo />
+              <AreaMenu />
             </div>
             {/* o meio do cabeçalho existe mesmo nas telas sem seletor de mês: tema e perfil ficam sempre à direita */}
             <div className="flex min-w-0 flex-1 justify-center md:justify-start">
@@ -50,7 +51,7 @@ export function AppShell({
         </header>
         {/* pb-24: espaço para a navegação inferior no celular */}
         {/* espaço no fim = barra inferior (4rem) + folga + o indicador do iPhone: nada fica atrás da barra */}
-        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8">
+        <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8 print:m-0 print:max-w-none print:p-0">
           {children}
         </main>
       </div>

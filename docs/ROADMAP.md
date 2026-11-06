@@ -158,9 +158,53 @@ Pedido do usuário (04/11/2026): cadastro de orçamento e metas, com gráficos e
 
 ---
 
+## Fase 8 — Casa: estoque da casa (D81 a D90)
+
+Pedido do usuário (05/11/2026): guardar no app também as informações da casa, começando por um estoque de despensa (alimentos e água estocados, grãos envasados em garrafas PET), limpeza, lavanderia, higiene e remédios, "para nunca mais comprar o que já tenho". Decisões: área separada das Finanças e sem preço; quantidade mista (unidades, gramas, ml); validade por lote; despensa e água primeiro.
+
+**Etapa 1 — Base** (D81 a D83)
+
+- [x] Regras puras em `src/domain/stock/`: quantidade do lote e do produto a partir dos movimentos, recusa de saída que deixaria o lote negativo, total em g/ml (embalagens × conteúdo), ordem FEFO; property tests (Σ movimentos = quantidade; nenhuma sequência aceita deixa lote negativo)
+- [x] Schema: categorias e locais da Casa, produtos, lotes, movimentos (`cancelled_at`), com CHECKs (quantidade ≠ 0, conteúdo > 0, inteiros); serviços em `db.transaction()` com `audit_log`
+- [x] Chave Finanças/Casa no topo, menu e Início da Casa (`/casa`); botão "Usar categorias sugeridas"; cadastro de locais
+- [x] Cadastro de produto; entrada (lote com embalagem, conteúdo, validade); "Usei", "Descartei" e "Contei" (ajuste) com lote sugerido trocável; desfazer movimento; arquivar produto sem estoque
+- [x] Estoque por categoria (grade → lista com quantidade, local e próxima validade), detalhe do produto com os lotes, busca única
+- [x] Teste de aceitação: quantidade das telas = Σ movimentos não cancelados; nenhuma operação da Casa muda Saldo, Gasto Bruto ou Gasto Mensal
+- [x] Código do lote `PREFIXO-NN` adiantado da etapa 2: o prefixo vem no cadastro do produto e a busca acha pelo código
+
+**Etapa 2 — Envase, rodízio e etiquetas** (D84, D85, D87)
+
+- [x] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
+- [x] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
+- [x] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
+
+**Etapa 3 — Reposição** (D86)
+
+- [x] Acabando (abaixo do mínimo) e lista de compras gerada (falta para a meta), com "Comprei" abrindo a entrada preenchida
+
+**Etapa 4 — Remédios** (D88 a D90)
+
+- [x] Regras puras (`src/domain/stock/medicine.ts`): formas, contado solto, planejar a abertura (total conservado, validade = menor entre a da embalagem e abertura + prazo); property test da conservação
+- [x] Schema: campos do remédio no produto, pessoas da casa e "para quem", origem `OPENED` e movimentos `OPEN_OUT`/`OPEN_IN`
+- [x] Pessoas (Mais da Casa › Pessoas) com "Usar os sugeridos"; produto com princípio ativo, dosagem, forma, para quem e validade depois de aberto; a busca acha por princípio ativo, dosagem e pessoa
+- [x] "Abri" no lote e no produto (atômico, desfaz inteiro); lote aberto em unidades soltas para comprimido e cápsula
+- [x] Testes de aceitação (total conservado, nunca negativo, nada toca as Finanças) e e2e
+
+**Etapa 5 — Bot** (adiada por decisão do usuário em 06/11/2026; a Fase 8 vai a produção sem ela)
+
+- [ ] "tenho dipirona?", "comprei 6 galões de água de 5 L", "usei 2 leites", "o que vence esse mês?"
+- Decisões a registrar antes de retomar: (1) o bot muda o estoque direto ou pede confirmação, como nas Finanças; (2) nome ambíguo ("leite" com 3 produtos): pergunta qual ou usa o de validade mais próxima; (3) compra de produto que não existe: cria o produto ou só avisa
+
+**Pronto quando:** a quantidade mostrada de qualquer produto é exatamente Σ dos movimentos não cancelados dos seus lotes, nenhum lote fica negativo, o envase tira das origens e cria o lote novo de uma vez (ou nada), e nada na Casa muda nenhum número das Finanças.
+
+---
+
 ## Depois da v1 (backlog)
 
 - Migração para o NAS (Tailscale, bot em polling)
 - Áudio no bot (transcrição)
 - Alertas de orçamento pelo Telegram
 - Exportação CSV dos relatórios
+- Casa: leitura de código de barras pela câmera (cadastro e baixa)
+- Casa: bot do Telegram para o estoque (Fase 8, Etapa 5)
+- Casa: autonomia do estoque (ex.: quantos dias a água dura para 2 pessoas)

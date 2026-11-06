@@ -2,36 +2,49 @@
 
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { Plus } from 'lucide-react';
+import { PackagePlus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { AreaTabs } from './area-switch';
 import { Logo } from './logo';
 import { withMonth } from './month-link';
-import { SIDEBAR_GROUPS, activeItem } from './nav-items';
+import { CASA_SIDEBAR_GROUPS, SIDEBAR_GROUPS, activeItem, areaOf } from './nav-items';
 import { NewEntrySheet } from './new-entry-sheet';
 
 const ALL = SIDEBAR_GROUPS.flatMap((g) => g.items);
+const CASA_ALL = CASA_SIDEBAR_GROUPS.flatMap((g) => g.items);
 
-/** Sidebar do desktop (≥ md): todas as seções, agrupadas. */
+/** Sidebar do desktop (≥ md): a troca de área (D81) e as seções da área, agrupadas. */
 export function Sidebar() {
   const pathname = usePathname();
   const params = useSearchParams();
-  const current = activeItem(pathname, ALL);
+  const casa = areaOf(pathname) === 'casa';
+  const groups = casa ? CASA_SIDEBAR_GROUPS : SIDEBAR_GROUPS;
+  const current = activeItem(pathname, casa ? CASA_ALL : ALL);
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex print:hidden">
       <div className="flex h-16 items-center px-5">
         <Logo />
       </div>
-      <div className="px-3 pb-4">
-        <NewEntrySheet>
-          <Button className="w-full">
-            <Plus aria-hidden /> Novo lançamento
+      <div className="space-y-3 px-3 pb-4">
+        <AreaTabs />
+        {casa ? (
+          <Button asChild className="w-full">
+            <Link href="/casa/entrada">
+              <PackagePlus aria-hidden /> Dar entrada
+            </Link>
           </Button>
-        </NewEntrySheet>
+        ) : (
+          <NewEntrySheet>
+            <Button className="w-full">
+              <Plus aria-hidden /> Novo lançamento
+            </Button>
+          </NewEntrySheet>
+        )}
       </div>
       <nav aria-label="Navegação principal" className="flex flex-1 flex-col gap-4 px-3 pb-4">
-        {SIDEBAR_GROUPS.map((group, i) => (
+        {groups.map((group, i) => (
           <div
             key={group.title ?? i}
             className={cn('flex flex-col gap-1', !group.title && i > 0 && 'mt-auto')}
@@ -47,7 +60,7 @@ export function Sidebar() {
               return (
                 <Link
                   key={href}
-                  href={withMonth(href, params)}
+                  href={casa ? href : withMonth(href, params)}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
                     'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
