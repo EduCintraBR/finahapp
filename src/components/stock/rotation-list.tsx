@@ -4,7 +4,7 @@ import type { RotationLot } from '@/db/queries/stock';
 import type { ISODate } from '@/domain/dates';
 import { ageText } from '@/domain/stock/rotation';
 import { cn } from '@/lib/utils';
-import { lotContentText } from './format';
+import { entryLabel, lotContentText } from './format';
 import { CheckBadge, ExpiryBadge } from './stock-icons';
 
 /** Lotes do rodízio (D85): produto e código, validade, conferência, idade e quanto tem. Um toque abre o lote. */
@@ -35,8 +35,7 @@ export function RotationList({
                 <CheckBadge date={l.nextCheck} due={l.checkDue} />
               </div>
               <p className="text-xs text-muted-foreground">
-                {l.origin === 'REPACK' ? 'Selado' : 'Entrou'} {ageText(l.entryDate, today)} ·{' '}
-                {lotContentText(l, l.measure)}
+                {entryLabel(l.origin)} {ageText(l.entryDate, today)} · {lotContentText(l, l.measure)}
                 {l.locationName && ` · ${l.locationName}`}
               </p>
             </div>

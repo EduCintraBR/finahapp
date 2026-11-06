@@ -4,7 +4,7 @@
  * que vence primeiro), desfazer e buscar pelo nome e pelo código do lote. As contas exatas ficam na aceitação.
  */
 import { expect, test, type Page } from '@playwright/test';
-import { addDays, today } from '../../src/domain/dates';
+import { addDays, formatDateBR, today } from '../../src/domain/dates';
 import { e2eEnv } from './env';
 import { login } from './login';
 
@@ -12,6 +12,7 @@ test.describe.configure({ mode: 'serial' });
 
 let page: Page;
 const hoje = today();
+const hojeMais60BR = formatDateBR(addDays(hoje, 60));
 
 const noHorizontalScroll = async () =>
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
@@ -252,6 +253,74 @@ test('reposição: o produto sem estoque está acabando; "Comprei" abre a entrad
   await expect(page.getByTestId('shopping-list')).toHaveCount(0);
   await expect(page.getByText('Nada para comprar agora')).toBeVisible();
   await noHorizontalScroll();
+});
+
+test('pessoas e bichos: os sugeridos entram pelo Mais da Casa', async () => {
+  await page.goto('/casa/mais');
+  await page.getByRole('link', { name: /Pessoas/ }).click();
+  await expect(page).toHaveURL(/\/casa\/pessoas$/);
+  await expect(async () => {
+    await page.getByRole('button', { name: 'Usar os sugeridos' }).click({ timeout: 1_000 });
+    await expect(page.getByTestId('stock-people')).toBeVisible({ timeout: 2_000 });
+  }).toPass();
+  for (const name of ['Liz', 'Molly']) await expect(page.getByTestId('stock-people')).toContainText(name);
+  await noHorizontalScroll();
+});
+
+test('remédio: princípio ativo, dosagem, forma e para quem; escolher Remédios marca "É um remédio"', async () => {
+  await page.goto('/casa/produtos/novo');
+  await page.getByLabel('Nome', { exact: true }).fill('Dipirona 500');
+  await page.getByLabel('Categoria', { exact: true }).selectOption({ label: 'Remédios' });
+  await expect(page.getByLabel('É um remédio')).toBeChecked();
+  await page.getByLabel('Princípio ativo (opcional)', { exact: true }).fill('dipirona');
+  await page.getByLabel('Dosagem (opcional)', { exact: true }).fill('500 mg');
+  await page.getByLabel('Forma', { exact: true }).selectOption('TABLET');
+  await page.getByLabel('Validade depois de aberto (opcional)', { exact: true }).fill('60');
+  await page.getByLabel('Embalagem de costume (opcional)', { exact: true }).fill('caixa');
+  await page.getByLabel('Unidades em cada embalagem (opcional)', { exact: true }).fill('10');
+  await page.getByLabel('Liz', { exact: true }).check();
+  await noHorizontalScroll();
+  await page.getByRole('button', { name: 'Cadastrar' }).click();
+
+  await expect(page).toHaveURL(/\/casa\/entrada\?produto=/);
+  await page.getByLabel('Quantas embalagens', { exact: true }).fill('2');
+  await page.getByLabel('Validade (opcional)', { exact: true }).fill(addDays(hoje, 300));
+  await page.getByRole('button', { name: 'Dar entrada' }).click();
+
+  await expect(page).toHaveURL(/\/casa\/produtos\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('product-total')).toHaveText('20 un');
+  await expect(page.getByTestId('product-medicine')).toHaveText('dipirona · 500 mg · Comprimido');
+  await expect(page.getByTestId('product-people')).toHaveText('Para Liz');
+});
+
+test('Abri: a caixa vira comprimidos soltos, com validade depois de aberto, e o total não muda', async () => {
+  await page.getByRole('button', { name: 'Abri 1 caixa' }).click();
+  await expect(page).toHaveURL(/\/casa\/lotes\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole('heading', { name: 'DIP-02' })).toBeVisible();
+  await expect(page.getByTestId('lot-quantity')).toContainText('10 comprimidos');
+  await expect(page.getByText('Aberto de')).toBeVisible();
+  await expect(page.getByText(`Vence ${hojeMais60BR}`)).toBeVisible();
+  await noHorizontalScroll();
+
+  await page.getByRole('button', { name: 'Usei 1 comprimido' }).click();
+  await expect(page.getByTestId('lot-quantity')).toContainText('9 comprimidos');
+
+  // 1 caixa fechada de 10 + 9 soltos = 19; o lote aberto vem primeiro na ordem de uso
+  await page.getByRole('link', { name: 'Dipirona 500' }).first().click();
+  await expect(page.getByTestId('product-total')).toHaveText('19 un');
+  await expect(page.getByText('9 comprimidos + 1 caixa')).toBeVisible();
+  await expect(page.getByTestId('product-lots').getByRole('listitem').first()).toContainText('DIP-02');
+  await noHorizontalScroll();
+});
+
+test('a busca acha o remédio pelo princípio ativo e por quem usa', async () => {
+  for (const term of ['dipirona', '500 mg', 'liz']) {
+    await page.goto('/casa/buscar');
+    const search = page.getByRole('searchbox', { name: 'Buscar no estoque' });
+    await search.fill(term);
+    await search.press('Enter');
+    await expect(page.getByTestId('stock-products')).toContainText('Dipirona 500');
+  }
 });
 
 test('a volta para as Finanças pelo Mais da Casa', async () => {

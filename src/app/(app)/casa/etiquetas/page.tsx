@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import QRCode from 'qrcode';
 import { Field, NativeSelect } from '@/components/forms/fields';
 import { PageHeader } from '@/components/layout/page-header';
+import { entryLabel } from '@/components/stock/format';
 import { PrintButton } from '@/components/stock/print-button';
 import { expiryWord } from '@/components/stock/stock-icons';
 import { Button } from '@/components/ui/button';
@@ -41,7 +42,6 @@ const intParam = (v: string | string[] | undefined, min: number, max: number, fa
  */
 function Label({ detail, qr }: { detail: LotDetail; qr: string }) {
   const { lot, product } = detail;
-  const repack = lot.origin === 'REPACK';
   const content = lot.contentPerPackage ? formatAmount(product.measure, lot.contentPerPackage) : null;
   return (
     // o container não tem padding: cqw mede a caixa de conteúdo dele, que assim é a etiqueta inteira
@@ -55,7 +55,7 @@ function Label({ detail, qr }: { detail: LotDetail; qr: string }) {
         <p className="mt-[3cqw] font-mono text-[23cqw] leading-none font-bold tracking-tight">{lot.code}</p>
         <dl className="mt-[6cqw] space-y-[2cqw] text-[6cqw] leading-tight">
           <div className="flex gap-[2cqw]">
-            <dt className="text-neutral-600">{repack ? 'Selado em' : 'Entrou em'}</dt>
+            <dt className="text-neutral-600">{entryLabel(lot.origin)} em</dt>
             <dd className="font-semibold">{formatDateBR(lot.entryDate)}</dd>
           </div>
           {lot.expiryDate && (

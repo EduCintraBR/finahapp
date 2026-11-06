@@ -4,7 +4,8 @@
  */
 import { addDays, compareDates, type ISODate } from '../dates';
 
-export type MovementKind = 'IN' | 'USE' | 'DISCARD' | 'ADJUST' | 'REPACK_OUT' | 'REPACK_IN';
+export type MovementKind =
+  'IN' | 'USE' | 'DISCARD' | 'ADJUST' | 'REPACK_OUT' | 'REPACK_IN' | 'OPEN_OUT' | 'OPEN_IN';
 
 /** Maior número de embalagens num movimento: um limite de digitação, não de regra. */
 export const MAX_PACKAGES = 100_000;
@@ -16,8 +17,8 @@ export class StockError extends Error {
   override name = 'StockError';
 }
 
-const ENTERS: readonly MovementKind[] = ['IN', 'REPACK_IN'];
-const LEAVES: readonly MovementKind[] = ['USE', 'DISCARD', 'REPACK_OUT'];
+const ENTERS: readonly MovementKind[] = ['IN', 'REPACK_IN', 'OPEN_IN'];
+const LEAVES: readonly MovementKind[] = ['USE', 'DISCARD', 'REPACK_OUT', 'OPEN_OUT'];
 
 /** Embalagens digitadas (sempre > 0) → valor assinado do movimento pela direção do tipo. ADJUST vem assinado. */
 export function signedQuantity(kind: MovementKind, packages: number): number {
@@ -126,6 +127,23 @@ export function totalInMeasure(
   let total = 0;
   for (const l of lots) if (l.quantity > 0) total += l.quantity * (l.contentPerPackage ?? 1);
   return total;
+}
+
+/**
+ * Embalagens em estoque por nome, na ordem em que aparecem (a de uso primeiro): "1 caixa" e "7 comprimidos" de um
+ * mesmo produto não se somam numa "8 embalagens" (D90). Só lotes com quantidade positiva.
+ */
+export function countByPackage(
+  lots: readonly { quantity: number; packageName: string }[],
+): { name: string; count: number }[] {
+  const out: { name: string; count: number }[] = [];
+  for (const l of lots) {
+    if (l.quantity <= 0) continue;
+    const found = out.find((o) => o.name === l.packageName);
+    if (found) found.count += l.quantity;
+    else out.push({ name: l.packageName, count: l.quantity });
+  }
+  return out;
 }
 
 export type ExpiryLevel = 'expired' | 'soon' | 'ok';

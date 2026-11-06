@@ -4,6 +4,7 @@
  */
 import { z } from 'zod';
 import { isISODate } from '@/domain/dates';
+import { MEDICINE_FORMS, type MedicineForm } from '@/domain/stock/medicine';
 import { MAX_PACKAGES } from '@/domain/stock/quantity';
 import { tryParseAmount, type MeasureUnit } from '@/domain/stock/measure';
 
@@ -79,11 +80,39 @@ const months = (label: string, max: number) =>
     )
     .transform((v) => v ?? null);
 
+/** Caixa de seleção do formulário: marcada chega como "on"; desmarcada, não chega. */
+const checkbox = z.preprocess((v) => v === 'on' || v === 'true' || v === true, z.boolean());
+
+/** Validade depois de aberto, em dias, opcional (D90). */
+const openDays = z
+  .preprocess(
+    blank,
+    z.coerce
+      .number({ error: 'A validade depois de aberto é um número de dias.' })
+      .int({ error: 'A validade depois de aberto é um número inteiro de dias.' })
+      .min(1, { error: 'A validade depois de aberto precisa ser de pelo menos 1 dia.' })
+      .max(3650, { error: 'A validade depois de aberto pode ser de até 3650 dias.' })
+      .optional(),
+  )
+  .transform((v) => v ?? null);
+
+const medicineForm = z
+  .preprocess(
+    blank,
+    z
+      .enum(MEDICINE_FORMS.map((f) => f.value) as [MedicineForm, ...MedicineForm[]], {
+        error: 'Escolha a forma do remédio.',
+      })
+      .optional(),
+  )
+  .transform((v) => v ?? null);
+
 // ─────────── categorias e locais ───────────
 
 export const stockCategoryInput = z.object({ name: name(60), parentId: optionalId });
 export const stockRenameInput = z.object({ id: z.uuid(), name: name(60) });
 export const stockLocationInput = z.object({ name: name(60) });
+export const stockPersonInput = z.object({ name: name(60) });
 export const idInput = z.object({ id: z.uuid() });
 
 // ─────────── produto ───────────
@@ -110,10 +139,29 @@ export const stockProductInput = z
     expiryKind: z.enum(['EXPIRY', 'REPLACE_BY']).default('EXPIRY'),
     repackShelfLifeMonths: months('O prazo depois de envasado', 240),
     checkEveryMonths: months('A conferência', 60),
+    openShelfLifeDays: openDays,
+    isMedicine: checkbox,
+    activeIngredient: optionalText(120, 'O princípio ativo'),
+    strength: optionalText(60, 'A dosagem'),
+    medicineForm,
+    /** para quem é (D89): os campos "person" repetidos do formulário */
+    personIds: z.array(z.uuid()).max(50).default([]),
     notes: optionalText(500, 'A observação'),
   })
   .transform(
-    ({ minText, minUnit, targetText, targetUnit, defaultContentText, contentUnit, ...rest }, ctx) => {
+    ({ minText, minUnit, targetText, targetUnit, defaultContentText, contentUnit, ...input }, ctx) => {
+      const rest = { ...input };
+      if (rest.isMedicine) {
+        if (!rest.medicineForm) {
+          ctx.addIssue({ code: 'custom', message: 'Escolha a forma do remédio (comprimido, xarope…).' });
+          return z.NEVER;
+        }
+      } else {
+        // fora de remédio, os campos do remédio não ficam guardados
+        rest.activeIngredient = null;
+        rest.strength = null;
+        rest.medicineForm = null;
+      }
       const minQuantity = amountOrNull(minText, minUnit, 'Estoque mínimo', ctx);
       const targetQuantity = amountOrNull(targetText, targetUnit, 'Meta', ctx);
       const defaultContent = amountOrNull(defaultContentText, contentUnit, 'Conteúdo', ctx);
@@ -225,3 +273,7 @@ export const stockCheckInput = z.object({
   notes: optionalText(500, 'A observação'),
 });
 export type StockCheckInput = z.output<typeof stockCheckInput>;
+
+/** "Abri" (D90): de qual lote e em que dia. */
+export const stockOpenInput = z.object({ lotId: z.uuid(), date: date('da abertura') });
+export type StockOpenInput = z.output<typeof stockOpenInput>;

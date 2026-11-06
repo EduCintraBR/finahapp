@@ -4,7 +4,13 @@ import { notFound } from 'next/navigation';
 import { MapPin, Printer, Undo2 } from 'lucide-react';
 import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
-import { dateBR, lotContentText, MOVEMENT_LABEL, signedPackages } from '@/components/stock/format';
+import {
+  dateBR,
+  entryLabel,
+  lotContentText,
+  MOVEMENT_LABEL,
+  signedPackages,
+} from '@/components/stock/format';
 import { CheckBadge, ExpiryBadge } from '@/components/stock/stock-icons';
 import { CheckForm } from '@/components/stock/stock-forms';
 import { Button } from '@/components/ui/button';
@@ -15,7 +21,7 @@ import { lotDetail } from '@/db/queries/stock';
 import { today } from '@/domain/dates';
 import { ageText } from '@/domain/stock/rotation';
 import { cn } from '@/lib/utils';
-import { cancelStockMovementAction, useStockAction } from '../../actions';
+import { cancelStockMovementAction, openStockLotAction, useStockAction } from '../../actions';
 
 export const metadata: Metadata = { title: 'Lote' };
 
@@ -29,7 +35,8 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
   const detail = await lotDetail(getDb(), id, hoje);
   if (!detail) notFound();
   const { lot, product, sources, repacks, checks, movements } = detail;
-  const repack = lot.origin === 'REPACK';
+  const opened = lot.origin === 'OPENED';
+  const canOpen = !opened && !!product.openShelfLifeDays;
   const active = !product.archivedAt;
 
   return (
@@ -58,7 +65,7 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
           </div>
           <dl className="space-y-1 text-sm text-muted-foreground">
             <div className="flex gap-1">
-              <dt>{repack ? 'Selado em' : 'Entrou em'}</dt>
+              <dt>{entryLabel(lot.origin)} em</dt>
               <dd className="text-foreground">
                 {dateBR(lot.entryDate)} ({ageText(lot.entryDate, hoje)})
               </dd>
@@ -72,7 +79,7 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
             )}
             {sources.length > 0 && (
               <div className="flex gap-1">
-                <dt>Envasado de</dt>
+                <dt>{opened ? 'Aberto de' : 'Envasado de'}</dt>
                 <dd className="text-foreground">
                   {sources.map((s, i) => (
                     <span key={s.lotId}>
@@ -88,7 +95,7 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
             )}
             {repacks.length > 0 && (
               <div className="flex gap-1">
-                <dt>Envasado em</dt>
+                <dt>{repacks.every((r) => r.opened) ? 'Aberto em' : 'Envasado em'}</dt>
                 <dd className="text-foreground">
                   {repacks.map((r, i) => (
                     <span key={r.lotId}>
@@ -107,13 +114,23 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
           {active && (
             <div className="grid grid-cols-2 gap-2 pt-1">
               {lot.quantity > 0 ? (
-                <ActionButton
-                  action={useStockAction}
-                  fields={{ productId: product.id, kind: 'USE', packages: 1, lotId: lot.id, date: hoje }}
-                  label={`Abri 1 ${lot.packageName}`}
-                  pendingLabel="Salvando…"
-                  variant="default"
-                />
+                canOpen ? (
+                  <ActionButton
+                    action={openStockLotAction}
+                    fields={{ lotId: lot.id, date: hoje }}
+                    label={`Abri 1 ${lot.packageName}`}
+                    pendingLabel="Abrindo…"
+                    variant="default"
+                  />
+                ) : (
+                  <ActionButton
+                    action={useStockAction}
+                    fields={{ productId: product.id, kind: 'USE', packages: 1, lotId: lot.id, date: hoje }}
+                    label={`${opened || product.openShelfLifeDays ? 'Usei' : 'Abri'} 1 ${lot.packageName}`}
+                    pendingLabel="Salvando…"
+                    variant="default"
+                  />
+                )
               ) : (
                 <Button asChild variant="outline">
                   <Link href={`/casa/produtos/${product.id}`}>Ver o produto</Link>
@@ -183,9 +200,11 @@ export default async function LotPage({ params }: PageProps<'/casa/lotes/[id]'>)
                     confirm={{
                       title: `Desfazer “${MOVEMENT_LABEL[m.kind]}” do ${lot.code}?`,
                       description:
-                        m.kind === 'REPACK_IN' || m.kind === 'REPACK_OUT'
-                          ? 'Desfaz o envase inteiro: as embalagens voltam para os lotes de origem e o lote envasado zera.'
-                          : 'O movimento sai da conta do estoque, mas continua no histórico como desfeito.',
+                        m.kind === 'OPEN_IN' || m.kind === 'OPEN_OUT'
+                          ? 'Desfaz a abertura inteira: a embalagem volta fechada para o lote de origem e o lote aberto zera.'
+                          : m.kind === 'REPACK_IN' || m.kind === 'REPACK_OUT'
+                            ? 'Desfaz o envase inteiro: as embalagens voltam para os lotes de origem e o lote envasado zera.'
+                            : 'O movimento sai da conta do estoque, mas continua no histórico como desfeito.',
                       confirmLabel: 'Desfazer',
                     }}
                   />

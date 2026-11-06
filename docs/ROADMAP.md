@@ -158,7 +158,7 @@ Pedido do usuário (04/11/2026): cadastro de orçamento e metas, com gráficos e
 
 ---
 
-## Fase 8 — Casa: estoque da casa (D81 a D87)
+## Fase 8 — Casa: estoque da casa (D81 a D90)
 
 Pedido do usuário (05/11/2026): guardar no app também as informações da casa, começando por um estoque de despensa (alimentos e água estocados, grãos envasados em garrafas PET), limpeza, lavanderia, higiene e remédios, "para nunca mais comprar o que já tenho". Decisões: área separada das Finanças e sem preço; quantidade mista (unidades, gramas, ml); validade por lote; despensa e água primeiro.
 
@@ -182,9 +182,13 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 - [x] Acabando (abaixo do mínimo) e lista de compras gerada (falta para a meta), com "Comprei" abrindo a entrada preenchida
 
-**Etapa 4 — Remédios** (decisões a registrar antes de começar)
+**Etapa 4 — Remédios** (D88 a D90)
 
-- [ ] Princípio ativo (busca por "dipirona" acha a marca), dosagem, forma, para quem, validade depois de aberto; contagem por unidade solta
+- [x] Regras puras (`src/domain/stock/medicine.ts`): formas, contado solto, planejar a abertura (total conservado, validade = menor entre a da embalagem e abertura + prazo); property test da conservação
+- [x] Schema: campos do remédio no produto, pessoas da casa e "para quem", origem `OPENED` e movimentos `OPEN_OUT`/`OPEN_IN`
+- [x] Pessoas (Mais da Casa › Pessoas) com "Usar os sugeridos"; produto com princípio ativo, dosagem, forma, para quem e validade depois de aberto; a busca acha por princípio ativo, dosagem e pessoa
+- [x] "Abri" no lote e no produto (atômico, desfaz inteiro); lote aberto em unidades soltas para comprimido e cápsula
+- [x] Testes de aceitação (total conservado, nunca negativo, nada toca as Finanças) e e2e
 
 **Etapa 5 — Bot** (decisões a registrar antes de começar)
 

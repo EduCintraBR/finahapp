@@ -38,6 +38,11 @@ export function ProductList({
                     {q.main}
                   </span>
                 </div>
+                {(p.activeIngredient || p.strength) && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[p.activeIngredient, p.strength].filter(Boolean).join(' · ')}
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                   {showCategory && <span>{p.categoryLabel}</span>}
                   {p.locationNames.length > 0 && (
@@ -47,6 +52,7 @@ export function ProductList({
                     </span>
                   )}
                   {q.packages && <span className="tabular-nums">{q.packages}</span>}
+                  {p.people.length > 0 && <span>Para {p.people.map((x) => x.name).join(', ')}</span>}
                   {p.low && <LowBadge />}
                   <ExpiryBadge date={p.nextExpiry} level={p.expiry} kind={p.expiryKind} />
                 </div>

@@ -6,7 +6,8 @@ import { ProductForm } from '@/components/stock/stock-forms';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { getDb } from '@/db/client';
-import { listStockCategories, listStockLocations } from '@/db/queries/stock';
+import { listStockCategories, listStockLocations, listStockPeople } from '@/db/queries/stock';
+import { medicineCategoryIds } from '@/domain/stock/catalog';
 
 export const metadata: Metadata = { title: 'Novo produto' };
 
@@ -14,7 +15,11 @@ export const metadata: Metadata = { title: 'Novo produto' };
 export default async function NewProductPage({ searchParams }: PageProps<'/casa/produtos/novo'>) {
   const { categoria, nome } = await searchParams;
   const db = getDb();
-  const [categories, locations] = await Promise.all([listStockCategories(db), listStockLocations(db)]);
+  const [categories, locations, people] = await Promise.all([
+    listStockCategories(db),
+    listStockLocations(db),
+    listStockPeople(db),
+  ]);
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
@@ -38,6 +43,8 @@ export default async function NewProductPage({ searchParams }: PageProps<'/casa/
             <ProductForm
               categories={categories}
               locations={locations}
+              people={people}
+              medicineCategoryIds={medicineCategoryIds(categories)}
               defaultCategoryId={typeof categoria === 'string' ? categoria : undefined}
               defaultName={typeof nome === 'string' ? nome : undefined}
             />

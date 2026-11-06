@@ -16,11 +16,16 @@ import {
   checkStockLot,
   countStockLot,
   createStockCategory,
+  archiveStockPerson,
   createStockLocation,
+  createStockPerson,
   createStockProduct,
   createSuggestedStockCategories,
+  createSuggestedStockPeople,
+  openStockLot,
   renameStockCategory,
   renameStockLocation,
+  renameStockPerson,
   repackStock,
   updateStockLot,
   updateStockProduct,
@@ -34,6 +39,8 @@ import {
   stockLocationInput,
   stockLotInput,
   stockLotUpdateInput,
+  stockOpenInput,
+  stockPersonInput,
   stockProductInput,
   stockRenameInput,
   stockRepackInput,
@@ -44,13 +51,20 @@ type Prev = ActionResult<null> | null;
 const refresh = () => revalidatePath('/casa', 'layout');
 const form = (fd: FormData) => Object.fromEntries(fd);
 
+/** O formulário do produto: os campos "person" repetidos viram a lista de "para quem" (D89). */
+function productForm(fd: FormData) {
+  const { person: _person, ...rest } = Object.fromEntries(fd);
+  return { ...rest, personIds: fd.getAll('person').map(String) };
+}
+
 /** Valida, roda o serviço e atualiza as telas da Casa; erro vira resposta, nunca exceção. */
 async function act<S extends z.ZodType, T>(
   schema: S,
   fd: FormData,
   run: (input: z.output<S>) => Promise<T>,
+  read: (fd: FormData) => unknown = form,
 ): Promise<ActionResult<T>> {
-  const parsed = schema.safeParse(form(fd));
+  const parsed = schema.safeParse(read(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
   const r = await runAction(() => run(parsed.data));
   if (r.ok) refresh();
@@ -100,11 +114,38 @@ export async function archiveStockLocationAction(_p: Prev, fd: FormData) {
   return done(await act(idInput, fd, async (i) => archiveStockLocation(await getServiceCtx(), i.id)));
 }
 
+// ─────────── pessoas e bichos (D89) ───────────
+
+export async function createSuggestedStockPeopleAction(_p: Prev, _fd: FormData): Promise<ActionResult<null>> {
+  const r = await runAction(async () => createSuggestedStockPeople(await getServiceCtx()));
+  if (r.ok) refresh();
+  return done(r);
+}
+
+export async function createStockPersonAction(_p: Prev, fd: FormData) {
+  return done(await act(stockPersonInput, fd, async (i) => createStockPerson(await getServiceCtx(), i.name)));
+}
+
+export async function renameStockPersonAction(_p: Prev, fd: FormData) {
+  return done(
+    await act(stockRenameInput, fd, async (i) => renameStockPerson(await getServiceCtx(), i.id, i.name)),
+  );
+}
+
+export async function archiveStockPersonAction(_p: Prev, fd: FormData) {
+  return done(await act(idInput, fd, async (i) => archiveStockPerson(await getServiceCtx(), i.id)));
+}
+
 // ─────────── produtos ───────────
 
 /** Produto novo segue direto para a 1ª entrada dele. */
 export async function createStockProductAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
-  const r = await act(stockProductInput, fd, async (i) => createStockProduct(await getServiceCtx(), i));
+  const r = await act(
+    stockProductInput,
+    fd,
+    async (i) => createStockProduct(await getServiceCtx(), i),
+    productForm,
+  );
   if (!r.ok) return r;
   redirect(`/casa/entrada?produto=${r.data.id}`);
 }
@@ -114,8 +155,11 @@ const productUpdate = z.object({ id: z.uuid() });
 export async function updateStockProductAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const id = productUpdate.safeParse(form(fd));
   if (!id.success) return fail('Produto inválido.');
-  const r = await act(stockProductInput, fd, async (i) =>
-    updateStockProduct(await getServiceCtx(), id.data.id, i),
+  const r = await act(
+    stockProductInput,
+    fd,
+    async (i) => updateStockProduct(await getServiceCtx(), id.data.id, i),
+    productForm,
   );
   if (!r.ok) return r;
   redirect(`/casa/produtos/${id.data.id}`);
@@ -174,6 +218,13 @@ export async function repackStockAction(_p: Prev, fd: FormData): Promise<ActionR
   const r = await runAction(async () => repackStock(await getServiceCtx(), parsed.data));
   if (!r.ok) return r;
   refresh();
+  redirect(`/casa/lotes/${r.data.id}`);
+}
+
+/** Abri (D90): abre o lote novo (o aberto) e segue para ele. */
+export async function openStockLotAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
+  const r = await act(stockOpenInput, fd, async (i) => openStockLot(await getServiceCtx(), i));
+  if (!r.ok) return r;
   redirect(`/casa/lotes/${r.data.id}`);
 }
 

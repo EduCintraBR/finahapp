@@ -1,9 +1,10 @@
 /**
- * Estoque da Casa (D81 a D85): categorias, locais, produtos, lotes, movimentos, envase e conferência. Toda escrita
+ * Estoque da Casa (D81 a D90): categorias, locais, pessoas, produtos, lotes, movimentos, envase, embalagem aberta e
+ * conferência. Toda escrita
  * em transação, com audit_log. A quantidade nunca é armazenada; antes de cada saída o produto é travado (FOR UPDATE)
  * e a quantidade de cada lote é somada de novo dentro da transação, para nenhum lote ficar negativo.
  */
-import { and, eq, isNull, max, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, max, ne, or, sql } from 'drizzle-orm';
 import { listLots, type LotRow } from '@/db/queries/stock';
 import {
   stockCategories,
@@ -11,10 +12,19 @@ import {
   stockLocations,
   stockLots,
   stockMovements,
+  stockPeople,
+  stockProductPeople,
   stockProducts,
+  users,
 } from '@/db/schema';
 import { compareDates } from '@/domain/dates';
-import { normalizeText, suggestPrefix, SUGGESTED_CATEGORIES, lotCode } from '@/domain/stock/catalog';
+import {
+  normalizeText,
+  suggestPrefix,
+  SUGGESTED_CATEGORIES,
+  SUGGESTED_PEOPLE,
+  lotCode,
+} from '@/domain/stock/catalog';
 import {
   adjustmentDelta,
   allocateFefo,
@@ -23,6 +33,7 @@ import {
   StockError,
   type MovementKind,
 } from '@/domain/stock/quantity';
+import { planOpening } from '@/domain/stock/medicine';
 import { planRepack, repackExpiry } from '@/domain/stock/rotation';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
@@ -31,6 +42,7 @@ import type {
   StockCountInput,
   StockLotInput,
   StockLotUpdateInput,
+  StockOpenInput,
   StockProductInput,
   StockRepackInput,
   StockUseInput,
@@ -241,12 +253,115 @@ async function checkLocation(tx: Tx, id: string | null) {
   if (!loc || loc.archivedAt) throw new UserError('Local não encontrado.');
 }
 
+// ───────────────────────────── pessoas e bichos (D89) ─────────────────────────────
+
+async function checkPersonName(tx: Tx, name: string, exceptId?: string) {
+  const rows = await tx.select({ id: stockPeople.id, name: stockPeople.name }).from(stockPeople);
+  const clash = rows.find((r) => r.id !== exceptId && normalizeText(r.name) === normalizeText(name));
+  if (clash) throw new UserError(`Já existe "${clash.name}" na lista.`);
+}
+
+export async function createStockPerson(ctx: ServiceCtx, name: string): Promise<{ id: string }> {
+  return ctx.db.transaction(async (tx) => {
+    await checkPersonName(tx, name);
+    const [row] = await tx.insert(stockPeople).values({ name }).returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_people',
+      entityId: row!.id,
+      action: 'CREATE',
+      after: row,
+    });
+    return { id: row!.id };
+  });
+}
+
+export async function renameStockPerson(ctx: ServiceCtx, id: string, name: string) {
+  return ctx.db.transaction(async (tx) => {
+    const [before] = await tx.select().from(stockPeople).where(eq(stockPeople.id, id)).for('update');
+    if (!before) throw new UserError('Pessoa não encontrada.');
+    await checkPersonName(tx, name, id);
+    const [after] = await tx.update(stockPeople).set({ name }).where(eq(stockPeople.id, id)).returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_people',
+      entityId: id,
+      action: 'UPDATE',
+      before,
+      after,
+    });
+  });
+}
+
+/** Arquiva: some das escolhas; os produtos que já eram dela continuam mostrando o nome. */
+export async function archiveStockPerson(ctx: ServiceCtx, id: string) {
+  return ctx.db.transaction(async (tx) => {
+    const [before] = await tx.select().from(stockPeople).where(eq(stockPeople.id, id)).for('update');
+    if (!before || before.archivedAt) throw new UserError('Pessoa não encontrada.');
+    const [after] = await tx
+      .update(stockPeople)
+      .set({ archivedAt: new Date() })
+      .where(eq(stockPeople.id, id))
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_people',
+      entityId: id,
+      action: 'UPDATE',
+      before,
+      after,
+    });
+  });
+}
+
+/** "Usar os sugeridos" (D89): os usuários do app mais a filha e o bicho; só quando a lista está vazia. */
+export async function createSuggestedStockPeople(ctx: ServiceCtx) {
+  return ctx.db.transaction(async (tx) => {
+    const [any] = await tx.select({ id: stockPeople.id }).from(stockPeople).limit(1);
+    if (any) throw new UserError('A lista de pessoas já tem nomes.');
+    const members = await tx.select({ name: users.name }).from(users).orderBy(users.createdAt);
+    const names = [...members.map((u) => u.name.trim().split(/\s+/)[0]!), ...SUGGESTED_PEOPLE];
+    const seen = new Set<string>();
+    for (const name of names) {
+      if (seen.has(normalizeText(name))) continue;
+      seen.add(normalizeText(name));
+      const [row] = await tx.insert(stockPeople).values({ name }).returning();
+      await audit(tx, {
+        userId: ctx.userId,
+        entity: 'stock_people',
+        entityId: row!.id,
+        action: 'CREATE',
+        after: row,
+      });
+    }
+  });
+}
+
 // ───────────────────────────── produtos ─────────────────────────────
+
+async function checkPeople(tx: Tx, ids: string[]) {
+  if (ids.length === 0) return;
+  const unique = [...new Set(ids)];
+  const rows = await tx.select().from(stockPeople).where(inArray(stockPeople.id, unique));
+  if (rows.length !== unique.length || rows.some((r) => r.archivedAt)) {
+    throw new UserError('Pessoa não encontrada.');
+  }
+}
+
+/** Troca a lista de "para quem" do produto pela informada. */
+async function setProductPeople(tx: Tx, productId: string, ids: string[]) {
+  await tx.delete(stockProductPeople).where(eq(stockProductPeople.productId, productId));
+  const unique = [...new Set(ids)];
+  if (unique.length > 0) {
+    await tx.insert(stockProductPeople).values(unique.map((personId) => ({ productId, personId })));
+  }
+}
 
 async function checkProductFields(tx: Tx, input: StockProductInput, exceptId?: string) {
   const [cat] = await tx.select().from(stockCategories).where(eq(stockCategories.id, input.categoryId));
   if (!cat || cat.archivedAt) throw new UserError('Categoria não encontrada.');
   await checkLocation(tx, input.defaultLocationId);
+  await checkPeople(tx, input.personIds);
   const others = await tx
     .select({ id: stockProducts.id, name: stockProducts.name, prefix: stockProducts.prefix })
     .from(stockProducts)
@@ -271,17 +386,18 @@ export async function createStockProduct(ctx: ServiceCtx, input: StockProductInp
     if (input.prefix && taken.includes(input.prefix)) {
       throw new UserError(`O código ${input.prefix} já é de outro produto.`);
     }
-    const { prefix, ...fields } = input;
+    const { prefix, personIds, ...fields } = input;
     const [row] = await tx
       .insert(stockProducts)
       .values({ ...fields, prefix: prefix ?? suggestPrefix(input.name, taken), createdByUserId: ctx.userId })
       .returning();
+    await setProductPeople(tx, row!.id, personIds);
     await audit(tx, {
       userId: ctx.userId,
       entity: 'stock_products',
       entityId: row!.id,
       action: 'CREATE',
-      after: row,
+      after: { ...row, personIds },
     });
     return { id: row!.id };
   });
@@ -308,18 +424,26 @@ export async function updateStockProduct(ctx: ServiceCtx, id: string, input: Sto
     if (prefix !== before.prefix && (await takenPrefixes(tx, id)).includes(prefix)) {
       throw new UserError(`O código ${prefix} já é de outro produto.`);
     }
+    const { personIds, ...fields } = input;
+    const beforeIds = (
+      await tx
+        .select({ personId: stockProductPeople.personId })
+        .from(stockProductPeople)
+        .where(eq(stockProductPeople.productId, id))
+    ).map((r) => r.personId);
     const [after] = await tx
       .update(stockProducts)
-      .set({ ...input, prefix })
+      .set({ ...fields, prefix })
       .where(eq(stockProducts.id, id))
       .returning();
+    await setProductPeople(tx, id, personIds);
     await audit(tx, {
       userId: ctx.userId,
       entity: 'stock_products',
       entityId: id,
       action: 'UPDATE',
-      before,
-      after,
+      before: { ...before, personIds: beforeIds },
+      after: { ...after, personIds },
     });
   });
 }
@@ -580,6 +704,82 @@ export async function repackStock(
   });
 }
 
+/**
+ * "Abri" (D90): numa transação, 1 embalagem fechada do lote sai (OPEN_OUT, apontando o lote novo) e nasce o lote
+ * aberto (origem OPENED) com OPEN_IN: as unidades soltas (comprimido, cápsula…) ou 1 embalagem aberta. O total do
+ * produto não muda; a validade do lote aberto é o menor entre a da embalagem e a abertura + prazo do produto.
+ */
+export async function openStockLot(
+  ctx: ServiceCtx,
+  input: StockOpenInput,
+): Promise<{ id: string; code: string }> {
+  return ctx.db.transaction(async (tx) => {
+    const [found] = await tx.select().from(stockLots).where(eq(stockLots.id, input.lotId));
+    if (!found) throw new UserError('Lote não encontrado.');
+    const product = await lockProduct(tx, found.productId);
+    if (product.archivedAt) throw new UserError('Produto não encontrado.');
+    notFuture(ctx, input.date, 'da abertura');
+    if (compareDates(input.date, found.entryDate) < 0) {
+      throw new UserError('A abertura não pode ser antes da entrada do lote.');
+    }
+    const lot = (await listLots(tx, [product.id])).find((l) => l.id === found.id)!;
+    const plan = await rule(() =>
+      planOpening(
+        {
+          measure: product.measure,
+          form: product.medicineForm,
+          openShelfLifeDays: product.openShelfLifeDays,
+          packageName: lot.packageName,
+          contentPerPackage: lot.contentPerPackage,
+          expiryDate: lot.expiryDate,
+          origin: lot.origin,
+          quantity: lot.quantity,
+        },
+        input.date,
+      ),
+    );
+    const number = await nextLotNumber(tx, product.id);
+    const [opened] = await tx
+      .insert(stockLots)
+      .values({
+        productId: product.id,
+        number,
+        locationId: lot.locationId,
+        packageName: plan.packageName,
+        contentPerPackage: plan.contentPerPackage,
+        entryDate: input.date,
+        expiryDate: plan.expiryDate,
+        origin: 'OPENED',
+        notes: null,
+        createdByUserId: ctx.userId,
+      })
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_lots',
+      entityId: opened!.id,
+      action: 'CREATE',
+      after: opened,
+    });
+    await insertMovement(tx, ctx, {
+      lotId: lot.id,
+      kind: 'OPEN_OUT',
+      quantity: await rule(() => signedQuantity('OPEN_OUT', 1)),
+      date: input.date,
+      notes: null,
+      repackLotId: opened!.id,
+    });
+    await insertMovement(tx, ctx, {
+      lotId: opened!.id,
+      kind: 'OPEN_IN',
+      quantity: await rule(() => signedQuantity('OPEN_IN', plan.packages)),
+      date: input.date,
+      notes: null,
+    });
+    return { id: opened!.id, code: lotCode(product.prefix, number) };
+  });
+}
+
 /** "Conferi" (D85): registra a conferência do lote; a próxima conta a partir dela. */
 export async function checkStockLot(ctx: ServiceCtx, input: StockCheckInput) {
   return ctx.db.transaction(async (tx) => {
@@ -605,7 +805,7 @@ export async function checkStockLot(ctx: ServiceCtx, input: StockCheckInput) {
 }
 
 /**
- * Desfaz um movimento (cancelled_at): sai da soma. Num envase, desfaz o envase inteiro (as saídas dos lotes de
+ * Desfaz um movimento (cancelled_at): sai da soma. Num envase ou numa abertura, desfaz a operação inteira (as saídas dos lotes de
  * origem e a entrada das garrafas), nunca uma parte. Recusa se algum lote ficaria negativo.
  */
 export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
@@ -621,9 +821,9 @@ export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
     if (target!.cancelledAt) throw new UserError('Este movimento já foi desfeito.');
 
     const repackLot =
-      target!.kind === 'REPACK_IN'
+      target!.kind === 'REPACK_IN' || target!.kind === 'OPEN_IN'
         ? target!.lotId
-        : target!.kind === 'REPACK_OUT'
+        : target!.kind === 'REPACK_OUT' || target!.kind === 'OPEN_OUT'
           ? target!.repackLotId
           : null;
     const group = repackLot
@@ -634,7 +834,10 @@ export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
             and(
               isNull(stockMovements.cancelledAt),
               or(
-                and(eq(stockMovements.lotId, repackLot), eq(stockMovements.kind, 'REPACK_IN')),
+                and(
+                  eq(stockMovements.lotId, repackLot),
+                  inArray(stockMovements.kind, ['REPACK_IN', 'OPEN_IN']),
+                ),
                 eq(stockMovements.repackLotId, repackLot),
               ),
             ),
@@ -651,7 +854,7 @@ export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
       const code = lots.get(lotId)!.code;
       throw new UserError(
         repackLot && lotId === repackLot
-          ? `Parte das embalagens do ${code} já saiu: desfaça esses movimentos antes de desfazer o envase.`
+          ? `Parte das embalagens do ${code} já saiu: desfaça esses movimentos antes de desfazer o envase ou a abertura.`
           : `O lote ${code} ficaria negativo: desfaça antes os movimentos que vieram depois.`,
       );
     }

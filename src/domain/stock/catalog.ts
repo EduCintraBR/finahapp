@@ -74,3 +74,17 @@ export const SUGGESTED_CATEGORIES: SuggestedCategory[] = [
   { name: 'Higiene', icon: 'bath', children: [] },
   { name: 'Remédios', icon: 'pill', children: [] },
 ];
+
+/** "Para quem" (D89): além dos usuários do app, a filha e o bicho da casa; criados por um botão, nunca pelo seed. */
+export const SUGGESTED_PEOPLE: readonly string[] = ['Liz', 'Molly'];
+
+/** A categoria Remédios e as subcategorias dela: escolher uma delas marca o produto como remédio (D88). */
+export function medicineCategoryIds(
+  categories: readonly { id: string; name: string; parentId: string | null }[],
+): string[] {
+  const roots = categories.filter((c) => c.parentId === null && normalizeText(c.name) === 'remedios');
+  const rootIds = new Set(roots.map((r) => r.id));
+  return categories
+    .filter((c) => rootIds.has(c.id) || (c.parentId && rootIds.has(c.parentId)))
+    .map((c) => c.id);
+}

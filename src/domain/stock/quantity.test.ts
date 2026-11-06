@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   adjustmentDelta,
   allocateFefo,
+  countByPackage,
   expiryLevel,
   lotQuantity,
   quantityAfter,
@@ -17,6 +18,23 @@ import {
 const lot = (id: string, quantity: number, expiryDate: string | null, entryDate = '2026-11-01', number = 1) =>
   ({ id, number, quantity, entryDate, expiryDate }) satisfies FefoLot;
 
+describe('countByPackage', () => {
+  it('soma por nome de embalagem, ignora lote zerado e mantém a ordem', () => {
+    expect(
+      countByPackage([
+        { quantity: 7, packageName: 'comprimido' },
+        { quantity: 1, packageName: 'caixa' },
+        { quantity: 0, packageName: 'bisnaga' },
+        { quantity: 2, packageName: 'comprimido' },
+      ]),
+    ).toEqual([
+      { name: 'comprimido', count: 9 },
+      { name: 'caixa', count: 1 },
+    ]);
+    expect(countByPackage([])).toEqual([]);
+  });
+});
+
 describe('signedQuantity', () => {
   it('a direção vem do tipo; ADJUST já vem assinado', () => {
     expect(signedQuantity('IN', 3)).toBe(3);
@@ -24,6 +42,8 @@ describe('signedQuantity', () => {
     expect(signedQuantity('USE', 2)).toBe(-2);
     expect(signedQuantity('DISCARD', 1)).toBe(-1);
     expect(signedQuantity('REPACK_OUT', 2)).toBe(-2);
+    expect(signedQuantity('OPEN_OUT', 1)).toBe(-1);
+    expect(signedQuantity('OPEN_IN', 10)).toBe(10);
     expect(signedQuantity('ADJUST', -4)).toBe(-4);
   });
 

@@ -15,7 +15,7 @@
 import { sql } from 'drizzle-orm';
 import {
   pgTable, pgEnum, uuid, text, varchar, boolean, smallint, integer, bigint, date,
-  timestamp, jsonb, index, uniqueIndex, unique, check, type AnyPgColumn,
+  timestamp, jsonb, index, uniqueIndex, unique, check, primaryKey, type AnyPgColumn,
 } from 'drizzle-orm/pg-core';
 
 // ─────────────────────────── helpers ───────────────────────────
@@ -634,6 +634,7 @@ export const stockMeasure = pgEnum('stock_measure', ['UNIT', 'WEIGHT', 'VOLUME']
 export const stockLotOrigin = pgEnum('stock_lot_origin', [
   'PURCHASE', // entrou comprado
   'REPACK',   // nasceu de um envase (D84)
+  'OPENED',   // nasceu de uma embalagem aberta (D90)
 ]);
 export const stockMovementKind = pgEnum('stock_movement_kind', [
   'IN',         // + entrada (comprei)
@@ -642,6 +643,13 @@ export const stockMovementKind = pgEnum('stock_movement_kind', [
   'ADJUST',     // ± contei e deu outra quantidade
   'REPACK_OUT', // - saiu para um envase
   'REPACK_IN',  // + entrou de um envase
+  'OPEN_OUT',   // - 1 embalagem fechada saiu para ser aberta (D90)
+  'OPEN_IN',    // + entrou o lote aberto (D90)
+]);
+/** Forma do remédio (D88): comprimido, cápsula, sachê e supositório contam soltos depois de abertos (D90). */
+export const stockMedicineForm = pgEnum('stock_medicine_form', [
+  'TABLET', 'CAPSULE', 'SACHET', 'SUPPOSITORY', 'SYRUP', 'DROPS', 'SOLUTION',
+  'OINTMENT', 'CREAM', 'SPRAY', 'EYE_DROPS', 'INJECTABLE', 'OTHER',
 ]);
 /** Rótulo do prazo do lote: validade, ou "trocar até" (água estocada, D85). */
 export const stockExpiryKind = pgEnum('stock_expiry_kind', ['EXPIRY', 'REPLACE_BY']);
@@ -684,6 +692,12 @@ export const stockProducts = pgTable('stock_products', {
   expiryKind: stockExpiryKind('expiry_kind').notNull().default('EXPIRY'),
   repackShelfLifeMonths: smallint('repack_shelf_life_months'),
   checkEveryMonths: smallint('check_every_months'),
+  // remédio (D88) e embalagem aberta (D90)
+  isMedicine: boolean('is_medicine').notNull().default(false),
+  activeIngredient: varchar('active_ingredient', { length: 120 }),
+  strength: varchar('strength', { length: 60 }),
+  medicineForm: stockMedicineForm('medicine_form'),
+  openShelfLifeDays: smallint('open_shelf_life_days'),
   notes: text('notes'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -697,8 +711,24 @@ export const stockProducts = pgTable('stock_products', {
   check('stock_products_content', sql`${t.defaultContent} is null or ${t.defaultContent} > 0`),
   check('stock_products_repack_months', sql`${t.repackShelfLifeMonths} is null or ${t.repackShelfLifeMonths} between 1 and 240`),
   check('stock_products_check_months', sql`${t.checkEveryMonths} is null or ${t.checkEveryMonths} between 1 and 60`),
+  check('stock_products_open_days', sql`${t.openShelfLifeDays} is null or ${t.openShelfLifeDays} between 1 and 3650`),
+  check('stock_products_medicine', sql`${t.isMedicine} or (${t.activeIngredient} is null and ${t.strength} is null and ${t.medicineForm} is null)`),
   index('stock_products_category').on(t.categoryId),
 ]);
+
+/** Pessoas e bichos da casa (D89), só para dizer "para quem" é um produto; não são usuários do app. */
+export const stockPeople = pgTable('stock_people', {
+  id: pk(),
+  name: varchar('name', { length: 60 }).notNull().unique(),
+  archivedAt: timestamp('archived_at', { withTimezone: true }),
+  createdAt: createdAt(),
+});
+
+/** Para quem é o produto (D89): um produto pode ser de várias pessoas ou bichos. */
+export const stockProductPeople = pgTable('stock_product_people', {
+  productId: uuid('product_id').notNull().references(() => stockProducts.id),
+  personId: uuid('person_id').notNull().references(() => stockPeople.id),
+}, (t) => [primaryKey({ columns: [t.productId, t.personId] }), index('stock_product_people_person').on(t.personId)]);
 
 /**
  * Lote = cada coisa que entrou: embalagem, conteúdo de cada uma (g/ml/unidades; obrigatório em peso e volume),
@@ -726,7 +756,8 @@ export const stockLots = pgTable('stock_lots', {
 
 /**
  * Movimentos do lote, em embalagens inteiras e assinados pela direção. Errado se desfaz com `cancelled_at`.
- * REPACK_OUT aponta o lote envasado que nasceu dele (`repack_lot_id`, D84): é o que diz de onde veio cada garrafa.
+ * REPACK_OUT e OPEN_OUT apontam o lote que nasceu deles (`repack_lot_id`, D84, D90): é o que diz de onde veio cada
+ * garrafa e cada embalagem aberta.
  */
 export const stockMovements = pgTable('stock_movements', {
   id: pk(),
@@ -744,11 +775,11 @@ export const stockMovements = pgTable('stock_movements', {
   check('stock_movements_nonzero', sql`${t.quantity} <> 0`),
   check(
     'stock_movements_direction',
-    sql`(${t.kind} in ('IN', 'REPACK_IN') and ${t.quantity} > 0)
-      or (${t.kind} in ('USE', 'DISCARD', 'REPACK_OUT') and ${t.quantity} < 0)
-      or ${t.kind} = 'ADJUST'`,
+    sql`(${t.kind}::text in ('IN', 'REPACK_IN', 'OPEN_IN') and ${t.quantity} > 0)
+      or (${t.kind}::text in ('USE', 'DISCARD', 'REPACK_OUT', 'OPEN_OUT') and ${t.quantity} < 0)
+      or ${t.kind}::text = 'ADJUST'`,
   ),
-  check('stock_movements_repack_lot', sql`(${t.kind} = 'REPACK_OUT') = (${t.repackLotId} is not null)`),
+  check('stock_movements_repack_lot', sql`(${t.kind}::text in ('REPACK_OUT', 'OPEN_OUT')) = (${t.repackLotId} is not null)`),
   index('stock_movements_lot').on(t.lotId),
   index('stock_movements_repack_lot').on(t.repackLotId),
 ]);
