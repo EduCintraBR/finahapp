@@ -149,6 +149,78 @@ test('busca pelo nome, sem acento, e pelo código do lote; o que não tem oferec
   await noHorizontalScroll();
 });
 
+test('envasar um pacote em 2 garrafas PET: o lote novo nasce com código e o total não muda', async () => {
+  await page.getByRole('searchbox', { name: 'Buscar no estoque' }).fill('arroz');
+  await page.getByRole('searchbox', { name: 'Buscar no estoque' }).press('Enter');
+  await page
+    .getByTestId('stock-products')
+    .getByRole('link', { name: /Arroz branco/ })
+    .click();
+  await expect(page).toHaveURL(/\/casa\/produtos\/[0-9a-f-]{36}$/);
+
+  const sheet = await openDialog(() => page.getByRole('button', { name: 'Envasar', exact: true }), /Envasar/);
+  await sheet.getByLabel(/ARR-01/).fill('1');
+  await sheet.getByLabel('Quantas embalagens saíram do envase', { exact: true }).fill('2');
+  await sheet.getByLabel('Peso de cada embalagem', { exact: true }).fill('2,5');
+  await sheet.getByLabel('Validade (opcional)', { exact: true }).fill(addDays(hoje, 400));
+  await sheet.getByLabel('Observações (opcional)', { exact: true }).fill('com absorvedor');
+  await sheet.getByRole('button', { name: 'Envasar', exact: true }).click();
+  // envasar leva direto ao lote novo (o QR da etiqueta abre o mesmo lugar)
+  await expect(page).toHaveURL(/\/casa\/lotes\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole('heading', { name: 'ARR-03' })).toBeVisible();
+  await expect(page.getByTestId('lot-quantity')).toContainText('2 garrafas PET de 2,5 kg');
+  await expect(page.getByText('Envasado de')).toBeVisible();
+  await noHorizontalScroll();
+
+  // o total do produto não mudou: 1 pacote de 5 kg + 2 garrafas de 2,5 kg + 19,8 kg das outras garrafas
+  await page.getByRole('link', { name: 'Arroz branco' }).first().click();
+  await expect(page.getByTestId('product-total')).toHaveText('29,8 kg');
+  await expect(page.getByTestId('product-lots')).toContainText('1 pacote de 5 kg');
+});
+
+test('o lote do QR: "Abri 1" dá baixa num toque e "Conferi" registra a conferência', async () => {
+  await page.getByTestId('product-lots').getByRole('link', { name: 'ARR-03' }).click();
+  await expect(page).toHaveURL(/\/casa\/lotes\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId('lot-quantity')).toContainText('2 garrafas PET de 2,5 kg');
+  await expect(page.getByText('Envasado de')).toBeVisible();
+  await noHorizontalScroll();
+
+  await page.getByRole('button', { name: 'Abri 1 garrafa PET' }).click();
+  await expect(page.getByTestId('lot-quantity')).toContainText('1 garrafa PET de 2,5 kg');
+  await expect(page.getByTestId('lot-history').getByRole('listitem').first()).toContainText('Usei');
+
+  const check = await openDialog(
+    () => page.getByRole('button', { name: 'Conferi', exact: true }),
+    /Conferi o ARR-03/,
+  );
+  await check.getByLabel('O que viu (opcional)', { exact: true }).fill('tudo seco');
+  await check.getByRole('button', { name: /Registrar|Conferi/ }).click();
+  await expect(check).toBeHidden();
+  await expect(page.getByTestId('lot-checks')).toContainText('tudo seco');
+});
+
+test('etiquetas: 1/4 de A4 por embalagem, com QR; dá para pular posições da folha', async () => {
+  await page.getByRole('link', { name: 'Imprimir etiquetas' }).click();
+  await expect(page).toHaveURL(/\/casa\/etiquetas\?lote=/);
+  await expect(page.getByRole('heading', { name: 'Etiquetas' })).toBeVisible();
+  const sheet1 = page.getByRole('region', { name: 'Folha 1' });
+  await expect(sheet1.getByAltText('QR do lote ARR-03')).toHaveCount(1);
+  await expect(sheet1).toContainText('ARR-03');
+
+  await page.getByLabel('Quantas etiquetas', { exact: true }).fill('3');
+  await page.getByLabel('Começar na posição', { exact: true }).selectOption('3');
+  await page.getByRole('button', { name: 'Atualizar' }).click();
+  await expect(page.getByRole('region', { name: 'Folha 2' })).toBeVisible();
+  await expect(page.getByAltText('QR do lote ARR-03')).toHaveCount(3);
+  await expect(page.getByText('Posição já usada')).toHaveCount(5);
+});
+
+test('a Início da Casa avisa o lote que vence em breve', async () => {
+  await page.goto('/casa');
+  await expect(page.getByRole('region', { name: 'Vencidos e vencendo' })).toContainText('ARR-02');
+  await noHorizontalScroll();
+});
+
 test('a volta para as Finanças pelo Mais da Casa', async () => {
   await bottomNav().getByRole('link', { name: 'Mais', exact: true }).click();
   await page.getByRole('link', { name: /Finanças/ }).click();

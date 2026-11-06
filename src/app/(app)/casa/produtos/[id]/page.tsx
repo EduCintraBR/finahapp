@@ -11,8 +11,15 @@ import {
   quantityText,
   signedPackages,
 } from '@/components/stock/format';
-import { ExpiryBadge, LowBadge } from '@/components/stock/stock-icons';
-import { CountForm, LotEditForm, LotForm, UseForm } from '@/components/stock/stock-forms';
+import { CheckBadge, ExpiryBadge, LowBadge } from '@/components/stock/stock-icons';
+import {
+  CheckForm,
+  CountForm,
+  LotEditForm,
+  LotForm,
+  RepackForm,
+  UseForm,
+} from '@/components/stock/stock-forms';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { SheetAction } from '@/components/ui/sheet-action';
@@ -21,14 +28,15 @@ import { listStockLocations, productDetail } from '@/db/queries/stock';
 import { today } from '@/domain/dates';
 import { formatAmount } from '@/domain/stock/measure';
 import { expiryLevel } from '@/domain/stock/quantity';
+import { ageText, checkDue, nextCheckDate } from '@/domain/stock/rotation';
 import { cn } from '@/lib/utils';
 import { cancelStockMovementAction } from '../../actions';
 
 export const metadata: Metadata = { title: 'Produto' };
 
 /**
- * Produto da Casa (D82, D83): quanto tem (na medida e em embalagens), os lotes na ordem de uso (FEFO) com código e
- * validade, as ações (entrada, usei, descartei, contei) e o histórico, com desfazer.
+ * Produto da Casa (D82 a D85): quanto tem (na medida e em embalagens), os lotes na ordem de uso (FEFO) com código,
+ * validade, idade e conferência, as ações (entrada, usei, descartei, envasar, contei, conferi) e o histórico.
  */
 export default async function ProductPage({ params }: PageProps<'/casa/produtos/[id]'>) {
   const { id } = await params;
@@ -53,7 +61,14 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
     id: l.id,
     label: `${l.code} · ${lotContentText(l, product.measure)}${l.expiryDate ? ` · vence ${dateBR(l.expiryDate)}` : ''}`,
   }));
+  const repackChoices = inStock.map((l) => ({
+    id: l.id,
+    code: l.code,
+    quantity: l.quantity,
+    label: lotContentText(l, product.measure),
+  }));
   const archived = product.archivedAt !== null;
+  const kind = product.expiryKind;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -83,7 +98,7 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
             </div>
             <div className="flex flex-col items-end gap-1">
               {product.low && <LowBadge />}
-              <ExpiryBadge date={product.nextExpiry} level={product.expiry} />
+              <ExpiryBadge date={product.nextExpiry} level={product.expiry} kind={kind} />
             </div>
           </div>
           {(product.minQuantity !== null ||
@@ -141,6 +156,22 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
                   <p className="text-sm text-muted-foreground">Sem estoque para descartar.</p>
                 )}
               </SheetAction>
+              {inStock.length > 0 && (
+                <SheetAction
+                  label="Envasar"
+                  title={`Envasar ${product.name}`}
+                  description="Passe para garrafas PET (ou outra embalagem): os pacotes saem e nasce um lote novo, com código e etiqueta."
+                  variant="outline"
+                  className="col-span-3"
+                >
+                  <RepackForm
+                    product={{ ...option, repackShelfLifeMonths: product.repackShelfLifeMonths }}
+                    lots={repackChoices}
+                    locations={locations}
+                    today={hoje}
+                  />
+                </SheetAction>
+              )}
             </div>
           )}
         </CardContent>
@@ -156,47 +187,72 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
             <p className="px-6 py-6 text-center text-sm text-muted-foreground">Nenhum lote com estoque.</p>
           ) : (
             <ul className="divide-y" data-testid="product-lots">
-              {inStock.map((l, i) => (
-                <li key={l.id} className="flex items-center gap-3 px-4 py-3 sm:px-6">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{l.code}</span>
-                      {i === 0 && inStock.length > 1 && (
-                        <span className="rounded-full bg-primary/12 px-2 py-0.5 text-xs font-medium text-primary">
-                          Usar primeiro
-                        </span>
-                      )}
-                      <ExpiryBadge date={l.expiryDate} level={expiryLevel(l.expiryDate, hoje)} />
-                    </div>
-                    <p className="text-sm tabular-nums">{lotContentText(l, product.measure)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Entrou em {dateBR(l.entryDate)}
-                      {l.locationName && ` · ${l.locationName}`}
-                      {l.notes && ` · ${l.notes}`}
-                    </p>
-                  </div>
-                  {!archived && (
-                    <SheetAction
-                      label={`Lote ${l.code}`}
-                      iconOnly
-                      icon={<Ellipsis aria-hidden />}
-                      variant="ghost"
-                      description="Conte o que tem de verdade ou corrija os dados do lote."
-                    >
-                      <div className="space-y-6">
-                        <section className="space-y-3">
-                          <h3 className="text-sm font-semibold">Contei</h3>
-                          <CountForm lotId={l.id} code={l.code} current={l.quantity} today={hoje} />
-                        </section>
-                        <section className="space-y-3 border-t pt-4">
-                          <h3 className="text-sm font-semibold">Corrigir o lote</h3>
-                          <LotEditForm lot={l} measure={product.measure} locations={locations} today={hoje} />
-                        </section>
+              {inStock.map((l, i) => {
+                const next = nextCheckDate(l.entryDate, l.lastCheckDate, product.checkEveryMonths);
+                return (
+                  <li key={l.id} className="flex items-center gap-3 px-4 py-3 sm:px-6">
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/casa/lotes/${l.id}`}
+                          className="font-mono text-sm font-semibold hover:underline"
+                        >
+                          {l.code}
+                        </Link>
+                        {i === 0 && inStock.length > 1 && (
+                          <span className="rounded-full bg-primary/12 px-2 py-0.5 text-xs font-medium text-primary">
+                            Usar primeiro
+                          </span>
+                        )}
+                        <ExpiryBadge
+                          date={l.expiryDate}
+                          level={expiryLevel(l.expiryDate, hoje)}
+                          kind={kind}
+                        />
+                        <CheckBadge date={next} due={checkDue(next, hoje)} />
                       </div>
-                    </SheetAction>
-                  )}
-                </li>
-              ))}
+                      <p className="text-sm tabular-nums">{lotContentText(l, product.measure)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {l.origin === 'REPACK' ? 'Selado' : 'Entrou'} em {dateBR(l.entryDate)} (
+                        {ageText(l.entryDate, hoje)}){l.locationName && ` · ${l.locationName}`}
+                        {l.notes && ` · ${l.notes}`}
+                      </p>
+                    </div>
+                    {!archived && (
+                      <SheetAction
+                        label={`Lote ${l.code}`}
+                        iconOnly
+                        icon={<Ellipsis aria-hidden />}
+                        variant="ghost"
+                        description="Conte o que tem de verdade, registre a conferência ou corrija os dados do lote."
+                      >
+                        <div className="space-y-6">
+                          <Button asChild variant="outline" className="w-full">
+                            <Link href={`/casa/etiquetas?lote=${l.id}`}>Imprimir etiquetas</Link>
+                          </Button>
+                          <section className="space-y-3">
+                            <h3 className="text-sm font-semibold">Contei</h3>
+                            <CountForm lotId={l.id} code={l.code} current={l.quantity} today={hoje} />
+                          </section>
+                          <section className="space-y-3 border-t pt-4">
+                            <h3 className="text-sm font-semibold">Conferi</h3>
+                            <CheckForm lotId={l.id} code={l.code} today={hoje} />
+                          </section>
+                          <section className="space-y-3 border-t pt-4">
+                            <h3 className="text-sm font-semibold">Corrigir o lote</h3>
+                            <LotEditForm
+                              lot={l}
+                              measure={product.measure}
+                              locations={locations}
+                              today={hoje}
+                            />
+                          </section>
+                        </div>
+                      </SheetAction>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
           {empty.length > 0 && (

@@ -18,19 +18,24 @@ export function StockCategoryIcon({ name, className }: { name: string | null; cl
   return <Icon className={className} aria-hidden />;
 }
 
-const EXPIRY_TEXT: Record<ExpiryLevel, string> = { expired: 'Venceu', soon: 'Vence', ok: 'Vence' };
+export type ExpiryKind = 'EXPIRY' | 'REPLACE_BY';
+
+/** O que o selo diz: validade ("Vence"/"Venceu") ou, na água estocada, "Trocar até"/"Trocar desde" (D85). */
+export function expiryWord(kind: ExpiryKind, level: ExpiryLevel): string {
+  if (kind === 'REPLACE_BY') return level === 'expired' ? 'Trocar desde' : 'Trocar até';
+  return level === 'expired' ? 'Venceu' : 'Vence';
+}
 
 /** Selo da validade: vencido em vermelho, vencendo (30 dias) em amarelo; a palavra diz a situação, não só a cor. */
 export function ExpiryBadge({
   date,
   level,
-  label = 'Vence',
+  kind = 'EXPIRY',
   className,
 }: {
   date: ISODate | null;
   level: ExpiryLevel | null;
-  /** "Trocar até" na água (D85, etapa 2); padrão "Vence" */
-  label?: string;
+  kind?: ExpiryKind;
   className?: string;
 }) {
   if (!date || !level) return null;
@@ -44,7 +49,31 @@ export function ExpiryBadge({
         className,
       )}
     >
-      {level === 'expired' ? EXPIRY_TEXT.expired : label} {formatDateBR(date)}
+      {expiryWord(kind, level)} {formatDateBR(date)}
+    </span>
+  );
+}
+
+/** Conferência periódica (D85): "Conferir" em amarelo quando a data chegou. */
+export function CheckBadge({
+  date,
+  due,
+  className,
+}: {
+  date: ISODate | null;
+  due: boolean;
+  className?: string;
+}) {
+  if (!date) return null;
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap',
+        due ? 'bg-warning/20 text-warning-text' : 'bg-muted text-muted-foreground',
+        className,
+      )}
+    >
+      {due ? 'Conferir' : 'Conferir em'} {formatDateBR(date)}
     </span>
   );
 }

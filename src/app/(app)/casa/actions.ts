@@ -13,6 +13,7 @@ import {
   archiveStockLocation,
   archiveStockProduct,
   cancelStockMovement,
+  checkStockLot,
   countStockLot,
   createStockCategory,
   createStockLocation,
@@ -20,6 +21,7 @@ import {
   createSuggestedStockCategories,
   renameStockCategory,
   renameStockLocation,
+  repackStock,
   updateStockLot,
   updateStockProduct,
   consumeStock,
@@ -27,12 +29,14 @@ import {
 import {
   idInput,
   stockCategoryInput,
+  stockCheckInput,
   stockCountInput,
   stockLocationInput,
   stockLotInput,
   stockLotUpdateInput,
   stockProductInput,
   stockRenameInput,
+  stockRepackInput,
   stockUseInput,
 } from '@/server/stock-schemas';
 
@@ -147,4 +151,32 @@ export async function countStockLotAction(_p: Prev, fd: FormData) {
 
 export async function cancelStockMovementAction(_p: Prev, fd: FormData) {
   return done(await act(idInput, fd, async (i) => cancelStockMovement(await getServiceCtx(), i.id)));
+}
+
+// ─────────── envase e conferência (D84, D85) ───────────
+
+/** Os campos "source:<lote>" do formulário viram a lista de origens do envase. */
+function repackForm(fd: FormData) {
+  const sources: { lotId: string; packages: string }[] = [];
+  const rest: Record<string, FormDataEntryValue> = {};
+  for (const [k, v] of fd) {
+    if (k.startsWith('source:'))
+      sources.push({ lotId: k.slice('source:'.length), packages: String(v || '0') });
+    else rest[k] = v;
+  }
+  return { ...rest, sources };
+}
+
+/** Envasar: abre o lote novo, com o código e as etiquetas para imprimir. */
+export async function repackStockAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
+  const parsed = stockRepackInput.safeParse(repackForm(fd));
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  const r = await runAction(async () => repackStock(await getServiceCtx(), parsed.data));
+  if (!r.ok) return r;
+  refresh();
+  redirect(`/casa/lotes/${r.data.id}`);
+}
+
+export async function checkStockLotAction(_p: Prev, fd: FormData) {
+  return done(await act(stockCheckInput, fd, async (i) => checkStockLot(await getServiceCtx(), i)));
 }

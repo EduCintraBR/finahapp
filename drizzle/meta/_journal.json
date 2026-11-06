@@ -71,6 +71,13 @@
       "when": 1793918443442,
       "tag": "0009_green_leopardon",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793923461190,
+      "tag": "0010_wonderful_colonel_america",
+      "breakpoints": true
     }
   ]
 }

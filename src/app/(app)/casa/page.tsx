@@ -4,31 +4,76 @@ import { ChevronRight, PackagePlus, Plus } from 'lucide-react';
 import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
 import { MOVEMENT_LABEL, signedPackages } from '@/components/stock/format';
+import { RotationList } from '@/components/stock/rotation-list';
 import { StockSearchForm } from '@/components/stock/search-form';
 import { StockCategoryIcon } from '@/components/stock/stock-icons';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getDb } from '@/db/client';
-import { listStockCategories, recentMovements, stockOverview } from '@/db/queries/stock';
+import {
+  listStockCategories,
+  recentMovements,
+  rotationLots,
+  stockOverview,
+  type RotationLot,
+} from '@/db/queries/stock';
 import { formatDateBR, today } from '@/domain/dates';
 import { SUGGESTED_CATEGORIES } from '@/domain/stock/catalog';
 import { createSuggestedStockCategoriesAction } from './actions';
 
 export const metadata: Metadata = { title: 'Casa' };
 
+/** Quadro de alerta da Início: até 4 lotes e o resto no rodízio. */
+function Board({
+  title,
+  description,
+  lots,
+  hoje,
+}: {
+  title: string;
+  description: string;
+  lots: RotationLot[];
+  hoje: string;
+}) {
+  if (lots.length === 0) return null;
+  return (
+    <Card className="gap-0 border-warning/60 pb-0" role="region" aria-label={title}>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle>
+            {title} <span className="text-muted-foreground">({lots.length})</span>
+          </CardTitle>
+          {lots.length > 4 && (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/casa/rodizio">Ver todos</Link>
+            </Button>
+          )}
+        </div>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="border-t px-0">
+        <RotationList lots={lots.slice(0, 4)} today={hoje} />
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
- * Início da Casa (D81): busca, as categorias do estoque (um toque abre a lista) e os últimos movimentos.
- * Sem nenhuma categoria ainda, oferece as sugeridas.
+ * Início da Casa (D81, D85): busca, os quadros do que pede atenção (vencidos e vencendo, conferências que chegaram),
+ * as categorias do estoque (um toque abre a lista) e os últimos movimentos. Sem categoria ainda, oferece as sugeridas.
  */
 export default async function CasaHomePage() {
   const db = getDb();
   const hoje = today();
-  const [categories, products, recent] = await Promise.all([
+  const [categories, products, recent, rotation] = await Promise.all([
     listStockCategories(db),
     stockOverview(db, hoje),
     recentMovements(db, 6),
+    rotationLots(db, hoje),
   ]);
   const tops = categories.filter((c) => c.parentId === null);
+  const expiring = rotation.filter((l) => l.expiry === 'expired' || l.expiry === 'soon');
+  const toCheck = rotation.filter((l) => l.checkDue);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 lg:max-w-5xl">
@@ -72,6 +117,22 @@ export default async function CasaHomePage() {
       ) : (
         <>
           <StockSearchForm />
+          {(expiring.length > 0 || toCheck.length > 0) && (
+            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+              <Board
+                title="Vencidos e vencendo"
+                description="Vencido ou vencendo nos próximos 30 dias: use primeiro ou troque."
+                lots={expiring}
+                hoje={hoje}
+              />
+              <Board
+                title="Conferir"
+                description="A conferência periódica chegou: veja umidade, bicho e vedação."
+                lots={toCheck}
+                hoje={hoje}
+              />
+            </div>
+          )}
           <section aria-label="Categorias" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
             {tops.map((c) => {
               const mine = products.filter((p) => p.topCategoryId === c.id);

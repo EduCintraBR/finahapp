@@ -65,6 +65,20 @@ function amountOrNull(text: string | undefined, u: MeasureUnit, label: string, c
 }
 const amountText = z.preprocess(blank, z.string().optional());
 
+/** Número de meses opcional (prazo de envase, conferência periódica). */
+const months = (label: string, max: number) =>
+  z
+    .preprocess(
+      blank,
+      z.coerce
+        .number()
+        .int({ error: `${label} é um número inteiro de meses.` })
+        .min(1, { error: `${label} precisa ser de pelo menos 1 mês.` })
+        .max(max, { error: `${label} pode ser de até ${max} meses.` })
+        .optional(),
+    )
+    .transform((v) => v ?? null);
+
 // ─────────── categorias e locais ───────────
 
 export const stockCategoryInput = z.object({ name: name(60), parentId: optionalId });
@@ -93,6 +107,9 @@ export const stockProductInput = z
     defaultPackage: optionalText(40, 'A embalagem'),
     defaultContentText: amountText,
     contentUnit: unit,
+    expiryKind: z.enum(['EXPIRY', 'REPLACE_BY']).default('EXPIRY'),
+    repackShelfLifeMonths: months('O prazo depois de envasado', 240),
+    checkEveryMonths: months('A conferência', 60),
     notes: optionalText(500, 'A observação'),
   })
   .transform(
@@ -172,3 +189,39 @@ export const stockCountInput = z.object({
   notes: optionalText(500, 'A observação'),
 });
 export type StockCountInput = z.output<typeof stockCountInput>;
+
+// ─────────── envase e conferência (D84, D85) ───────────
+
+/**
+ * Envase: de quais lotes saem quantas embalagens (`sources`) e o lote envasado que nasce (garrafas, conteúdo de
+ * cada uma, local, selagem e validade). Validade em branco = selagem + prazo do produto.
+ */
+export const stockRepackInput = z
+  .object({
+    productId: z.uuid(),
+    sources: z
+      .array(
+        z.object({
+          lotId: z.uuid(),
+          packages: z.coerce.number({ error: 'Quantidade inválida.' }).int().min(0),
+        }),
+      )
+      .max(50),
+    packages: packages('quantas embalagens saíram do envase'),
+    packageName: lotFields.packageName,
+    contentText: amountText,
+    contentUnit: unit,
+    locationId: optionalId,
+    sealDate: date('de selagem'),
+    expiryDate: optionalDate('de validade'),
+    notes: optionalText(500, 'A observação'),
+  })
+  .transform(withContent);
+export type StockRepackInput = z.output<typeof stockRepackInput>;
+
+export const stockCheckInput = z.object({
+  lotId: z.uuid(),
+  date: date('da conferência'),
+  notes: optionalText(500, 'A observação'),
+});
+export type StockCheckInput = z.output<typeof stockCheckInput>;

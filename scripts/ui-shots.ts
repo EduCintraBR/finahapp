@@ -44,8 +44,10 @@ import {
   createStockLocation,
   createStockProduct,
   createSuggestedStockCategories,
+  repackStock,
 } from '../src/server/stock';
-import { stockLotInput, stockProductInput } from '../src/server/stock-schemas';
+import { productDetail } from '../src/db/queries/stock';
+import { stockLotInput, stockProductInput, stockRepackInput } from '../src/server/stock-schemas';
 
 if (!process.env.DATABASE_URL)
   throw new Error('ui:shots: defina DATABASE_URL no .env (Postgres do docker compose).');
@@ -409,16 +411,24 @@ async function populate(db: AnyDB, hoje: ISODate) {
       'Arroz branco',
       'Grãos',
       'WEIGHT',
-      { minText: '10', minUnit: 'kg', targetText: '30', targetUnit: 'kg', defaultLocationId: despensa },
+      {
+        minText: '10',
+        minUnit: 'kg',
+        targetText: '30',
+        targetUnit: 'kg',
+        defaultLocationId: despensa,
+        repackShelfLifeMonths: '24',
+        checkEveryMonths: '3',
+      },
       [
         {
-          packages: '2',
+          packages: '4',
           packageName: 'pacote',
           contentText: '5',
           contentUnit: 'kg',
           expiryDate: addDays(hoje, 240),
           locationId: despensa,
-          entryDate: addDays(hoje, -40),
+          entryDate: addDays(hoje, -130),
         },
         {
           packages: '11',
@@ -469,7 +479,13 @@ async function populate(db: AnyDB, hoje: ISODate) {
       'Água mineral',
       'Água',
       'VOLUME',
-      { minText: '40', minUnit: 'L', defaultLocationId: area },
+      {
+        minText: '40',
+        minUnit: 'L',
+        defaultLocationId: area,
+        expiryKind: 'REPLACE_BY',
+        checkEveryMonths: '2',
+      },
       [
         {
           packages: '6',
@@ -539,6 +555,26 @@ async function populate(db: AnyDB, hoje: ISODate) {
         date: hoje,
         notes: null,
       });
+    // envase (D84): 2 pacotes de arroz viraram 5 garrafas PET há 4 meses; a conferência de 3 em 3 meses chegou
+    if (name === 'Arroz branco') {
+      const sealed = addDays(hoje, -120);
+      const { lots: inStock } = (await productDetail(db, product.id, sealed))!;
+      const pacotes = inStock.find((l) => l.packageName === 'pacote')!;
+      await repackStock(
+        ctx(sealed),
+        stockRepackInput.parse({
+          productId: product.id,
+          sources: [{ lotId: pacotes.id, packages: 2 }],
+          packages: '5',
+          packageName: 'garrafa PET',
+          contentText: '1,8',
+          contentUnit: 'kg',
+          locationId: despensa,
+          sealDate: sealed,
+          notes: 'com absorvedor de oxigênio',
+        }),
+      );
+    }
   }
 }
 
@@ -576,6 +612,8 @@ async function detailIds() {
       category: await one(`select id from categories where name = 'Mercado' and parent_id is null`),
       budget: await one(`select id from budgets where category_id is null`),
       stockProduct: await one(`select id from stock_products where name = 'Arroz branco'`),
+      stockLot: await one(`select l.id from stock_lots l join stock_products p on p.id = l.product_id
+        where p.name = 'Arroz branco' and l.origin = 'REPACK'`),
       stockCategory: await one(`select id from stock_categories where name = 'Alimentos'`),
     };
   } finally {
@@ -787,6 +825,9 @@ async function main() {
     ['casa-produto-novo', '/casa/produtos/novo'],
     ['casa-entrada', `/casa/entrada?produto=${ids.stockProduct}`],
     ['casa-buscar', '/casa/buscar?q=arroz'],
+    ['casa-lote', `/casa/lotes/${ids.stockLot}`],
+    ['casa-etiquetas', `/casa/etiquetas?lote=${ids.stockLot}&inicio=2`],
+    ['casa-rodizio', '/casa/rodizio'],
     ['casa-categorias', '/casa/categorias'],
     ['casa-locais', '/casa/locais'],
     ['casa-mais', '/casa/mais'],
