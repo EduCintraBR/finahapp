@@ -221,6 +221,39 @@ test('a Início da Casa avisa o lote que vence em breve', async () => {
   await noHorizontalScroll();
 });
 
+test('reposição: o produto sem estoque está acabando; "Comprei" abre a entrada com a quantidade sugerida', async () => {
+  await page.goto('/casa/produtos/novo');
+  await page.getByLabel('Nome', { exact: true }).fill('Feijão carioca');
+  await page.getByLabel('Categoria', { exact: true }).selectOption({ label: 'Grãos' });
+  await page.getByLabel('Como contar', { exact: true }).selectOption('WEIGHT');
+  await page.getByLabel('Estoque mínimo (opcional)', { exact: true }).fill('2');
+  await page.getByLabel('Meta (opcional)', { exact: true }).fill('10');
+  await page.getByLabel('Embalagem de costume (opcional)', { exact: true }).fill('pacote');
+  await page.getByLabel('Peso de cada embalagem (opcional)', { exact: true }).fill('1');
+  await page.getByRole('button', { name: 'Cadastrar' }).click();
+  await expect(page).toHaveURL(/\/casa\/entrada\?produto=/);
+
+  // a Início mostra o quadro Acabando; "Comprei" leva à entrada com 10 pacotes de 1 kg (a meta inteira)
+  await page.goto('/casa');
+  const running = page.getByRole('region', { name: 'Acabando' });
+  await expect(running).toContainText('Feijão carioca');
+  await expect(running).toContainText('Falta 10 kg');
+  await expect(running).toContainText('comprar 10 pacotes de 1 kg');
+  await noHorizontalScroll();
+  await running.getByRole('link', { name: 'Comprei Feijão carioca' }).click();
+  await expect(page).toHaveURL(/\/casa\/entrada\?produto=[0-9a-f-]{36}&embalagens=10$/);
+  await expect(page.getByLabel('Quantas embalagens', { exact: true })).toHaveValue('10');
+  await page.getByRole('button', { name: 'Dar entrada' }).click();
+  await expect(page.getByTestId('product-total')).toHaveText('10 kg');
+
+  // na meta, sai da lista de compras
+  await page.goto('/casa/compras');
+  await expect(page.getByRole('heading', { name: 'Lista de compras' })).toBeVisible();
+  await expect(page.getByTestId('shopping-list')).toHaveCount(0);
+  await expect(page.getByText('Nada para comprar agora')).toBeVisible();
+  await noHorizontalScroll();
+});
+
 test('a volta para as Finanças pelo Mais da Casa', async () => {
   await bottomNav().getByRole('link', { name: 'Mais', exact: true }).click();
   await page.getByRole('link', { name: /Finanças/ }).click();

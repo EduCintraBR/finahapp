@@ -12,6 +12,7 @@ import {
   Package,
   Repeat,
   Scale,
+  ShoppingCart,
   Search,
   Settings,
   Tags,
@@ -146,6 +147,12 @@ export const CASA_ITEMS = {
     icon: CalendarClock,
     description: 'Validades, idade dos lotes e conferências',
   },
+  shopping: {
+    href: '/casa/compras',
+    label: 'Lista de compras',
+    icon: ShoppingCart,
+    description: 'O que está acabando e o que falta para a meta',
+  },
   more: { href: '/casa/mais', label: 'Mais', icon: Ellipsis },
   categories: {
     href: '/casa/categorias',
@@ -174,7 +181,7 @@ export const CASA_BOTTOM_NAV = {
 
 /** Telas do "Mais" da Casa (celular); no desktop, na sidebar. */
 export const CASA_MORE_GROUPS: { title: string; items: NavItem[] }[] = [
-  { title: 'Estoque', items: [CASA_ITEMS.rotation] },
+  { title: 'Estoque', items: [CASA_ITEMS.rotation, CASA_ITEMS.shopping] },
   { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
   { title: 'Outras áreas', items: [CASA_ITEMS.finances] },
   { title: 'App', items: [NAV_ITEMS.settings] },
@@ -183,7 +190,9 @@ export const CASA_MORE_GROUPS: { title: string; items: NavItem[] }[] = [
 export const CASA_MORE_ITEMS: NavItem[] = CASA_MORE_GROUPS.flatMap((g) => g.items);
 
 export const CASA_SIDEBAR_GROUPS: { title?: string; items: NavItem[] }[] = [
-  { items: [CASA_ITEMS.home, CASA_ITEMS.stock, CASA_ITEMS.rotation, CASA_ITEMS.search] },
+  {
+    items: [CASA_ITEMS.home, CASA_ITEMS.stock, CASA_ITEMS.rotation, CASA_ITEMS.shopping, CASA_ITEMS.search],
+  },
   { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
   { items: [NAV_ITEMS.settings] },
 ];

@@ -5,6 +5,7 @@ import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
 import { MOVEMENT_LABEL, signedPackages } from '@/components/stock/format';
 import { RotationList } from '@/components/stock/rotation-list';
+import { ShoppingList } from '@/components/stock/shopping-list';
 import { StockSearchForm } from '@/components/stock/search-form';
 import { StockCategoryIcon } from '@/components/stock/stock-icons';
 import { Button } from '@/components/ui/button';
@@ -14,8 +15,8 @@ import {
   listStockCategories,
   recentMovements,
   rotationLots,
+  shoppingItems,
   stockOverview,
-  type RotationLot,
 } from '@/db/queries/stock';
 import { formatDateBR, today } from '@/domain/dates';
 import { SUGGESTED_CATEGORIES } from '@/domain/stock/catalog';
@@ -23,37 +24,37 @@ import { createSuggestedStockCategoriesAction } from './actions';
 
 export const metadata: Metadata = { title: 'Casa' };
 
-/** Quadro de alerta da Início: até 4 lotes e o resto no rodízio. */
+/** Quadro de alerta da Início: o conteúdo (até 4 linhas) e o link para ver tudo. */
 function Board({
   title,
   description,
-  lots,
-  hoje,
+  count,
+  href,
+  children,
 }: {
   title: string;
   description: string;
-  lots: RotationLot[];
-  hoje: string;
+  count: number;
+  href: string;
+  children: React.ReactNode;
 }) {
-  if (lots.length === 0) return null;
+  if (count === 0) return null;
   return (
     <Card className="gap-0 border-warning/60 pb-0" role="region" aria-label={title}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle>
-            {title} <span className="text-muted-foreground">({lots.length})</span>
+            {title} <span className="text-muted-foreground">({count})</span>
           </CardTitle>
-          {lots.length > 4 && (
+          {count > 4 && (
             <Button asChild variant="ghost" size="sm">
-              <Link href="/casa/rodizio">Ver todos</Link>
+              <Link href={href}>Ver todos</Link>
             </Button>
           )}
         </div>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
-      <CardContent className="border-t px-0">
-        <RotationList lots={lots.slice(0, 4)} today={hoje} />
-      </CardContent>
+      <CardContent className="border-t px-0">{children}</CardContent>
     </Card>
   );
 }
@@ -74,6 +75,9 @@ export default async function CasaHomePage() {
   const tops = categories.filter((c) => c.parentId === null);
   const expiring = rotation.filter((l) => l.expiry === 'expired' || l.expiry === 'soon');
   const toCheck = rotation.filter((l) => l.checkDue);
+  const shopping = shoppingItems(products);
+  const running = shopping.filter((i) => i.need.belowMin);
+  const belowTarget = shopping.filter((i) => !i.need.belowMin);
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 lg:max-w-5xl">
@@ -117,20 +121,40 @@ export default async function CasaHomePage() {
       ) : (
         <>
           <StockSearchForm />
-          {(expiring.length > 0 || toCheck.length > 0) && (
+          {(expiring.length > 0 || toCheck.length > 0 || shopping.length > 0) && (
             <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
               <Board
                 title="Vencidos e vencendo"
                 description="Vencido ou vencendo nos próximos 30 dias: use primeiro ou troque."
-                lots={expiring}
-                hoje={hoje}
-              />
+                count={expiring.length}
+                href="/casa/rodizio"
+              >
+                <RotationList lots={expiring.slice(0, 4)} today={hoje} />
+              </Board>
               <Board
                 title="Conferir"
                 description="A conferência periódica chegou: veja umidade, bicho e vedação."
-                lots={toCheck}
-                hoje={hoje}
-              />
+                count={toCheck.length}
+                href="/casa/rodizio"
+              >
+                <RotationList lots={toCheck.slice(0, 4)} today={hoje} />
+              </Board>
+              <Board
+                title="Acabando"
+                description="Abaixo do estoque mínimo: hora de repor."
+                count={running.length}
+                href="/casa/compras"
+              >
+                <ShoppingList items={running.slice(0, 4)} />
+              </Board>
+              <Board
+                title="Lista de compras"
+                description="Fora da meta, além do que está acabando: o que falta de cada produto."
+                count={belowTarget.length}
+                href="/casa/compras"
+              >
+                <ShoppingList items={belowTarget.slice(0, 4)} />
+              </Board>
             </div>
           )}
           <section aria-label="Categorias" className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">

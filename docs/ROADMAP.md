@@ -180,7 +180,7 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 **Etapa 3 — Reposição** (D86)
 
-- [ ] Acabando (abaixo do mínimo) e lista de compras gerada (falta para a meta), com "Comprei" abrindo a entrada preenchida
+- [x] Acabando (abaixo do mínimo) e lista de compras gerada (falta para a meta), com "Comprei" abrindo a entrada preenchida
 
 **Etapa 4 — Remédios** (decisões a registrar antes de começar)
 

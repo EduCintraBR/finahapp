@@ -828,6 +828,7 @@ async function main() {
     ['casa-lote', `/casa/lotes/${ids.stockLot}`],
     ['casa-etiquetas', `/casa/etiquetas?lote=${ids.stockLot}&inicio=2`],
     ['casa-rodizio', '/casa/rodizio'],
+    ['casa-compras', '/casa/compras'],
     ['casa-categorias', '/casa/categorias'],
     ['casa-locais', '/casa/locais'],
     ['casa-mais', '/casa/mais'],

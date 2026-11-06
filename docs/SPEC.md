@@ -446,7 +446,7 @@ Para grãos guardados em garrafas PET seladas.
 ### 12.5 Reposição (D86)
 
 - **Acabando** = quantidade do produto abaixo do estoque mínimo.
-- **Lista de compras** (gerada, nunca armazenada) = produtos abaixo da meta, com quanto falta na medida do produto. "Comprei" abre a entrada já preenchida.
+- **Lista de compras** (gerada, nunca armazenada) = produtos abaixo da meta, com quanto falta na medida do produto. Produto sem meta repõe até o mínimo; sem nenhum dos dois, nunca entra. A sugestão de embalagens é `⌈falta ÷ conteúdo de costume⌉` (por unidade sem conteúdo, 1 unidade por embalagem; peso e volume sem conteúdo de costume não ganham sugestão). "Comprei" abre a entrada já preenchida com essa quantidade (`/casa/entrada?produto=…&embalagens=N`).
 - **Início da Casa:** quadros Vencidos e Vencendo, Conferir, Acabando e Lista de compras; grade de categorias; busca única.
 
 ### 12.6 Código do lote e etiquetas (D87)
