@@ -536,12 +536,15 @@ export function LotForm({
   locations,
   today,
   defaultProductId,
+  defaultPackages,
 }: {
   products?: ProductOption[];
   product?: ProductOption;
   locations: Option[];
   today: string;
   defaultProductId?: string;
+  /** "Comprei" da lista de compras: quantas embalagens vêm preenchidas */
+  defaultPackages?: number;
 }) {
   const [state, action, pending] = useActionState(addStockLotAction, null);
   useActionDone(state, 'Entrada registrada.');
@@ -600,7 +603,7 @@ export function LotForm({
               min={1}
               step={1}
               required
-              defaultValue={1}
+              defaultValue={defaultPackages ?? 1}
               className="text-base tabular-nums"
             />
           </Field>

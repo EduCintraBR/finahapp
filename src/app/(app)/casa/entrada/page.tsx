@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: 'Dar entrada' };
 
 /** Entrada no estoque (D83): escolhe o produto e registra o lote (embalagens, conteúdo, local e validade). */
 export default async function StockEntryPage({ searchParams }: PageProps<'/casa/entrada'>) {
-  const { produto } = await searchParams;
+  const { produto, embalagens } = await searchParams;
   const db = getDb();
   const hoje = today();
   const [products, locations] = await Promise.all([stockOverview(db, hoje), listStockLocations(db)]);
@@ -28,6 +28,10 @@ export default async function StockEntryPage({ searchParams }: PageProps<'/casa/
   }));
   const preselected =
     typeof produto === 'string' && options.some((o) => o.id === produto) ? produto : undefined;
+
+  // "Comprei" da lista de compras traz a quantidade sugerida
+  const packages =
+    typeof embalagens === 'string' && /^[0-9]{1,6}$/.test(embalagens) ? Number(embalagens) : undefined;
 
   return (
     <div className="mx-auto max-w-lg space-y-4">
@@ -48,7 +52,13 @@ export default async function StockEntryPage({ searchParams }: PageProps<'/casa/
               </Button>
             </div>
           ) : (
-            <LotForm products={options} locations={locations} today={hoje} defaultProductId={preselected} />
+            <LotForm
+              products={options}
+              locations={locations}
+              today={hoje}
+              defaultProductId={preselected}
+              defaultPackages={packages && packages > 0 ? packages : undefined}
+            />
           )}
         </CardContent>
       </FormCard>

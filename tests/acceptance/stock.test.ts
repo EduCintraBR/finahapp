@@ -14,6 +14,7 @@ import {
   productDetail,
   recentMovements,
   rotationLots,
+  shoppingItems,
   stockOverview,
 } from '@/db/queries/stock';
 import { seed, seedConfigFromEnv } from '@/db/seed';
@@ -501,5 +502,84 @@ describe('envase, conferência e rodízio (D84, D85)', () => {
     await expect(checkStockLot(ctx, { lotId: l.id, date: '2026-11-06', notes: null })).rejects.toThrow(
       'futuro',
     );
+  });
+
+  it('reposição (D86): acabando = abaixo do mínimo; a lista de compras é derivada e acompanha as entradas e saídas', async () => {
+    const arroz = await product({
+      name: 'Arroz',
+      minText: '10',
+      minUnit: 'kg',
+      targetText: '30',
+      targetUnit: 'kg',
+      defaultPackage: 'pacote',
+      defaultContentText: '5',
+      contentUnit: 'kg',
+    });
+    // sem entrada: zero, abaixo do mínimo; falta a meta inteira, em 6 pacotes de 5 kg
+    let [item] = shoppingItems(await stockOverview(db, HOJE));
+    expect(item).toMatchObject({ id: arroz.id, total: 0, low: true });
+    expect(item!.need).toEqual({ reference: 30_000, missing: 30_000, packages: 6, belowMin: true });
+
+    // 2 pacotes de 5 kg = 10 kg: no mínimo (não está mais acabando), mas ainda faltam 20 kg para a meta
+    const l = await lot(arroz.id, {
+      packages: '2',
+      packageName: 'pacote',
+      contentText: '5',
+      contentUnit: 'kg',
+    });
+    let overview = await stockOverview(db, HOJE);
+    expect(overview.find((p) => p.id === arroz.id)!.low).toBe(false);
+    [item] = shoppingItems(overview);
+    expect(item!.need).toEqual({ reference: 30_000, missing: 20_000, packages: 4, belowMin: false });
+
+    // usou 1: 5 kg, abaixo do mínimo de novo
+    await consumeStock(ctx, {
+      productId: arroz.id,
+      kind: 'USE',
+      packages: 1,
+      lotId: l.id,
+      date: HOJE,
+      notes: null,
+    });
+    overview = await stockOverview(db, HOJE);
+    expect(overview.find((p) => p.id === arroz.id)).toMatchObject({ low: true, total: 5_000 });
+    expect(shoppingItems(overview)[0]!.need).toMatchObject({ missing: 25_000, packages: 5, belowMin: true });
+
+    // a compra sugerida (5 pacotes) chega exatamente na meta e tira o produto da lista
+    await lot(arroz.id, { packages: '5', packageName: 'pacote', contentText: '5', contentUnit: 'kg' });
+    overview = await stockOverview(db, HOJE);
+    expect(overview.find((p) => p.id === arroz.id)!.total).toBe(30_000);
+    expect(shoppingItems(overview)).toEqual([]);
+
+    // produto sem mínimo nem meta nunca entra na lista; nada foi guardado: a lista não tem tabela
+    await product({ name: 'Sal' });
+    expect(shoppingItems(await stockOverview(db, HOJE))).toEqual([]);
+  });
+
+  it('a lista põe o que está acabando primeiro, depois por categoria e nome', async () => {
+    const feijao = await product({
+      name: 'Feijão',
+      minText: '2',
+      minUnit: 'kg',
+      targetText: '6',
+      targetUnit: 'kg',
+    });
+    const macarrao = await product({ name: 'Macarrão', targetText: '3', targetUnit: 'kg' });
+    const sabao = await createStockProduct(
+      ctx,
+      stockProductInput.parse({
+        name: 'Sabão',
+        categoryId: agua,
+        measure: 'UNIT',
+        minText: '2',
+        targetText: '4',
+      }),
+    );
+    await lot(macarrao.id, { packages: '1', packageName: 'pacote', contentText: '1', contentUnit: 'kg' });
+    const list = shoppingItems(await stockOverview(db, HOJE));
+    expect(list.map((i) => i.name)).toEqual(['Sabão', 'Feijão', 'Macarrão']);
+    expect(list.map((i) => i.need.belowMin)).toEqual([true, true, false]);
+    expect(list.find((i) => i.id === sabao.id)!.need).toMatchObject({ missing: 4, packages: 4 });
+    expect(list.find((i) => i.id === feijao.id)!.need).toMatchObject({ missing: 6_000, packages: null });
   });
 });

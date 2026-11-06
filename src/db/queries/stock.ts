@@ -13,6 +13,7 @@ import {
   type MovementKind,
 } from '@/domain/stock/quantity';
 import type { ISODate } from '@/domain/dates';
+import { isLow, restockNeed, type RestockNeed } from '@/domain/stock/restock';
 import { checkDue, nextCheckDate } from '@/domain/stock/rotation';
 import type { AnyDB } from '../client';
 import {
@@ -249,7 +250,7 @@ function summarize(product: ProductRow, lots: LotRow[], today: ISODate): Product
     locationNames: locations.length > 0 ? locations : unique([product.defaultLocationName]),
     nextExpiry,
     expiry: expiryLevel(nextExpiry, today),
-    low: product.minQuantity !== null && total < product.minQuantity,
+    low: isLow(total, product.minQuantity),
   };
 }
 
@@ -259,6 +260,32 @@ export async function stockOverview(db: AnyDB, today: ISODate): Promise<ProductS
   const byProduct = new Map<string, LotRow[]>();
   for (const l of lots) byProduct.set(l.productId, [...(byProduct.get(l.productId) ?? []), l]);
   return products.map((p) => summarize(p, byProduct.get(p.id) ?? [], today));
+}
+
+export type ShoppingItem = ProductSummary & { need: RestockNeed };
+
+/**
+ * Lista de compras (D86), gerada e nunca armazenada: os produtos abaixo da meta (sem meta, abaixo do mínimo), com
+ * quanto falta. Primeiro o que está acabando (abaixo do mínimo), depois por categoria e nome.
+ */
+export function shoppingItems(products: readonly ProductSummary[]): ShoppingItem[] {
+  const items: ShoppingItem[] = [];
+  for (const p of products) {
+    const need = restockNeed({
+      total: p.total,
+      min: p.minQuantity,
+      target: p.targetQuantity,
+      measure: p.measure,
+      defaultContent: p.defaultContent,
+    });
+    if (need) items.push({ ...p, need });
+  }
+  return items.sort(
+    (a, b) =>
+      Number(b.need.belowMin) - Number(a.need.belowMin) ||
+      a.categoryLabel.localeCompare(b.categoryLabel, 'pt-BR') ||
+      a.name.localeCompare(b.name, 'pt-BR'),
+  );
 }
 
 export type MovementRow = {
