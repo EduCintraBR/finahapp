@@ -6,6 +6,7 @@ import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { lotCode } from '@/domain/stock/catalog';
 import type { Measure } from '@/domain/stock/measure';
 import {
+  countByPackage,
   expiryLevel,
   sortFefo,
   totalInMeasure,
@@ -14,6 +15,7 @@ import {
 } from '@/domain/stock/quantity';
 import type { ISODate } from '@/domain/dates';
 import { isLow, restockNeed, type RestockNeed } from '@/domain/stock/restock';
+import type { MedicineForm } from '@/domain/stock/medicine';
 import { checkDue, nextCheckDate } from '@/domain/stock/rotation';
 import type { AnyDB } from '../client';
 import {
@@ -22,6 +24,8 @@ import {
   stockLocations,
   stockLots,
   stockMovements,
+  stockPeople,
+  stockProductPeople,
   stockProducts,
   users,
 } from '../schema';
@@ -68,6 +72,20 @@ export async function listStockLocations(
   return byName(rows);
 }
 
+export type StockPersonRow = { id: string; name: string; archivedAt: Date | null };
+
+/** Pessoas e bichos da casa (D89). */
+export async function listStockPeople(
+  db: AnyDB,
+  opts: { includeArchived?: boolean } = {},
+): Promise<StockPersonRow[]> {
+  const rows = await db
+    .select({ id: stockPeople.id, name: stockPeople.name, archivedAt: stockPeople.archivedAt })
+    .from(stockPeople)
+    .where(opts.includeArchived ? undefined : isNull(stockPeople.archivedAt));
+  return byName(rows);
+}
+
 export type ProductRow = {
   id: string;
   name: string;
@@ -91,6 +109,15 @@ export type ProductRow = {
   repackShelfLifeMonths: number | null;
   /** conferência dos lotes a cada N meses (D85) */
   checkEveryMonths: number | null;
+  /** remédio (D88) */
+  isMedicine: boolean;
+  activeIngredient: string | null;
+  strength: string | null;
+  medicineForm: MedicineForm | null;
+  /** validade depois de aberto, em dias (D90) */
+  openShelfLifeDays: number | null;
+  /** para quem é (D89) */
+  people: { id: string; name: string }[];
   notes: string | null;
   archivedAt: Date | null;
 };
@@ -99,7 +126,7 @@ async function productRows(
   db: AnyDB,
   where: { id?: string; includeArchived?: boolean },
 ): Promise<ProductRow[]> {
-  const [rows, cats] = await Promise.all([
+  const [rows, cats, links] = await Promise.all([
     db
       .select({
         id: stockProducts.id,
@@ -116,6 +143,11 @@ async function productRows(
         expiryKind: stockProducts.expiryKind,
         repackShelfLifeMonths: stockProducts.repackShelfLifeMonths,
         checkEveryMonths: stockProducts.checkEveryMonths,
+        isMedicine: stockProducts.isMedicine,
+        activeIngredient: stockProducts.activeIngredient,
+        strength: stockProducts.strength,
+        medicineForm: stockProducts.medicineForm,
+        openShelfLifeDays: stockProducts.openShelfLifeDays,
         notes: stockProducts.notes,
         archivedAt: stockProducts.archivedAt,
       })
@@ -128,13 +160,21 @@ async function productRows(
         ),
       ),
     listStockCategories(db, { includeArchived: true }),
+    db
+      .select({ productId: stockProductPeople.productId, id: stockPeople.id, name: stockPeople.name })
+      .from(stockProductPeople)
+      .innerJoin(stockPeople, eq(stockPeople.id, stockProductPeople.personId)),
   ]);
   const byId = new Map(cats.map((c) => [c.id, c]));
+  const peopleOf = new Map<string, { id: string; name: string }[]>();
+  for (const l of links)
+    peopleOf.set(l.productId, [...(peopleOf.get(l.productId) ?? []), { id: l.id, name: l.name }]);
   return byName(rows).map((r) => {
     const cat = byId.get(r.categoryId);
     const parent = cat?.parentId ? byId.get(cat.parentId) : undefined;
     return {
       ...r,
+      people: byName(peopleOf.get(r.id) ?? []),
       categoryName: cat?.name ?? '',
       topCategoryId: parent?.id ?? r.categoryId,
       categoryLabel: parent ? `${parent.name} › ${cat!.name}` : (cat?.name ?? ''),
@@ -153,7 +193,7 @@ export type LotRow = {
   contentPerPackage: number | null;
   entryDate: ISODate;
   expiryDate: ISODate | null;
-  origin: 'PURCHASE' | 'REPACK';
+  origin: 'PURCHASE' | 'REPACK' | 'OPENED';
   notes: string | null;
   /** embalagens: Σ movimentos não cancelados */
   quantity: number;
@@ -227,6 +267,8 @@ export type ProductSummary = ProductRow & {
   lotsInStock: number;
   /** nomes das embalagens em estoque ("pacote", "garrafa PET") */
   packageNames: string[];
+  /** embalagens por nome, a de uso primeiro (D90: "1 caixa" e "7 comprimidos") */
+  packageCounts: { name: string; count: number }[];
   /** locais dos lotes em estoque (ou o local padrão, sem estoque) */
   locationNames: string[];
   nextExpiry: ISODate | null;
@@ -247,6 +289,7 @@ function summarize(product: ProductRow, lots: LotRow[], today: ISODate): Product
     total,
     lotsInStock: inStock.length,
     packageNames: unique(inStock.map((l) => l.packageName)),
+    packageCounts: countByPackage(inStock),
     locationNames: locations.length > 0 ? locations : unique([product.defaultLocationName]),
     nextExpiry,
     expiry: expiryLevel(nextExpiry, today),
@@ -407,8 +450,8 @@ export type LotDetail = {
   product: ProductRow;
   /** lote envasado: de quais lotes saíram as embalagens */
   sources: { lotId: string; code: string; packages: number }[];
-  /** envases que saíram deste lote */
-  repacks: { lotId: string; code: string; packages: number }[];
+  /** envases e aberturas que saíram deste lote (`opened`: o lote que nasceu é uma embalagem aberta, D90) */
+  repacks: { lotId: string; code: string; packages: number; opened: boolean }[];
   movements: MovementRow[];
   checks: CheckRow[];
   nextCheck: ISODate | null;
@@ -416,7 +459,7 @@ export type LotDetail = {
   expiry: ExpiryLevel | null;
 };
 
-/** Um lote (D87: o QR da etiqueta abre aqui), com a origem do envase, as conferências e o histórico. */
+/** Um lote (D87: o QR da etiqueta abre aqui), com a origem do envase ou da abertura, as conferências e o histórico. */
 export async function lotDetail(db: AnyDB, id: string, today: ISODate): Promise<LotDetail | null> {
   const [found] = await db
     .select({ productId: stockLots.productId })
@@ -437,7 +480,7 @@ export async function lotDetail(db: AnyDB, id: string, today: ISODate): Promise<
       .innerJoin(users, eq(users.id, stockChecks.createdByUserId))
       .where(eq(stockChecks.lotId, id))
       .orderBy(desc(stockChecks.checkDate), desc(stockChecks.createdAt)),
-    // REPACK_OUT ativos ligados a este lote: como origem (sai dele) ou como destino (o envase é ele)
+    // REPACK_OUT e OPEN_OUT ativos ligados a este lote: como origem (sai dele) ou como destino (nasceu dele)
     db
       .select({
         fromLot: stockMovements.lotId,
@@ -447,7 +490,7 @@ export async function lotDetail(db: AnyDB, id: string, today: ISODate): Promise<
       .from(stockMovements)
       .where(
         and(
-          eq(stockMovements.kind, 'REPACK_OUT'),
+          inArray(stockMovements.kind, ['REPACK_OUT', 'OPEN_OUT']),
           isNull(stockMovements.cancelledAt),
           or(eq(stockMovements.lotId, id), eq(stockMovements.repackLotId, id)),
         ),
@@ -468,7 +511,12 @@ export async function lotDetail(db: AnyDB, id: string, today: ISODate): Promise<
       .map((l) => ({ lotId: l.fromLot, code: code(l.fromLot), packages: -l.quantity })),
     repacks: links
       .filter((l) => l.fromLot === id && l.toLot)
-      .map((l) => ({ lotId: l.toLot!, code: code(l.toLot!), packages: -l.quantity })),
+      .map((l) => ({
+        lotId: l.toLot!,
+        code: code(l.toLot!),
+        packages: -l.quantity,
+        opened: lots.find((x) => x.id === l.toLot)?.origin === 'OPENED',
+      })),
     movements,
     checks,
     nextCheck,

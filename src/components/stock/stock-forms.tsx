@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useActionDone } from '@/components/ui/sheet-action';
 import { Textarea } from '@/components/ui/textarea';
+import { MEDICINE_FORMS, type MedicineForm } from '@/domain/stock/medicine';
 import {
   amountInUnit,
   MEASURE_LABELS,
@@ -178,14 +179,22 @@ const PRODUCT_CONTENT_LABEL: Record<Measure, string> = {
 
 function CategorySelect({
   categories,
-  defaultValue,
+  value,
+  onChange,
 }: {
   categories: CategoryOption[];
-  defaultValue?: string;
+  value: string;
+  onChange: (id: string) => void;
 }) {
   const tops = categories.filter((c) => c.parentId === null);
   return (
-    <NativeSelect id="product-category" name="categoryId" required defaultValue={defaultValue ?? ''}>
+    <NativeSelect
+      id="product-category"
+      name="categoryId"
+      required
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
       <option value="" disabled>
         Escolha a categoria
       </option>
@@ -247,6 +256,13 @@ export type ProductValues = {
   expiryKind: 'EXPIRY' | 'REPLACE_BY';
   repackShelfLifeMonths: number | null;
   checkEveryMonths: number | null;
+  openShelfLifeDays: number | null;
+  isMedicine: boolean;
+  activeIngredient: string | null;
+  strength: string | null;
+  medicineForm: MedicineForm | null;
+  /** para quem é (D89) */
+  people: Option[];
   notes: string | null;
   /** já tem lotes: a forma de contar e o código ficam travados */
   hasLots: boolean;
@@ -256,12 +272,18 @@ export type ProductValues = {
 export function ProductForm({
   categories,
   locations,
+  people,
+  medicineCategoryIds,
   product,
   defaultCategoryId,
   defaultName,
 }: {
   categories: CategoryOption[];
   locations: Option[];
+  /** pessoas e bichos da casa, para o "para quem" (D89) */
+  people: Option[];
+  /** a categoria Remédios e as subcategorias dela: escolher uma marca "É um remédio" (D88) */
+  medicineCategoryIds: string[];
   product?: ProductValues;
   defaultCategoryId?: string;
   defaultName?: string;
@@ -272,6 +294,11 @@ export function ProductForm({
   );
   const [measure, setMeasure] = useState<Measure>(product?.measure ?? 'UNIT');
   const locked = product?.hasLots ?? false;
+  const [categoryId, setCategoryId] = useState(product?.categoryId ?? defaultCategoryId ?? '');
+  const [isMedicine, setIsMedicine] = useState(
+    product?.isMedicine ?? medicineCategoryIds.includes(defaultCategoryId ?? ''),
+  );
+  const linked = new Set(product?.people.map((p) => p.id));
   return (
     <form action={action} className="space-y-4">
       {product && <input type="hidden" name="id" value={product.id} />}
@@ -287,7 +314,14 @@ export function ProductForm({
         />
       </Field>
       <Field label="Categoria" htmlFor="product-category">
-        <CategorySelect categories={categories} defaultValue={product?.categoryId ?? defaultCategoryId} />
+        <CategorySelect
+          categories={categories}
+          value={categoryId}
+          onChange={(id) => {
+            setCategoryId(id);
+            if (medicineCategoryIds.includes(id)) setIsMedicine(true);
+          }}
+        />
       </Field>
       <Field
         label="Como contar"
@@ -399,6 +433,109 @@ export function ProductForm({
           defaultValue={product?.checkEveryMonths}
         />
       </div>
+      <Field
+        label="Validade depois de aberto (opcional)"
+        htmlFor="product-open-days"
+        hint={'Em dias. Com ela, o "Abri" cria o lote aberto e conta a validade dele.'}
+      >
+        <div className="flex items-center gap-2">
+          <Input
+            id="product-open-days"
+            name="openShelfLifeDays"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={3650}
+            step={1}
+            defaultValue={product?.openShelfLifeDays ?? ''}
+            className="min-w-0 flex-1 text-base tabular-nums"
+          />
+          <span className="shrink-0 text-sm text-muted-foreground">dias</span>
+        </div>
+      </Field>
+      <fieldset className="space-y-3 rounded-lg border p-3">
+        <legend className="px-1 text-sm font-medium">Remédio</legend>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="isMedicine"
+            checked={isMedicine}
+            onChange={(e) => setIsMedicine(e.target.checked)}
+            className="size-4 accent-primary"
+          />
+          É um remédio
+        </label>
+        {isMedicine && (
+          <div className="space-y-4">
+            <Field
+              label="Princípio ativo (opcional)"
+              htmlFor="product-ingredient"
+              hint="Ex.: dipirona. A busca acha o remédio pelo princípio ativo."
+            >
+              <Input
+                id="product-ingredient"
+                name="activeIngredient"
+                maxLength={120}
+                defaultValue={product?.activeIngredient ?? ''}
+              />
+            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Dosagem (opcional)" htmlFor="product-strength" hint="Ex.: 500 mg, 200 mg/mL.">
+                <Input
+                  id="product-strength"
+                  name="strength"
+                  maxLength={60}
+                  defaultValue={product?.strength ?? ''}
+                />
+              </Field>
+              <Field label="Forma" htmlFor="product-form">
+                <NativeSelect
+                  id="product-form"
+                  name="medicineForm"
+                  required
+                  defaultValue={product?.medicineForm ?? ''}
+                >
+                  <option value="" disabled>
+                    Escolha a forma
+                  </option>
+                  {MEDICINE_FORMS.map((f) => (
+                    <option key={f.value} value={f.value}>
+                      {f.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </Field>
+            </div>
+          </div>
+        )}
+      </fieldset>
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Para quem (opcional)</legend>
+        {people.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Cadastre as pessoas e os bichos da casa em{' '}
+            <Link href="/casa/pessoas" className="font-medium text-primary hover:underline">
+              Pessoas
+            </Link>
+            .
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-x-4 gap-y-2">
+            {people.map((p) => (
+              <label key={p.id} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="person"
+                  value={p.id}
+                  defaultChecked={linked.has(p.id)}
+                  className="size-4 accent-primary"
+                />
+                {p.name}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
       <Field
         label="Código dos lotes (opcional)"
         htmlFor="product-prefix"

@@ -6,7 +6,8 @@ import { PageHeader } from '@/components/layout/page-header';
 import { ProductForm } from '@/components/stock/stock-forms';
 import { CardContent } from '@/components/ui/card';
 import { getDb } from '@/db/client';
-import { listStockCategories, listStockLocations, productDetail } from '@/db/queries/stock';
+import { listStockCategories, listStockLocations, listStockPeople, productDetail } from '@/db/queries/stock';
+import { medicineCategoryIds } from '@/domain/stock/catalog';
 import { today } from '@/domain/dates';
 import { archiveStockProductAction } from '../../../actions';
 
@@ -15,10 +16,11 @@ export const metadata: Metadata = { title: 'Editar produto' };
 export default async function EditProductPage({ params }: PageProps<'/casa/produtos/[id]/editar'>) {
   const { id } = await params;
   const db = getDb();
-  const [detail, categories, locations] = await Promise.all([
+  const [detail, categories, locations, people] = await Promise.all([
     productDetail(db, id, today()),
     listStockCategories(db),
     listStockLocations(db),
+    listStockPeople(db),
   ]);
   if (!detail || detail.product.archivedAt) notFound();
   const { product, lots } = detail;
@@ -31,6 +33,8 @@ export default async function EditProductPage({ params }: PageProps<'/casa/produ
           <ProductForm
             categories={categories}
             locations={locations}
+            people={people}
+            medicineCategoryIds={medicineCategoryIds(categories)}
             product={{ ...product, hasLots: lots.length > 0 }}
           />
         </CardContent>

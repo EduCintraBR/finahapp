@@ -13,7 +13,8 @@ import { matchesSearch, normalizeText } from '@/domain/stock/catalog';
 export const metadata: Metadata = { title: 'Buscar no estoque' };
 
 /**
- * Busca única (D86): nome, categoria, local, observações e o código do lote ("ARR-03" acha o arroz), sem acento.
+ * Busca única (D86): nome, categoria, local, observações, princípio ativo, dosagem, para quem é (D88, D89) e o código
+ * do lote ("ARR-03" acha o arroz), sem acento.
  * Para a farmácia e o mercado: "já tenho isso?".
  */
 export default async function StockSearchPage({ searchParams }: PageProps<'/casa/buscar'>) {
@@ -26,8 +27,16 @@ export default async function StockSearchPage({ searchParams }: PageProps<'/casa
   const code = normalizeText(query).replace(/\s/g, '');
   const found = products.filter(
     (p) =>
-      matchesSearch(query, [p.name, p.categoryLabel, p.notes, p.prefix, ...p.locationNames]) ||
-      (codes.get(p.id) ?? []).some((c) => normalizeText(c) === code),
+      matchesSearch(query, [
+        p.name,
+        p.categoryLabel,
+        p.notes,
+        p.prefix,
+        p.activeIngredient,
+        p.strength,
+        ...p.people.map((x) => x.name),
+        ...p.locationNames,
+      ]) || (codes.get(p.id) ?? []).some((c) => normalizeText(c) === code),
   );
   // quem tem estoque primeiro: é o que interessa na hora de não comprar repetido
   found.sort((a, b) => Number(b.packages > 0) - Number(a.packages > 0));

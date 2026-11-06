@@ -13,7 +13,15 @@ import { eq } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
 import { createDb, type AnyDB } from '../src/db/client';
-import { benefitWallets, categories, invoices, stockCategories, transactions, users } from '../src/db/schema';
+import {
+  benefitWallets,
+  categories,
+  invoices,
+  stockCategories,
+  stockPeople,
+  transactions,
+  users,
+} from '../src/db/schema';
 import { seed, seedConfigFromEnv } from '../src/db/seed';
 import {
   addDays,
@@ -44,10 +52,17 @@ import {
   createStockLocation,
   createStockProduct,
   createSuggestedStockCategories,
+  createSuggestedStockPeople,
+  openStockLot,
   repackStock,
 } from '../src/server/stock';
 import { productDetail } from '../src/db/queries/stock';
-import { stockLotInput, stockProductInput, stockRepackInput } from '../src/server/stock-schemas';
+import {
+  stockLotInput,
+  stockOpenInput,
+  stockProductInput,
+  stockRepackInput,
+} from '../src/server/stock-schemas';
 
 if (!process.env.DATABASE_URL)
   throw new Error('ui:shots: defina DATABASE_URL no .env (Postgres do docker compose).');
@@ -406,6 +421,12 @@ async function populate(db: AnyDB, hoje: ISODate) {
   const despensa = (await createStockLocation(ctx(), 'Despensa')).id;
   const area = (await createStockLocation(ctx(), 'Área de serviço')).id;
   const banheiro = (await createStockLocation(ctx(), 'Armário do banheiro')).id;
+  // para quem (D89): os dois usuários, a filha e o bicho
+  await createSuggestedStockPeople(ctx());
+  const personId = async (name: string) =>
+    (await db.select().from(stockPeople).where(eq(stockPeople.name, name)))[0]!.id;
+  const liz = await personId('Liz');
+  const molly = await personId('Molly');
   const products: [string, string, string, Record<string, string>, Record<string, string>[]][] = [
     [
       'Arroz branco',
@@ -525,7 +546,17 @@ async function populate(db: AnyDB, hoje: ISODate) {
       'Dipirona 500 mg',
       'Remédios',
       'UNIT',
-      { defaultLocationId: banheiro },
+      {
+        defaultLocationId: banheiro,
+        isMedicine: 'on',
+        medicineForm: 'TABLET',
+        activeIngredient: 'dipirona',
+        strength: '500 mg',
+        openShelfLifeDays: '60',
+        defaultPackage: 'caixa',
+        defaultContentText: '10',
+        contentUnit: 'un',
+      },
       [
         {
           packages: '2',
@@ -538,11 +569,70 @@ async function populate(db: AnyDB, hoje: ISODate) {
         },
       ],
     ],
+    [
+      'Xarope de ambroxol',
+      'Remédios',
+      'VOLUME',
+      {
+        defaultLocationId: banheiro,
+        isMedicine: 'on',
+        medicineForm: 'SYRUP',
+        activeIngredient: 'ambroxol',
+        strength: '15 mg/5 mL',
+        openShelfLifeDays: '15',
+      },
+      [
+        {
+          packages: '2',
+          packageName: 'frasco',
+          contentText: '120',
+          contentUnit: 'ml',
+          expiryDate: addDays(hoje, 400),
+          locationId: banheiro,
+          entryDate: addDays(hoje, -20),
+        },
+      ],
+    ],
+    [
+      'Vermífugo',
+      'Remédios',
+      'UNIT',
+      {
+        defaultLocationId: banheiro,
+        isMedicine: 'on',
+        medicineForm: 'TABLET',
+        activeIngredient: 'praziquantel',
+        strength: '50 mg',
+        openShelfLifeDays: '30',
+      },
+      [
+        {
+          packages: '1',
+          packageName: 'caixa',
+          contentText: '4',
+          contentUnit: 'un',
+          expiryDate: addDays(hoje, 200),
+          locationId: banheiro,
+          entryDate: addDays(hoje, -10),
+        },
+      ],
+    ],
   ];
+  const people: Record<string, string[]> = {
+    'Dipirona 500 mg': [liz],
+    'Xarope de ambroxol': [liz],
+    Vermífugo: [molly],
+  };
   for (const [name, category, measure, fields, lots] of products) {
     const product = await createStockProduct(
       ctx(),
-      stockProductInput.parse({ name, categoryId: await stockCat(category), measure, ...fields }),
+      stockProductInput.parse({
+        name,
+        categoryId: await stockCat(category),
+        measure,
+        personIds: people[name] ?? [],
+        ...fields,
+      }),
     );
     for (const lot of lots) await addStockLot(ctx(), stockLotInput.parse({ productId: product.id, ...lot }));
     // o detergente acabando (abaixo do mínimo), com a baixa no histórico
@@ -555,6 +645,23 @@ async function populate(db: AnyDB, hoje: ISODate) {
         date: hoje,
         notes: null,
       });
+    // embalagem aberta (D90): uma caixa de dipirona aberta há 5 dias, com 3 comprimidos já usados
+    if (name === 'Dipirona 500 mg') {
+      const opened = addDays(hoje, -5);
+      const { lots: inStock } = (await productDetail(db, product.id, opened))!;
+      const { id } = await openStockLot(
+        ctx(opened),
+        stockOpenInput.parse({ lotId: inStock[0]!.id, date: opened }),
+      );
+      await consumeStock(ctx(hoje), {
+        productId: product.id,
+        kind: 'USE',
+        packages: 3,
+        lotId: id,
+        date: hoje,
+        notes: null,
+      });
+    }
     // envase (D84): 2 pacotes de arroz viraram 5 garrafas PET há 4 meses; a conferência de 3 em 3 meses chegou
     if (name === 'Arroz branco') {
       const sealed = addDays(hoje, -120);
@@ -614,6 +721,9 @@ async function detailIds() {
       stockProduct: await one(`select id from stock_products where name = 'Arroz branco'`),
       stockLot: await one(`select l.id from stock_lots l join stock_products p on p.id = l.product_id
         where p.name = 'Arroz branco' and l.origin = 'REPACK'`),
+      stockMedicine: await one(`select id from stock_products where name = 'Dipirona 500 mg'`),
+      stockOpened: await one(`select l.id from stock_lots l join stock_products p on p.id = l.product_id
+        where p.name = 'Dipirona 500 mg' and l.origin = 'OPENED'`),
       stockCategory: await one(`select id from stock_categories where name = 'Alimentos'`),
     };
   } finally {
@@ -826,9 +936,12 @@ async function main() {
     ['casa-entrada', `/casa/entrada?produto=${ids.stockProduct}`],
     ['casa-buscar', '/casa/buscar?q=arroz'],
     ['casa-lote', `/casa/lotes/${ids.stockLot}`],
+    ['casa-remedio', `/casa/produtos/${ids.stockMedicine}`],
+    ['casa-lote-aberto', `/casa/lotes/${ids.stockOpened}`],
     ['casa-etiquetas', `/casa/etiquetas?lote=${ids.stockLot}&inicio=2`],
     ['casa-rodizio', '/casa/rodizio'],
     ['casa-compras', '/casa/compras'],
+    ['casa-pessoas', '/casa/pessoas'],
     ['casa-categorias', '/casa/categorias'],
     ['casa-locais', '/casa/locais'],
     ['casa-mais', '/casa/mais'],

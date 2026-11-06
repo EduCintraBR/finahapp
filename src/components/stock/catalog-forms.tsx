@@ -4,8 +4,10 @@ import { useActionState, useEffect, useRef } from 'react';
 import {
   createStockCategoryAction,
   createStockLocationAction,
+  createStockPersonAction,
   renameStockCategoryAction,
   renameStockLocationAction,
+  renameStockPersonAction,
 } from '@/app/(app)/casa/actions';
 import { Field, FormError, NativeSelect } from '@/components/forms/fields';
 import { Button } from '@/components/ui/button';
@@ -83,12 +85,41 @@ export function NewStockLocationForm() {
   );
 }
 
-/** Renomear categoria ou local (painel do "⋯"). */
-export function RenameForm({ kind, id, name }: { kind: 'category' | 'location'; id: string; name: string }) {
-  const [state, action, pending] = useActionState(
-    kind === 'category' ? renameStockCategoryAction : renameStockLocationAction,
-    null,
+/** Pessoa ou bicho da casa (D89). */
+export function NewStockPersonForm() {
+  const [state, action, pending] = useActionState(createStockPersonAction, null);
+  useActionDone(state, 'Adicionado à lista.');
+  const ref = useResetOnDone(state);
+  return (
+    <form ref={ref} action={action} className="flex items-start gap-2">
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <Input aria-label="Nome" name="name" required maxLength={60} placeholder="Ex.: Liz, Molly" />
+        <FormError message={state && !state.ok ? state.error : null} />
+      </div>
+      <Button type="submit" disabled={pending}>
+        {pending ? 'Criando…' : 'Criar'}
+      </Button>
+    </form>
   );
+}
+
+const RENAME_ACTIONS = {
+  category: renameStockCategoryAction,
+  location: renameStockLocationAction,
+  person: renameStockPersonAction,
+};
+
+/** Renomear categoria, local ou pessoa (painel do "⋯"). */
+export function RenameForm({
+  kind,
+  id,
+  name,
+}: {
+  kind: 'category' | 'location' | 'person';
+  id: string;
+  name: string;
+}) {
+  const [state, action, pending] = useActionState(RENAME_ACTIONS[kind], null);
   useActionDone(state, 'Nome salvo.');
   return (
     <form action={action} className="space-y-4">

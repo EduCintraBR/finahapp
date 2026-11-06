@@ -48,7 +48,7 @@ src/
     reports/           competência (bruto), caixa (mensal), projeção
     recurring/         geração de ocorrências
     reconciliation/    scoring e atribuição 1:1 de matches
-    stock/             Casa (D81+): medida em inteiros (g/ml/un), quantidade por movimentos, FEFO, código do lote
+    stock/             Casa (D81+): medida em inteiros (g/ml/un), quantidade por movimentos, FEFO, código do lote, reposição, remédios e embalagem aberta
   server/              serviços que unem domain + db, sempre em db.transaction()
   db/                  schema.ts, client.ts, seed.ts, seed-data.ts, queries/ (fórmulas canônicas em SQL)
   bot/                 handlers grammY, parser (LLM), formatação de respostas
@@ -83,7 +83,7 @@ Implementações de referência em SQL em `tests/acceptance/card-ledger.test.ts`
 - **Saldo da carteira de benefícios** = Σ `INCOME` POSTED − Σ `EXPENSE` POSTED com `benefit_wallet_id`, não deletadas. Fica fora do Saldo da conta (`bank_account_id` é nulo nessas transações) e nunca é armazenado; os gastos dela contam em Gasto Bruto/Mensal.
 - **Gasto Bruto do mês** (competência) = Σ EXPENSE (conta + cartão) por `transaction_date` − Σ `refund_records.amount` por `refund_date`. Exclui `source = ONBOARDING`.
 - **Gasto Mensal do mês** (caixa) = Σ EXPENSE do lado conta (por `due_date`, ou `posted_date` se à vista; parcela de empréstimo paga, por `posted_date`) + Σ invoice_items ACTIVE das faturas com `due_date` no mês + Σ `ANTICIPATION_PAYMENT` do mês.
-- **Estoque da Casa** (D81–D83, área separada: nada da Casa toca nas Finanças): quantidade de um lote = Σ `stock_movements` não cancelados (embalagens inteiras), nunca armazenada e nunca negativa; a do produto = Σ lotes; peso e volume em gramas e ml inteiros (como os centavos).
+- **Estoque da Casa** (D81–D90, área separada: nada da Casa toca nas Finanças): quantidade de um lote = Σ `stock_movements` não cancelados (embalagens inteiras), nunca armazenada e nunca negativa; a do produto = Σ lotes; peso e volume em gramas e ml inteiros (como os centavos); o "Abri" (D90) tira 1 embalagem e cria o lote aberto numa transação, sem mudar o total do produto.
 - **Projeção de mês futuro** = receitas previstas (templates INCOME) − (templates FIXED + estimativas RECURRING_VARIABLE + invoice_items já agendados nas faturas que vencem no mês). Ocorrências de meses futuros são calculadas em memória, não persistidas.
 
 ## Convenções

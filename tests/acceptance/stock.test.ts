@@ -401,7 +401,7 @@ describe('envase, conferência e rodízio (D84, D85)', () => {
     expect(detail.lot.expiryDate).toBe('2028-11-05');
     expect(detail.sources).toEqual([{ lotId: pacotes.id, code: 'ARR-01', packages: 2 }]);
     expect((await lotDetail(db, pacotes.id, HOJE))!.repacks).toEqual([
-      { lotId: garrafas.id, code: 'ARR-02', packages: 2 },
+      { lotId: garrafas.id, code: 'ARR-02', packages: 2, opened: false },
     ]);
     // 1ª conferência: selagem + 3 meses
     expect(detail.nextCheck).toBe('2027-02-05');

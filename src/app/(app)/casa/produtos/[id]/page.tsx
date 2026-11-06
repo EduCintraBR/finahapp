@@ -6,6 +6,7 @@ import { ActionButton } from '@/components/forms/action-button';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   dateBR,
+  entryLabel,
   lotContentText,
   MOVEMENT_LABEL,
   quantityText,
@@ -27,10 +28,11 @@ import { getDb } from '@/db/client';
 import { listStockLocations, productDetail } from '@/db/queries/stock';
 import { today } from '@/domain/dates';
 import { formatAmount } from '@/domain/stock/measure';
+import { formLabel } from '@/domain/stock/medicine';
 import { expiryLevel } from '@/domain/stock/quantity';
 import { ageText, checkDue, nextCheckDate } from '@/domain/stock/rotation';
 import { cn } from '@/lib/utils';
-import { cancelStockMovementAction } from '../../actions';
+import { cancelStockMovementAction, openStockLotAction } from '../../actions';
 
 export const metadata: Metadata = { title: 'Produto' };
 
@@ -69,6 +71,13 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
   }));
   const archived = product.archivedAt !== null;
   const kind = product.expiryKind;
+  // "Abri" (D90): a primeira embalagem fechada na ordem de uso, se o produto tem validade depois de aberto
+  const toOpen = product.openShelfLifeDays ? inStock.find((l) => l.origin !== 'OPENED') : undefined;
+  const medicine = product.isMedicine
+    ? [product.activeIngredient, product.strength, product.medicineForm && formLabel(product.medicineForm)]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
@@ -101,6 +110,16 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
               <ExpiryBadge date={product.nextExpiry} level={product.expiry} kind={kind} />
             </div>
           </div>
+          {medicine && (
+            <p className="text-sm" data-testid="product-medicine">
+              {medicine}
+            </p>
+          )}
+          {product.people.length > 0 && (
+            <p className="text-sm text-muted-foreground" data-testid="product-people">
+              Para {product.people.map((p) => p.name).join(', ')}
+            </p>
+          )}
           {(product.minQuantity !== null ||
             product.targetQuantity !== null ||
             product.locationNames.length > 0) && (
@@ -156,6 +175,17 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
                   <p className="text-sm text-muted-foreground">Sem estoque para descartar.</p>
                 )}
               </SheetAction>
+              {toOpen && (
+                <div className="col-span-3">
+                  <ActionButton
+                    action={openStockLotAction}
+                    fields={{ lotId: toOpen.id, date: hoje }}
+                    label={`Abri 1 ${toOpen.packageName}`}
+                    pendingLabel="Abrindo…"
+                    variant="secondary"
+                  />
+                </div>
+              )}
               {inStock.length > 0 && (
                 <SheetAction
                   label="Envasar"
@@ -213,8 +243,8 @@ export default async function ProductPage({ params }: PageProps<'/casa/produtos/
                       </div>
                       <p className="text-sm tabular-nums">{lotContentText(l, product.measure)}</p>
                       <p className="text-xs text-muted-foreground">
-                        {l.origin === 'REPACK' ? 'Selado' : 'Entrou'} em {dateBR(l.entryDate)} (
-                        {ageText(l.entryDate, hoje)}){l.locationName && ` · ${l.locationName}`}
+                        {entryLabel(l.origin)} em {dateBR(l.entryDate)} ({ageText(l.entryDate, hoje)})
+                        {l.locationName && ` · ${l.locationName}`}
                         {l.notes && ` · ${l.notes}`}
                       </p>
                     </div>
