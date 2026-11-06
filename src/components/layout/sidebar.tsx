@@ -23,7 +23,7 @@ export function Sidebar() {
   const current = activeItem(pathname, casa ? CASA_ALL : ALL);
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex">
+    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex print:hidden">
       <div className="flex h-16 items-center px-5">
         <Logo />
       </div>

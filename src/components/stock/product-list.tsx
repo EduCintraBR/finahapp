@@ -48,7 +48,7 @@ export function ProductList({
                   )}
                   {q.packages && <span className="tabular-nums">{q.packages}</span>}
                   {p.low && <LowBadge />}
-                  <ExpiryBadge date={p.nextExpiry} level={p.expiry} />
+                  <ExpiryBadge date={p.nextExpiry} level={p.expiry} kind={p.expiryKind} />
                 </div>
               </div>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />

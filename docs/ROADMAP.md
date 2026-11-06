@@ -174,9 +174,9 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 **Etapa 2 — Envase, rodízio e etiquetas** (D84, D85, D87)
 
-- [ ] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
-- [ ] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
-- [ ] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
+- [x] Envasar (lotes de origem → lote `REPACK` com selagem e validade = selagem + prazo do produto, editável), atômico
+- [x] Etiquetas: página de impressão A4 com uma etiqueta de 1/4 de folha (105 × 148,5 mm, 4 por folha, marcas de corte) por embalagem (código, produto, conteúdo, selagem, validade, QR do lote); `/casa/lotes/[id]` abre pelo QR com "Abri 1" a um toque
+- [x] Vencidos, Vencendo (30 dias), conferência periódica ("Conferi" com observação) e painel de rodízio; quadros na Início da Casa
 
 **Etapa 3 — Reposição** (D86)
 

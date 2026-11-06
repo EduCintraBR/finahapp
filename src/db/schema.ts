@@ -643,6 +643,8 @@ export const stockMovementKind = pgEnum('stock_movement_kind', [
   'REPACK_OUT', // - saiu para um envase
   'REPACK_IN',  // + entrou de um envase
 ]);
+/** Rótulo do prazo do lote: validade, ou "trocar até" (água estocada, D85). */
+export const stockExpiryKind = pgEnum('stock_expiry_kind', ['EXPIRY', 'REPLACE_BY']);
 
 /** Categorias da Casa, em 2 níveis (como D74), independentes das categorias financeiras. */
 export const stockCategories = pgTable('stock_categories', {
@@ -664,7 +666,9 @@ export const stockLocations = pgTable('stock_locations', {
 
 /**
  * Produto do catálogo. `prefix` dá o código dos lotes (ARR-03, D87). Mínimo e meta ficam na medida do produto
- * (unidades, g ou ml). `default_package`/`default_content` só pré-preenchem a entrada.
+ * (unidades, g ou ml). `default_package`/`default_content` só pré-preenchem a entrada. `repack_shelf_life_months` =
+ * prazo depois de envasado (D84: validade do lote envasado = selagem + prazo); `check_every_months` = conferência
+ * periódica dos lotes (D85).
  */
 export const stockProducts = pgTable('stock_products', {
   id: pk(),
@@ -677,6 +681,9 @@ export const stockProducts = pgTable('stock_products', {
   targetQuantity: bigint('target_quantity', { mode: 'number' }),
   defaultPackage: varchar('default_package', { length: 40 }),
   defaultContent: bigint('default_content', { mode: 'number' }),
+  expiryKind: stockExpiryKind('expiry_kind').notNull().default('EXPIRY'),
+  repackShelfLifeMonths: smallint('repack_shelf_life_months'),
+  checkEveryMonths: smallint('check_every_months'),
   notes: text('notes'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
   archivedAt: timestamp('archived_at', { withTimezone: true }),
@@ -688,6 +695,8 @@ export const stockProducts = pgTable('stock_products', {
   check('stock_products_target', sql`${t.targetQuantity} is null or ${t.targetQuantity} > 0`),
   check('stock_products_target_min', sql`${t.minQuantity} is null or ${t.targetQuantity} is null or ${t.targetQuantity} >= ${t.minQuantity}`),
   check('stock_products_content', sql`${t.defaultContent} is null or ${t.defaultContent} > 0`),
+  check('stock_products_repack_months', sql`${t.repackShelfLifeMonths} is null or ${t.repackShelfLifeMonths} between 1 and 240`),
+  check('stock_products_check_months', sql`${t.checkEveryMonths} is null or ${t.checkEveryMonths} between 1 and 60`),
   index('stock_products_category').on(t.categoryId),
 ]);
 
@@ -715,12 +724,16 @@ export const stockLots = pgTable('stock_lots', {
   check('stock_lots_content', sql`${t.contentPerPackage} is null or ${t.contentPerPackage} > 0`),
 ]);
 
-/** Movimentos do lote, em embalagens inteiras e assinados pela direção. Errado se desfaz com `cancelled_at`. */
+/**
+ * Movimentos do lote, em embalagens inteiras e assinados pela direção. Errado se desfaz com `cancelled_at`.
+ * REPACK_OUT aponta o lote envasado que nasceu dele (`repack_lot_id`, D84): é o que diz de onde veio cada garrafa.
+ */
 export const stockMovements = pgTable('stock_movements', {
   id: pk(),
   lotId: uuid('lot_id').notNull().references(() => stockLots.id),
   kind: stockMovementKind('kind').notNull(),
   quantity: integer('quantity').notNull(),
+  repackLotId: uuid('repack_lot_id').references(() => stockLots.id),
   movementDate: day('movement_date').notNull(),
   notes: text('notes'),
   createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
@@ -735,8 +748,20 @@ export const stockMovements = pgTable('stock_movements', {
       or (${t.kind} in ('USE', 'DISCARD', 'REPACK_OUT') and ${t.quantity} < 0)
       or ${t.kind} = 'ADJUST'`,
   ),
+  check('stock_movements_repack_lot', sql`(${t.kind} = 'REPACK_OUT') = (${t.repackLotId} is not null)`),
   index('stock_movements_lot').on(t.lotId),
+  index('stock_movements_repack_lot').on(t.repackLotId),
 ]);
+
+/** "Conferi" (D85): conferência periódica de um lote (umidade, bicho, vedação), com a data e o que viu. */
+export const stockChecks = pgTable('stock_checks', {
+  id: pk(),
+  lotId: uuid('lot_id').notNull().references(() => stockLots.id),
+  checkDate: day('check_date').notNull(),
+  notes: text('notes'),
+  createdByUserId: uuid('created_by_user_id').notNull().references(() => users.id),
+  createdAt: createdAt(),
+}, (t) => [index('stock_checks_lot').on(t.lotId)]);
 
 // ─────────────────────────── bot ───────────────────────────
 export const botMessages = pgTable('bot_messages', {

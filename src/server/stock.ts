@@ -1,11 +1,18 @@
 /**
- * Estoque da Casa (D81 a D83): categorias, locais, produtos, lotes e movimentos. Toda escrita em transação, com
- * audit_log. A quantidade nunca é armazenada; antes de cada saída o produto é travado (FOR UPDATE) e a quantidade
- * de cada lote é somada de novo dentro da transação, para nenhum lote ficar negativo.
+ * Estoque da Casa (D81 a D85): categorias, locais, produtos, lotes, movimentos, envase e conferência. Toda escrita
+ * em transação, com audit_log. A quantidade nunca é armazenada; antes de cada saída o produto é travado (FOR UPDATE)
+ * e a quantidade de cada lote é somada de novo dentro da transação, para nenhum lote ficar negativo.
  */
-import { and, eq, isNull, max, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, max, ne, or, sql } from 'drizzle-orm';
 import { listLots, type LotRow } from '@/db/queries/stock';
-import { stockCategories, stockLocations, stockLots, stockMovements, stockProducts } from '@/db/schema';
+import {
+  stockCategories,
+  stockChecks,
+  stockLocations,
+  stockLots,
+  stockMovements,
+  stockProducts,
+} from '@/db/schema';
 import { compareDates } from '@/domain/dates';
 import { normalizeText, suggestPrefix, SUGGESTED_CATEGORIES, lotCode } from '@/domain/stock/catalog';
 import {
@@ -14,14 +21,18 @@ import {
   quantityAfter,
   signedQuantity,
   StockError,
+  type MovementKind,
 } from '@/domain/stock/quantity';
+import { planRepack, repackExpiry } from '@/domain/stock/rotation';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
 import type {
+  StockCheckInput,
   StockCountInput,
   StockLotInput,
   StockLotUpdateInput,
   StockProductInput,
+  StockRepackInput,
   StockUseInput,
 } from './stock-schemas';
 
@@ -359,10 +370,12 @@ async function insertMovement(
   ctx: ServiceCtx,
   values: {
     lotId: string;
-    kind: StockUseInput['kind'] | 'IN' | 'ADJUST';
+    kind: MovementKind;
     quantity: number;
     date: string;
     notes: string | null;
+    /** REPACK_OUT: o lote envasado que nasceu dele */
+    repackLotId?: string;
   },
 ) {
   const [row] = await tx
@@ -371,6 +384,7 @@ async function insertMovement(
       lotId: values.lotId,
       kind: values.kind,
       quantity: values.quantity,
+      repackLotId: values.repackLotId ?? null,
       movementDate: values.date,
       notes: values.notes,
       createdByUserId: ctx.userId,
@@ -397,12 +411,7 @@ export async function addStockLot(
     checkContent(product.measure, input.contentPerPackage);
     await checkLocation(tx, input.locationId);
     notFuture(ctx, input.entryDate, 'de entrada');
-    // o número nunca é reaproveitado: lote não se apaga, então o maior + 1 é sempre novo
-    const [last] = await tx
-      .select({ n: max(stockLots.number) })
-      .from(stockLots)
-      .where(eq(stockLots.productId, product.id));
-    const number = (last?.n ?? 0) + 1;
+    const number = await nextLotNumber(tx, product.id);
     const { packages, productId, ...fields } = input;
     const [lot] = await tx
       .insert(stockLots)
@@ -499,7 +508,106 @@ export async function countStockLot(ctx: ServiceCtx, input: StockCountInput) {
   });
 }
 
-/** Desfaz um movimento (cancelled_at): sai da soma. Recusa se o lote ficaria negativo. */
+/** Próximo número de lote do produto: o maior + 1 (lote não se apaga, então nunca se repete). */
+async function nextLotNumber(tx: Tx, productId: string): Promise<number> {
+  const [last] = await tx
+    .select({ n: max(stockLots.number) })
+    .from(stockLots)
+    .where(eq(stockLots.productId, productId));
+  return (last?.n ?? 0) + 1;
+}
+
+/**
+ * Envasar (D84): numa transação, tira as embalagens dos lotes de origem (REPACK_OUT, cada um apontando o lote
+ * novo) e cria o lote envasado (REPACK) com as garrafas (REPACK_IN), a selagem como entrada e a validade = selagem
+ * + prazo do produto, a menos que o usuário informe outra. Vale sempre o prazo do envase, mesmo depois da
+ * validade original do pacote.
+ */
+export async function repackStock(
+  ctx: ServiceCtx,
+  input: StockRepackInput,
+): Promise<{ id: string; code: string }> {
+  return ctx.db.transaction(async (tx) => {
+    const product = await lockProduct(tx, input.productId);
+    if (product.archivedAt) throw new UserError('Produto não encontrado.');
+    checkContent(product.measure, input.contentPerPackage);
+    await checkLocation(tx, input.locationId);
+    notFuture(ctx, input.sealDate, 'de selagem');
+    const lots = await listLots(tx, [product.id]);
+    const plan = await rule(() => planRepack(lots, input.sources));
+    const expiryDate = input.expiryDate ?? repackExpiry(input.sealDate, product.repackShelfLifeMonths);
+    const number = await nextLotNumber(tx, product.id);
+    const [lot] = await tx
+      .insert(stockLots)
+      .values({
+        productId: product.id,
+        number,
+        locationId: input.locationId,
+        packageName: input.packageName,
+        contentPerPackage: input.contentPerPackage,
+        entryDate: input.sealDate,
+        expiryDate,
+        origin: 'REPACK',
+        notes: input.notes,
+        createdByUserId: ctx.userId,
+      })
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_lots',
+      entityId: lot!.id,
+      action: 'CREATE',
+      after: lot,
+    });
+    for (const p of plan) {
+      await insertMovement(tx, ctx, {
+        lotId: p.lotId,
+        kind: 'REPACK_OUT',
+        quantity: await rule(() => signedQuantity('REPACK_OUT', p.packages)),
+        date: input.sealDate,
+        notes: null,
+        repackLotId: lot!.id,
+      });
+    }
+    await insertMovement(tx, ctx, {
+      lotId: lot!.id,
+      kind: 'REPACK_IN',
+      quantity: await rule(() => signedQuantity('REPACK_IN', input.packages)),
+      date: input.sealDate,
+      notes: null,
+    });
+    return { id: lot!.id, code: lotCode(product.prefix, number) };
+  });
+}
+
+/** "Conferi" (D85): registra a conferência do lote; a próxima conta a partir dela. */
+export async function checkStockLot(ctx: ServiceCtx, input: StockCheckInput) {
+  return ctx.db.transaction(async (tx) => {
+    const [lot] = await tx.select().from(stockLots).where(eq(stockLots.id, input.lotId));
+    if (!lot) throw new UserError('Lote não encontrado.');
+    await lockProduct(tx, lot.productId);
+    notFuture(ctx, input.date, 'da conferência');
+    if (compareDates(input.date, lot.entryDate) < 0) {
+      throw new UserError('A conferência não pode ser antes da entrada do lote.');
+    }
+    const [row] = await tx
+      .insert(stockChecks)
+      .values({ lotId: lot.id, checkDate: input.date, notes: input.notes, createdByUserId: ctx.userId })
+      .returning();
+    await audit(tx, {
+      userId: ctx.userId,
+      entity: 'stock_checks',
+      entityId: row!.id,
+      action: 'CREATE',
+      after: row,
+    });
+  });
+}
+
+/**
+ * Desfaz um movimento (cancelled_at): sai da soma. Num envase, desfaz o envase inteiro (as saídas dos lotes de
+ * origem e a entrada das garrafas), nunca uma parte. Recusa se algum lote ficaria negativo.
+ */
 export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
   return ctx.db.transaction(async (tx) => {
     const [found] = await tx
@@ -509,22 +617,58 @@ export async function cancelStockMovement(ctx: ServiceCtx, id: string) {
       .where(eq(stockMovements.id, id));
     if (!found) throw new UserError('Movimento não encontrado.');
     await lockProduct(tx, found.productId);
-    const [before] = await tx.select().from(stockMovements).where(eq(stockMovements.id, id)).for('update');
-    if (before!.cancelledAt) throw new UserError('Este movimento já foi desfeito.');
-    const lot = (await listLots(tx, [found.productId])).find((l) => l.id === before!.lotId)!;
-    await rule(() => quantityAfter(lot.quantity, -before!.quantity, lot.code));
-    const [after] = await tx
-      .update(stockMovements)
-      .set({ cancelledAt: sql`now()`, cancelledByUserId: ctx.userId })
-      .where(eq(stockMovements.id, id))
-      .returning();
-    await audit(tx, {
-      userId: ctx.userId,
-      entity: 'stock_movements',
-      entityId: id,
-      action: 'CANCEL',
-      before,
-      after,
-    });
+    const [target] = await tx.select().from(stockMovements).where(eq(stockMovements.id, id)).for('update');
+    if (target!.cancelledAt) throw new UserError('Este movimento já foi desfeito.');
+
+    const repackLot =
+      target!.kind === 'REPACK_IN'
+        ? target!.lotId
+        : target!.kind === 'REPACK_OUT'
+          ? target!.repackLotId
+          : null;
+    const group = repackLot
+      ? await tx
+          .select()
+          .from(stockMovements)
+          .where(
+            and(
+              isNull(stockMovements.cancelledAt),
+              or(
+                and(eq(stockMovements.lotId, repackLot), eq(stockMovements.kind, 'REPACK_IN')),
+                eq(stockMovements.repackLotId, repackLot),
+              ),
+            ),
+          )
+          .for('update')
+      : [target!];
+
+    const lots = new Map((await listLots(tx, [found.productId])).map((l) => [l.id, l]));
+    const after = new Map<string, number>();
+    for (const m of group)
+      after.set(m.lotId, (after.get(m.lotId) ?? lots.get(m.lotId)!.quantity) - m.quantity);
+    for (const [lotId, quantity] of after) {
+      if (quantity >= 0) continue;
+      const code = lots.get(lotId)!.code;
+      throw new UserError(
+        repackLot && lotId === repackLot
+          ? `Parte das embalagens do ${code} já saiu: desfaça esses movimentos antes de desfazer o envase.`
+          : `O lote ${code} ficaria negativo: desfaça antes os movimentos que vieram depois.`,
+      );
+    }
+    for (const m of group) {
+      const [cancelled] = await tx
+        .update(stockMovements)
+        .set({ cancelledAt: sql`now()`, cancelledByUserId: ctx.userId })
+        .where(eq(stockMovements.id, m.id))
+        .returning();
+      await audit(tx, {
+        userId: ctx.userId,
+        entity: 'stock_movements',
+        entityId: m.id,
+        action: 'CANCEL',
+        before: m,
+        after: cancelled,
+      });
+    }
   });
 }

@@ -8,7 +8,14 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { AnyDB } from '@/db/client';
 import { getAccountBalance } from '@/db/queries/balance';
 import { grossSpend, monthlySpend, total } from '@/db/queries/reports';
-import { listStockCategories, productDetail, recentMovements, stockOverview } from '@/db/queries/stock';
+import {
+  listStockCategories,
+  lotDetail,
+  productDetail,
+  recentMovements,
+  rotationLots,
+  stockOverview,
+} from '@/db/queries/stock';
 import { seed, seedConfigFromEnv } from '@/db/seed';
 import type { ServiceCtx } from '@/server/context';
 import { createEntry } from '@/server/entries';
@@ -17,15 +24,17 @@ import {
   archiveStockCategory,
   archiveStockProduct,
   cancelStockMovement,
+  checkStockLot,
   countStockLot,
   createStockCategory,
   createStockLocation,
   createStockProduct,
   createSuggestedStockCategories,
+  repackStock,
   updateStockProduct,
   consumeStock,
 } from '@/server/stock';
-import { stockLotInput, stockProductInput } from '@/server/stock-schemas';
+import { stockLotInput, stockProductInput, stockRepackInput } from '@/server/stock-schemas';
 import { freshDb } from './helpers';
 
 let pg: PGlite;
@@ -252,7 +261,7 @@ describe('quantidade = Σ movimentos', () => {
     const entry = (await productDetail(db, agua5.id, HOJE))!.movements.find(
       (m) => m.kind === 'IN' && m.lotCode === 'AGU-01',
     )!;
-    await expect(cancelStockMovement(ctx, entry.id)).rejects.toThrow('O lote AGU-01 já está zerado.');
+    await expect(cancelStockMovement(ctx, entry.id)).rejects.toThrow('O lote AGU-01 ficaria negativo');
 
     // última linha de defesa: o banco recusa movimento com a direção errada
     await expect(
@@ -348,5 +357,149 @@ describe('a Casa não mexe nas Finanças', () => {
       'stock_movements',
       'stock_products',
     ]);
+  });
+});
+
+describe('envase, conferência e rodízio (D84, D85)', () => {
+  const repack = (
+    productId: string,
+    sources: { lotId: string; packages: number }[],
+    fields: Record<string, string>,
+  ) =>
+    repackStock(
+      ctx,
+      stockRepackInput.parse({
+        productId,
+        sources,
+        packageName: 'garrafa PET',
+        contentUnit: 'kg',
+        sealDate: HOJE,
+        ...fields,
+      }),
+    );
+
+  it('envasar tira dos pacotes e cria o lote das garrafas, com validade = selagem + prazo, de uma vez', async () => {
+    const arroz = await product({ name: 'Arroz', repackShelfLifeMonths: '24', checkEveryMonths: '3' });
+    const pacotes = await lot(arroz.id, {
+      packages: '4',
+      packageName: 'pacote',
+      contentText: '5',
+      contentUnit: 'kg',
+      expiryDate: '2027-02-01', // o pacote vence antes do prazo do envase: vale o envase (D84, resposta "a")
+    });
+    const garrafas = await repack(arroz.id, [{ lotId: pacotes.id, packages: 2 }], {
+      packages: '5',
+      contentText: '1,8',
+    });
+    expect(garrafas.code).toBe('ARR-02');
+
+    expect(await sqlLotQuantities(arroz.id)).toEqual({ 1: 2, 2: 5 });
+    const detail = (await lotDetail(db, garrafas.id, HOJE))!;
+    expect(detail.lot.origin).toBe('REPACK');
+    expect(detail.lot.entryDate).toBe(HOJE);
+    expect(detail.lot.expiryDate).toBe('2028-11-05');
+    expect(detail.sources).toEqual([{ lotId: pacotes.id, code: 'ARR-01', packages: 2 }]);
+    expect((await lotDetail(db, pacotes.id, HOJE))!.repacks).toEqual([
+      { lotId: garrafas.id, code: 'ARR-02', packages: 2 },
+    ]);
+    // 1ª conferência: selagem + 3 meses
+    expect(detail.nextCheck).toBe('2027-02-05');
+    expect(detail.checkDue).toBe(false);
+
+    // validade informada vence o cálculo; sem prazo no produto e sem validade, fica sem validade
+    const outro = await repack(arroz.id, [{ lotId: pacotes.id, packages: 1 }], {
+      packages: '2',
+      contentText: '1,8',
+      expiryDate: '2027-12-31',
+    });
+    expect((await lotDetail(db, outro.id, HOJE))!.lot.expiryDate).toBe('2027-12-31');
+  });
+
+  it('envase é tudo ou nada: origem sem estoque recusa e não cria nada', async () => {
+    const feijao = await product({ name: 'Feijão' });
+    const p = await lot(feijao.id, {
+      packages: '1',
+      packageName: 'pacote',
+      contentText: '1',
+      contentUnit: 'kg',
+    });
+    await expect(
+      repack(feijao.id, [{ lotId: p.id, packages: 2 }], { packages: '1', contentText: '1' }),
+    ).rejects.toThrow('O lote FEI-01 tem só 1 embalagem.');
+    await expect(
+      repack(feijao.id, [{ lotId: p.id, packages: 0 }], { packages: '1', contentText: '1' }),
+    ).rejects.toThrow('Escolha de qual lote');
+    expect(await sqlLotQuantities(feijao.id)).toEqual({ 1: 1 });
+  });
+
+  it('desfazer o envase desfaz tudo; com garrafa já aberta, recusa', async () => {
+    const arroz = await product({ name: 'Arroz' });
+    const p = await lot(arroz.id, {
+      packages: '3',
+      packageName: 'pacote',
+      contentText: '5',
+      contentUnit: 'kg',
+    });
+    const g = await repack(arroz.id, [{ lotId: p.id, packages: 2 }], { packages: '5', contentText: '1,8' });
+    await consumeStock(ctx, {
+      productId: arroz.id,
+      kind: 'USE',
+      packages: 1,
+      lotId: g.id,
+      date: HOJE,
+      notes: null,
+    });
+
+    const moves = (await productDetail(db, arroz.id, HOJE))!.movements;
+    const repackOut = moves.find((m) => m.kind === 'REPACK_OUT')!;
+    await expect(cancelStockMovement(ctx, repackOut.id)).rejects.toThrow(
+      'Parte das embalagens do ARR-02 já saiu',
+    );
+
+    await cancelStockMovement(ctx, moves.find((m) => m.kind === 'USE')!.id);
+    await cancelStockMovement(ctx, repackOut.id); // pela saída do pacote: desfaz o envase inteiro
+    expect(await sqlLotQuantities(arroz.id)).toEqual({ 1: 3, 2: 0 });
+    const cancelled = await q<{ kind: string }>(
+      `select kind from stock_movements where cancelled_at is not null order by kind`,
+    );
+    expect(cancelled.map((c) => c.kind).sort()).toEqual(['REPACK_IN', 'REPACK_OUT', 'USE']);
+  });
+
+  it('conferência: "Conferi" empurra a próxima; atrasada aparece no rodízio', async () => {
+    const agua5 = await createStockProduct(
+      ctx,
+      stockProductInput.parse({
+        name: 'Água',
+        categoryId: agua,
+        measure: 'VOLUME',
+        expiryKind: 'REPLACE_BY',
+        checkEveryMonths: '2',
+      }),
+    );
+    const l = await lot(agua5.id, {
+      packages: '6',
+      packageName: 'galão',
+      contentText: '5',
+      contentUnit: 'L',
+      entryDate: '2026-08-01',
+      expiryDate: '2026-11-20',
+    });
+    let rot = (await rotationLots(db, HOJE)).find((r) => r.id === l.id)!;
+    expect(rot.nextCheck).toBe('2026-10-01');
+    expect(rot.checkDue).toBe(true);
+    expect(rot.expiry).toBe('soon');
+    expect(rot.expiryKind).toBe('REPLACE_BY');
+
+    await checkStockLot(ctx, { lotId: l.id, date: HOJE, notes: 'vedação ok' });
+    rot = (await rotationLots(db, HOJE)).find((r) => r.id === l.id)!;
+    expect(rot.nextCheck).toBe('2027-01-05');
+    expect(rot.checkDue).toBe(false);
+    expect((await lotDetail(db, l.id, HOJE))!.checks.map((c) => c.notes)).toEqual(['vedação ok']);
+    await expect(checkStockLot(ctx, { lotId: l.id, date: '2026-07-01', notes: null })).rejects.toThrow(
+      'antes da entrada',
+    );
+    await expect(checkStockLot(ctx, { lotId: l.id, date: '2026-11-06', notes: null })).rejects.toThrow(
+      'futuro',
+    );
   });
 });

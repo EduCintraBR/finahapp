@@ -2,7 +2,7 @@
  * Leituras do estoque da Casa (D81 a D83). A quantidade de cada lote é Σ movimentos não cancelados, numa agregação
  * agrupada (sem subconsulta correlacionada); o resto (totais, FEFO, validade) sai das regras puras de domain/stock.
  */
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import { lotCode } from '@/domain/stock/catalog';
 import type { Measure } from '@/domain/stock/measure';
 import {
@@ -13,8 +13,17 @@ import {
   type MovementKind,
 } from '@/domain/stock/quantity';
 import type { ISODate } from '@/domain/dates';
+import { checkDue, nextCheckDate } from '@/domain/stock/rotation';
 import type { AnyDB } from '../client';
-import { stockCategories, stockLocations, stockLots, stockMovements, stockProducts, users } from '../schema';
+import {
+  stockCategories,
+  stockChecks,
+  stockLocations,
+  stockLots,
+  stockMovements,
+  stockProducts,
+  users,
+} from '../schema';
 
 /** Ordem alfabética do português (o Postgres com collation C poria "Água" depois de "Remédios"). */
 const byName = <T extends { name: string }>(rows: T[]): T[] =>
@@ -75,6 +84,12 @@ export type ProductRow = {
   targetQuantity: number | null;
   defaultPackage: string | null;
   defaultContent: number | null;
+  /** rótulo do prazo: validade ou "trocar até" (D85) */
+  expiryKind: 'EXPIRY' | 'REPLACE_BY';
+  /** prazo depois de envasado, em meses (D84) */
+  repackShelfLifeMonths: number | null;
+  /** conferência dos lotes a cada N meses (D85) */
+  checkEveryMonths: number | null;
   notes: string | null;
   archivedAt: Date | null;
 };
@@ -97,6 +112,9 @@ async function productRows(
         targetQuantity: stockProducts.targetQuantity,
         defaultPackage: stockProducts.defaultPackage,
         defaultContent: stockProducts.defaultContent,
+        expiryKind: stockProducts.expiryKind,
+        repackShelfLifeMonths: stockProducts.repackShelfLifeMonths,
+        checkEveryMonths: stockProducts.checkEveryMonths,
         notes: stockProducts.notes,
         archivedAt: stockProducts.archivedAt,
       })
@@ -138,6 +156,8 @@ export type LotRow = {
   notes: string | null;
   /** embalagens: Σ movimentos não cancelados */
   quantity: number;
+  /** última conferência (D85) */
+  lastCheckDate: ISODate | null;
 };
 
 const toInt = (v: string | number | null | undefined) => {
@@ -158,6 +178,14 @@ export async function listLots(db: AnyDB, productIds?: string[]): Promise<LotRow
     .where(isNull(stockMovements.cancelledAt))
     .groupBy(stockMovements.lotId)
     .as('lot_sums');
+  const checks = db
+    .select({
+      lotId: stockChecks.lotId,
+      lastCheckDate: sql<string>`max(${stockChecks.checkDate})`.as('last_check_date'),
+    })
+    .from(stockChecks)
+    .groupBy(stockChecks.lotId)
+    .as('lot_checks');
   const rows = await db
     .select({
       id: stockLots.id,
@@ -173,17 +201,20 @@ export async function listLots(db: AnyDB, productIds?: string[]): Promise<LotRow
       origin: stockLots.origin,
       notes: stockLots.notes,
       quantity: sums.quantity,
+      lastCheckDate: checks.lastCheckDate,
     })
     .from(stockLots)
     .innerJoin(stockProducts, eq(stockProducts.id, stockLots.productId))
     .leftJoin(stockLocations, eq(stockLocations.id, stockLots.locationId))
     .leftJoin(sums, eq(sums.lotId, stockLots.id))
+    .leftJoin(checks, eq(checks.lotId, stockLots.id))
     .where(productIds ? inArray(stockLots.productId, productIds) : isNull(stockProducts.archivedAt))
     .orderBy(asc(stockLots.number));
-  return rows.map(({ prefix, quantity, ...r }) => ({
+  return rows.map(({ prefix, quantity, lastCheckDate, ...r }) => ({
     ...r,
     code: lotCode(prefix, r.number),
     quantity: toInt(quantity),
+    lastCheckDate: lastCheckDate ?? null,
   }));
 }
 
@@ -308,4 +339,113 @@ export async function recentMovements(db: AnyDB, limit = 6): Promise<RecentMovem
     const l = byLot.get(r.lotId)!;
     return { ...r, productId: l.productId, productName: l.productName, packageName: l.packageName };
   });
+}
+
+export type RotationLot = LotRow & {
+  productName: string;
+  measure: Measure;
+  expiryKind: 'EXPIRY' | 'REPLACE_BY';
+  expiry: ExpiryLevel | null;
+  /** próxima conferência (null: o produto não tem conferência periódica) */
+  nextCheck: ISODate | null;
+  checkDue: boolean;
+};
+
+/**
+ * Rodízio (D85): todos os lotes com estoque, com validade, próxima conferência e se ela já chegou, na ordem FEFO
+ * da casa toda. Base dos quadros Vencidos/Vencendo e Conferir da Início da Casa e do painel de rodízio.
+ */
+export async function rotationLots(db: AnyDB, today: ISODate): Promise<RotationLot[]> {
+  const [products, lots] = await Promise.all([productRows(db, {}), listLots(db)]);
+  const byId = new Map(products.map((p) => [p.id, p]));
+  return sortFefo(lots.filter((l) => l.quantity > 0 && byId.has(l.productId))).map((l) => {
+    const p = byId.get(l.productId)!;
+    const nextCheck = nextCheckDate(l.entryDate, l.lastCheckDate, p.checkEveryMonths);
+    return {
+      ...l,
+      productName: p.name,
+      measure: p.measure,
+      expiryKind: p.expiryKind,
+      expiry: expiryLevel(l.expiryDate, today),
+      nextCheck,
+      checkDue: checkDue(nextCheck, today),
+    };
+  });
+}
+
+export type CheckRow = { id: string; checkDate: ISODate; notes: string | null; userName: string };
+
+export type LotDetail = {
+  lot: LotRow;
+  product: ProductRow;
+  /** lote envasado: de quais lotes saíram as embalagens */
+  sources: { lotId: string; code: string; packages: number }[];
+  /** envases que saíram deste lote */
+  repacks: { lotId: string; code: string; packages: number }[];
+  movements: MovementRow[];
+  checks: CheckRow[];
+  nextCheck: ISODate | null;
+  checkDue: boolean;
+  expiry: ExpiryLevel | null;
+};
+
+/** Um lote (D87: o QR da etiqueta abre aqui), com a origem do envase, as conferências e o histórico. */
+export async function lotDetail(db: AnyDB, id: string, today: ISODate): Promise<LotDetail | null> {
+  const [found] = await db
+    .select({ productId: stockLots.productId })
+    .from(stockLots)
+    .where(eq(stockLots.id, id));
+  if (!found) return null;
+  const [[product], lots, checks, links] = await Promise.all([
+    productRows(db, { id: found.productId }),
+    listLots(db, [found.productId]),
+    db
+      .select({
+        id: stockChecks.id,
+        checkDate: stockChecks.checkDate,
+        notes: stockChecks.notes,
+        userName: users.name,
+      })
+      .from(stockChecks)
+      .innerJoin(users, eq(users.id, stockChecks.createdByUserId))
+      .where(eq(stockChecks.lotId, id))
+      .orderBy(desc(stockChecks.checkDate), desc(stockChecks.createdAt)),
+    // REPACK_OUT ativos ligados a este lote: como origem (sai dele) ou como destino (o envase é ele)
+    db
+      .select({
+        fromLot: stockMovements.lotId,
+        toLot: stockMovements.repackLotId,
+        quantity: stockMovements.quantity,
+      })
+      .from(stockMovements)
+      .where(
+        and(
+          eq(stockMovements.kind, 'REPACK_OUT'),
+          isNull(stockMovements.cancelledAt),
+          or(eq(stockMovements.lotId, id), eq(stockMovements.repackLotId, id)),
+        ),
+      ),
+  ]);
+  const lot = lots.find((l) => l.id === id)!;
+  // as origens e os destinos são do mesmo produto (D84)
+  const code = (lotId: string) => lots.find((l) => l.id === lotId)?.code ?? '';
+  const nextCheck = nextCheckDate(lot.entryDate, lot.lastCheckDate, product!.checkEveryMonths);
+  const movements = (await movementRows(db, { productId: found.productId, limit: 200 })).filter(
+    (m) => m.lotId === id,
+  );
+  return {
+    lot,
+    product: product!,
+    sources: links
+      .filter((l) => l.toLot === id)
+      .map((l) => ({ lotId: l.fromLot, code: code(l.fromLot), packages: -l.quantity })),
+    repacks: links
+      .filter((l) => l.fromLot === id && l.toLot)
+      .map((l) => ({ lotId: l.toLot!, code: code(l.toLot!), packages: -l.quantity })),
+    movements,
+    checks,
+    nextCheck,
+    checkDue: checkDue(nextCheck, today),
+    expiry: expiryLevel(lot.expiryDate, today),
+  };
 }

@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   Boxes,
+  CalendarClock,
   ChartPie,
   CreditCard,
   Ellipsis,
@@ -136,9 +137,15 @@ export const CASA_ITEMS = {
     href: '/casa/estoque',
     label: 'Estoque',
     icon: Boxes,
-    match: ['/casa/estoque', '/casa/produtos', '/casa/entrada'],
+    match: ['/casa/estoque', '/casa/produtos', '/casa/entrada', '/casa/lotes', '/casa/etiquetas'],
   },
   search: { href: '/casa/buscar', label: 'Buscar', icon: Search },
+  rotation: {
+    href: '/casa/rodizio',
+    label: 'Rodízio',
+    icon: CalendarClock,
+    description: 'Validades, idade dos lotes e conferências',
+  },
   more: { href: '/casa/mais', label: 'Mais', icon: Ellipsis },
   categories: {
     href: '/casa/categorias',
@@ -167,6 +174,7 @@ export const CASA_BOTTOM_NAV = {
 
 /** Telas do "Mais" da Casa (celular); no desktop, na sidebar. */
 export const CASA_MORE_GROUPS: { title: string; items: NavItem[] }[] = [
+  { title: 'Estoque', items: [CASA_ITEMS.rotation] },
   { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
   { title: 'Outras áreas', items: [CASA_ITEMS.finances] },
   { title: 'App', items: [NAV_ITEMS.settings] },
@@ -175,7 +183,7 @@ export const CASA_MORE_GROUPS: { title: string; items: NavItem[] }[] = [
 export const CASA_MORE_ITEMS: NavItem[] = CASA_MORE_GROUPS.flatMap((g) => g.items);
 
 export const CASA_SIDEBAR_GROUPS: { title?: string; items: NavItem[] }[] = [
-  { items: [CASA_ITEMS.home, CASA_ITEMS.stock, CASA_ITEMS.search] },
+  { items: [CASA_ITEMS.home, CASA_ITEMS.stock, CASA_ITEMS.rotation, CASA_ITEMS.search] },
   { title: 'Cadastros', items: [CASA_ITEMS.categories, CASA_ITEMS.locations] },
   { items: [NAV_ITEMS.settings] },
 ];

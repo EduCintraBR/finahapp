@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { useActionState, useState } from 'react';
 import {
   addStockLotAction,
+  checkStockLotAction,
   countStockLotAction,
   createStockProductAction,
+  repackStockAction,
   updateStockLotAction,
   updateStockProductAction,
   useStockAction,
@@ -128,6 +130,39 @@ function AmountField({
   );
 }
 
+/** Número de meses (prazo de envase, conferência). */
+function MonthsField({
+  id,
+  name,
+  label,
+  hint,
+  defaultValue,
+}: {
+  id: string;
+  name: string;
+  label: string;
+  hint?: string;
+  defaultValue?: number | null;
+}) {
+  return (
+    <Field label={label} htmlFor={id} hint={hint}>
+      <div className="flex items-center gap-2">
+        <Input
+          id={id}
+          name={name}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          step={1}
+          defaultValue={defaultValue ?? ''}
+          className="min-w-0 flex-1 text-base tabular-nums"
+        />
+        <span className="shrink-0 text-sm text-muted-foreground">meses</span>
+      </div>
+    </Field>
+  );
+}
+
 const CONTENT_LABEL: Record<Measure, string> = {
   UNIT: 'Unidades em cada embalagem (opcional)',
   WEIGHT: 'Peso de cada embalagem',
@@ -209,6 +244,9 @@ export type ProductValues = {
   targetQuantity: number | null;
   defaultPackage: string | null;
   defaultContent: number | null;
+  expiryKind: 'EXPIRY' | 'REPLACE_BY';
+  repackShelfLifeMonths: number | null;
+  checkEveryMonths: number | null;
   notes: string | null;
   /** já tem lotes: a forma de contar e o código ficam travados */
   hasLots: boolean;
@@ -329,6 +367,36 @@ export function ProductForm({
           name="defaultContentText"
           unitName="contentUnit"
           value={product?.measure === measure ? product.defaultContent : null}
+        />
+      </div>
+      <Field
+        label="Prazo dos lotes"
+        htmlFor="product-expiry-kind"
+        hint="Trocar até: para água estocada e o que se troca por tempo, não por validade."
+      >
+        <NativeSelect
+          id="product-expiry-kind"
+          name="expiryKind"
+          defaultValue={product?.expiryKind ?? 'EXPIRY'}
+        >
+          <option value="EXPIRY">Validade</option>
+          <option value="REPLACE_BY">Trocar até</option>
+        </NativeSelect>
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <MonthsField
+          id="product-repack-months"
+          name="repackShelfLifeMonths"
+          label="Prazo depois de envasado (opcional)"
+          hint="A validade do envase conta da selagem."
+          defaultValue={product?.repackShelfLifeMonths}
+        />
+        <MonthsField
+          id="product-check-months"
+          name="checkEveryMonths"
+          label="Conferir a cada (opcional)"
+          hint="Umidade, bicho, vedação."
+          defaultValue={product?.checkEveryMonths}
         />
       </div>
       <Field
@@ -699,6 +767,143 @@ export function CountForm({
       <FormError message={state && !state.ok ? state.error : null} />
       <Button type="submit" disabled={pending} className="w-full sm:w-auto">
         {pending ? 'Salvando…' : 'Salvar contagem'}
+      </Button>
+    </form>
+  );
+}
+
+/**
+ * Envasar (D84): quantas embalagens saem de cada lote e o lote novo (garrafas, conteúdo, local, selagem). A
+ * validade em branco é calculada pela selagem + o prazo do produto.
+ */
+export function RepackForm({
+  product,
+  lots,
+  locations,
+  today,
+}: {
+  product: ProductOption & { repackShelfLifeMonths: number | null };
+  /** lotes com estoque, na ordem de uso */
+  lots: { id: string; code: string; label: string; quantity: number }[];
+  locations: Option[];
+  today: string;
+}) {
+  const [state, action, pending] = useActionState(repackStockAction, null);
+  const months = product.repackShelfLifeMonths;
+  return (
+    <form action={action} className="space-y-4">
+      <input type="hidden" name="productId" value={product.id} />
+      <PackageSuggestions />
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Quantas embalagens saem de cada lote</legend>
+        {lots.map((l) => (
+          <div key={l.id} className="flex items-center gap-3">
+            <label htmlFor={`repack-src-${l.id}`} className="min-w-0 flex-1 text-sm">
+              <span className="font-mono font-semibold">{l.code}</span>{' '}
+              <span className="text-muted-foreground">{l.label}</span>
+            </label>
+            <Input
+              id={`repack-src-${l.id}`}
+              name={`source:${l.id}`}
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={l.quantity}
+              step={1}
+              defaultValue={0}
+              className="w-20 shrink-0 text-base tabular-nums"
+            />
+          </div>
+        ))}
+      </fieldset>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Quantas embalagens saíram do envase" htmlFor="repack-packages">
+          <Input
+            id="repack-packages"
+            name="packages"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            step={1}
+            required
+            className="text-base tabular-nums"
+          />
+        </Field>
+        <Field label="Embalagem nova" htmlFor="repack-package">
+          <Input
+            id="repack-package"
+            name="packageName"
+            list="stock-packages"
+            required
+            maxLength={40}
+            defaultValue="garrafa PET"
+          />
+        </Field>
+      </div>
+      <AmountField
+        id="repack-content"
+        label={CONTENT_LABEL[product.measure]}
+        measure={product.measure}
+        name="contentText"
+        unitName="contentUnit"
+        required={product.measure !== 'UNIT'}
+      />
+      <Field label="Local" htmlFor="repack-location">
+        <LocationSelect
+          id="repack-location"
+          name="locationId"
+          locations={locations}
+          defaultValue={product.defaultLocationId}
+        />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Selado em" htmlFor="repack-seal">
+          <Input id="repack-seal" name="sealDate" type="date" required max={today} defaultValue={today} />
+        </Field>
+        <Field
+          label="Validade (opcional)"
+          htmlFor="repack-expiry"
+          hint={
+            months
+              ? `Em branco: selagem + ${months} ${months === 1 ? 'mês' : 'meses'}.`
+              : 'Sem prazo de envase no produto: informe aqui.'
+          }
+        >
+          <Input id="repack-expiry" name="expiryDate" type="date" />
+        </Field>
+      </div>
+      <Field label="Observações (opcional)" htmlFor="repack-notes">
+        <Input id="repack-notes" name="notes" maxLength={500} placeholder="Ex.: com absorvedor de oxigênio" />
+      </Field>
+      <FormError message={state && !state.ok ? state.error : null} />
+      <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        {pending ? 'Salvando…' : 'Envasar'}
+      </Button>
+    </form>
+  );
+}
+
+/** "Conferi" (D85): a data e o que viu; a próxima conferência conta a partir daqui. */
+export function CheckForm({ lotId, code, today }: { lotId: string; code: string; today: string }) {
+  const [state, action, pending] = useActionState(checkStockLotAction, null);
+  useActionDone(state, `Conferência do ${code} registrada.`);
+  return (
+    <form action={action} className="space-y-4">
+      <input type="hidden" name="lotId" value={lotId} />
+      <Field label="Quando" htmlFor={`check-date-${lotId}`}>
+        <Input id={`check-date-${lotId}`} name="date" type="date" required max={today} defaultValue={today} />
+      </Field>
+      <Field label="O que viu (opcional)" htmlFor={`check-notes-${lotId}`}>
+        <Input
+          id={`check-notes-${lotId}`}
+          name="notes"
+          maxLength={500}
+          placeholder="Ex.: tudo ok, umidade na garrafa 3"
+        />
+      </Field>
+      <FormError message={state && !state.ok ? state.error : null} />
+      <Button type="submit" disabled={pending} className="w-full sm:w-auto">
+        {pending ? 'Salvando…' : 'Conferi'}
       </Button>
     </form>
   );

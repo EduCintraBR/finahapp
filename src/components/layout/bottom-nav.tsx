@@ -60,7 +60,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="Navegação principal"
-      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-safe backdrop-blur md:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 border-t bg-background/95 pb-safe backdrop-blur md:hidden print:hidden"
     >
       <div className="mx-auto flex h-16 max-w-md items-stretch px-2">
         {nav.left.map(item)}
