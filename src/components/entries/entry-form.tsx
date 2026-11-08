@@ -338,6 +338,7 @@ export function EntryForm({
             id="categoryId"
             name="categoryId"
             options={options}
+            kind={categoryKind}
             value={categoryId}
             invalid={categoryMissing}
             onChange={(id) => {

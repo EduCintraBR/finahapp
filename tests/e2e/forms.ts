@@ -1,12 +1,12 @@
 import { expect, type Page } from '@playwright/test';
 
 const field = (page: Page) => page.getByLabel('Categoria', { exact: true });
-const picker = (page: Page) => page.getByRole('dialog', { name: 'Categoria' });
+export const picker = (page: Page) => page.getByRole('dialog', { name: 'Categoria' });
 
 const isSelect = async (page: Page) => (await field(page).evaluate((el) => el.tagName)) === 'SELECT';
 
 /** Abre a grade de categorias do lançamento; repete o toque até a página hidratar. */
-async function openPicker(page: Page) {
+export async function openPicker(page: Page) {
   await expect(async () => {
     if (!(await picker(page).isVisible())) await field(page).click();
     await expect(picker(page)).toBeVisible({ timeout: 1_000 });
