@@ -13,6 +13,7 @@ import {
   validateCategoryName,
   validateParent,
 } from '@/domain/categories';
+import { isCategoryIcon } from '@/domain/category-icons';
 import { audit } from './audit';
 import { type ServiceCtx, type Tx, UserError } from './context';
 
@@ -22,6 +23,7 @@ const snapshot = (c: CategoryRow) => ({
   name: c.name,
   kind: c.kind,
   parentId: c.parentId,
+  icon: c.icon,
   botAliases: c.botAliases,
   archived: c.archivedAt !== null,
 });
@@ -86,6 +88,12 @@ function checkName(raw: string, siblings: readonly CategoryRow[], selfId: string
   return v.value;
 }
 
+/** Ícone do catálogo (domain/category-icons.ts) ou nenhum; a tela já só oferece os do catálogo. */
+function checkIcon(icon: string | null): string | null {
+  if (icon !== null && !isCategoryIcon(icon)) throw new UserError('Escolha um ícone da lista.');
+  return icon;
+}
+
 function checkAliases(aliases: readonly string[], others: readonly CategoryRow[]) {
   const active = others.filter((o) => !o.archivedAt);
   const conflicts = findAliasConflicts(aliases, active);
@@ -99,7 +107,14 @@ function checkAliases(aliases: readonly string[], others: readonly CategoryRow[]
 
 export async function createCategory(
   ctx: ServiceCtx,
-  input: { kind: CategoryKind; name: string; aliases: string[]; parentId?: string | null },
+  input: {
+    kind: CategoryKind;
+    name: string;
+    aliases: string[];
+    parentId?: string | null;
+    /** sem ícone: a categoria mostra a etiqueta e a subcategoria usa o da categoria */
+    icon?: string | null;
+  },
 ): Promise<{ id: string }> {
   return ctx.db.transaction(async (tx) => {
     const parentId = input.parentId ?? null;
@@ -107,9 +122,10 @@ export async function createCategory(
     const kind = parent?.kind ?? input.kind;
     const name = checkName(input.name, await siblingsOf(tx, kind, parentId));
     checkAliases(input.aliases, await sameKind(tx, kind));
+    const icon = checkIcon(input.icon ?? null);
     const [row] = await tx
       .insert(categories)
-      .values({ name, kind, parentId, botAliases: input.aliases })
+      .values({ name, kind, parentId, icon, botAliases: input.aliases })
       .returning();
     await audit(tx, {
       userId: ctx.userId,
@@ -125,7 +141,7 @@ export async function createCategory(
 /** Subcategoria nasce sempre dentro de uma categoria e herda o tipo dela (D77). O tipo nunca muda (D49). */
 export async function createSubcategory(
   ctx: ServiceCtx,
-  input: { parentId: string; name: string; aliases: string[] },
+  input: { parentId: string; name: string; aliases: string[]; icon?: string | null },
 ): Promise<{ id: string }> {
   const [parent] = await ctx.db
     .select({ kind: categories.kind })
@@ -136,13 +152,13 @@ export async function createSubcategory(
 }
 
 /**
- * Renomeia e troca os apelidos. Com `parentId`, também troca a subcategoria de categoria na mesma transação
+ * Renomeia, troca o ícone (`icon` ausente = mantém) e os apelidos. Com `parentId`, também troca a subcategoria de categoria na mesma transação
  * (edição da subcategoria, D77), com as mesmas regras de `moveCategory`.
  */
 export async function updateCategory(
   ctx: ServiceCtx,
   id: string,
-  input: { name: string; aliases: string[]; parentId?: string | null },
+  input: { name: string; aliases: string[]; parentId?: string | null; icon?: string | null },
 ) {
   return ctx.db.transaction(async (tx) => {
     const row = await loadForUpdate(tx, id);
@@ -165,9 +181,10 @@ export async function updateCategory(
     // só confere os apelidos que mudaram (não bloqueia por conflito antigo)
     const added = input.aliases.filter((a) => !row.botAliases.includes(a));
     if (!row.archivedAt) checkAliases(added, others);
+    const icon = input.icon === undefined || input.icon === row.icon ? row.icon : checkIcon(input.icon);
     const [updated] = await tx
       .update(categories)
-      .set({ name, botAliases: input.aliases, parentId })
+      .set({ name, icon, botAliases: input.aliases, parentId })
       .where(eq(categories.id, id))
       .returning();
     await audit(tx, {

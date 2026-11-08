@@ -392,3 +392,86 @@ describe('subcategorias (D74)', () => {
     expect(same).toEqual({ name: 'Apps de corrida', parent_id: cat['Transporte'] });
   });
 });
+
+describe('ícone da categoria', () => {
+  const iconOf = async (id: string) =>
+    (await q<{ icon: string | null }>(`select icon from categories where id = $1`, [id]))[0]!.icon;
+  const entryIcon = async (description: string) =>
+    (await listEntries(db, { month: '2026-10-01' })).find((e) => e.description === description)!.categoryIcon;
+
+  it('categoria nova nasce com o ícone escolhido; sem escolher fica sem (a tela mostra a etiqueta)', async () => {
+    const { id } = await createCategory(ctx, {
+      kind: 'EXPENSE',
+      name: 'Pets',
+      aliases: [],
+      icon: 'paw-print',
+    });
+    expect(await iconOf(id)).toBe('paw-print');
+    const { id: semIcone } = await createCategory(ctx, { kind: 'EXPENSE', name: 'Doações', aliases: [] });
+    expect(await iconOf(semIcone)).toBeNull();
+    const [log] = await q<{ after: { icon: string } }>(
+      `select after from audit_log where entity = 'categories' and entity_id = $1`,
+      [id],
+    );
+    expect(log!.after.icon).toBe('paw-print');
+  });
+
+  it('subcategoria sem ícone usa o da categoria; com ícone próprio, usa o dela', async () => {
+    const { id: feira } = await createSubcategory(ctx, {
+      parentId: cat['Mercado']!,
+      name: 'Feira',
+      aliases: [],
+    });
+    const { id: padaria } = await createSubcategory(ctx, {
+      parentId: cat['Mercado']!,
+      name: 'Padaria',
+      aliases: [],
+      icon: 'croissant',
+    });
+    await entry(feira, 'Feira de sábado');
+    await entry(padaria, 'Pão');
+    expect(await entryIcon('Feira de sábado')).toBe('shopping-cart');
+    expect(await entryIcon('Pão')).toBe('croissant');
+  });
+
+  it('editar troca o ícone (com audit_log), volta para "sem ícone" e, sem o campo, mantém o atual', async () => {
+    const id = cat['Renda extra']!;
+    await updateCategory(ctx, id, {
+      name: 'Renda extra',
+      aliases: ['extra', 'freela', 'venda'],
+      icon: 'piggy-bank',
+    });
+    expect(await iconOf(id)).toBe('piggy-bank');
+    await updateCategory(ctx, id, { name: 'Renda extra', aliases: ['extra', 'freela', 'venda'] });
+    expect(await iconOf(id)).toBe('piggy-bank');
+    await updateCategory(ctx, id, { name: 'Renda extra', aliases: ['extra', 'freela', 'venda'], icon: null });
+    expect(await iconOf(id)).toBeNull();
+    const logs = await q<{ before: { icon: string | null }; after: { icon: string | null } }>(
+      `select before, after from audit_log where entity = 'categories' and entity_id = $1 order by id`,
+      [id],
+    );
+    expect(logs.map((l) => [l.before.icon, l.after.icon])).toEqual([
+      ['coins', 'piggy-bank'],
+      ['piggy-bank', 'piggy-bank'],
+      ['piggy-bank', null],
+    ]);
+  });
+
+  it('recusa ícone fora do catálogo, mas um ícone antigo que não mudou não trava a edição', async () => {
+    await expect(
+      createCategory(ctx, { kind: 'EXPENSE', name: 'Pets', aliases: [], icon: 'skull' }),
+    ).rejects.toThrow('Escolha um ícone da lista.');
+    await expect(
+      updateCategory(ctx, cat['Lazer']!, { name: 'Lazer', aliases: [], icon: 'skull' }),
+    ).rejects.toThrow('Escolha um ícone da lista.');
+    expect(await iconOf(cat['Lazer']!)).toBe('party-popper');
+
+    await q(`update categories set icon = 'icone-antigo' where id = $1`, [cat['Viagens']!]);
+    await updateCategory(ctx, cat['Viagens']!, {
+      name: 'Viagens',
+      aliases: ['viagem'],
+      icon: 'icone-antigo',
+    });
+    expect(await iconOf(cat['Viagens']!)).toBe('icone-antigo');
+  });
+});

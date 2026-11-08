@@ -37,6 +37,11 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   // criar: nasce sem subcategoria e abre a própria edição
   await page.getByRole('link', { name: 'Nova', exact: true }).click();
   await page.getByLabel('Nome').fill('Pets');
+  // ícone: sem escolher é a etiqueta; o painel tem a grade do catálogo
+  await expect(page.getByLabel('Ícone', { exact: true })).toContainText('Etiqueta (padrão)');
+  await page.getByLabel('Ícone', { exact: true }).click();
+  await page.getByRole('button', { name: 'Pet', exact: true }).click();
+  await expect(page.getByLabel('Ícone', { exact: true })).toContainText('Pet');
   await page.getByLabel('Apelidos (opcional)').fill('Ração, Petshop');
   await page.getByRole('button', { name: 'Criar categoria' }).click();
   await expect(page.getByRole('heading', { name: 'Pets', exact: true })).toBeVisible();
@@ -73,8 +78,15 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await edit(page, 'Pets');
   await page.getByLabel('Nome').fill('Pets e bichos');
   await page.getByLabel('Apelidos').fill('racao, petshop, veterinario');
+  // trocar o ícone pela busca
+  await expect(page.getByLabel('Ícone', { exact: true })).toContainText('Pet');
+  await page.getByLabel('Ícone', { exact: true }).click();
+  await page.getByLabel('Buscar ícone').fill('cachorro');
+  await page.getByRole('button', { name: 'Cachorro', exact: true }).click();
   await page.getByRole('button', { name: 'Salvar' }).click();
   await expect(page.getByText('Salvo.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByLabel('Ícone', { exact: true })).toContainText('Cachorro');
   await page.goto('/categorias');
   await expect(row(page, 'Pets e bichos')).toContainText('veterinario');
 
@@ -123,6 +135,8 @@ test('subcategoria: + na edição da categoria, aba própria, escolher em 2 pass
   await expect(page.getByRole('heading', { name: 'Nova subcategoria' })).toBeVisible();
   await expect(page.getByLabel('Categoria').locator('option:checked')).toHaveText('Mercado');
   await page.getByLabel('Nome').fill('Hortifruti');
+  // sem ícone próprio, a subcategoria usa o da categoria
+  await expect(page.getByLabel('Ícone', { exact: true })).toContainText('Igual à categoria');
   await page.getByRole('button', { name: 'Criar subcategoria' }).click();
   await expect(page.getByRole('heading', { name: 'Mercado', exact: true })).toBeVisible();
   const subs = page.getByRole('region', { name: 'Subcategorias', exact: true });

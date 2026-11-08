@@ -16,7 +16,7 @@ export default async function NewSubcategoryPage({
   const all = await listManagedCategories(getDb());
   const parents = all
     .filter((c) => c.parentId === null && !c.archived)
-    .map((c) => ({ id: c.id, name: c.name, kind: c.kind }));
+    .map((c) => ({ id: c.id, name: c.name, kind: c.kind, icon: c.icon }));
   const from = parents.find((p) => p.id === categoria) ?? null;
   return (
     <div className="mx-auto max-w-lg space-y-4">
