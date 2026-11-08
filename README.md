@@ -158,11 +158,11 @@ pnpm typecheck && pnpm lint && pnpm test && pnpm test:acceptance && pnpm test:e2
 feature ──► dev ──► Pull Request ──► main ──► produção (finahapp.com)
              │                           │
              └─ CI ─► deploy dev         └─ CI completo ─► deploy automático
-                (dev.finahapp.com)
+                (servidor local, Tailscale)
 ```
 
 - **`main` é produção.** Todo push na `main` (normalmente o merge de um Pull Request da `dev`) roda o CI completo e, **só se tudo passar**, o GitHub Actions publica na VPS.
-- **`dev` é onde o trabalho acontece e tem o seu ambiente**: todo push na `dev` (merge de PR ou commit direto) roda o CI e, se passar, publica em **https://dev.finahapp.com** (mesma VPS, stack e banco próprios, com uma cópia dos dados da produção e o bot desligado). Pull Requests rodam o CI, sem publicar.
+- **`dev` é onde o trabalho acontece e tem o seu ambiente**: todo push na `dev` (merge de PR ou commit direto) roda o CI e, se passar, publica no **servidor local**, acessado pelo Tailscale em **https://cintraserver.taile04221.ts.net** (runner self-hosted, stack e banco próprios e o bot desligado; a VPS só roda a produção). Pull Requests rodam o CI, sem publicar.
 - **A `main` é protegida**: só entra por Pull Request, com o CI verde (typecheck/lint/testes, E2E e compose do zero); não aceita push direto nem force push.
 - O deploy faz **backup do banco**, envia o código, sobe a nova versão (as migrações rodam antes do app), confere se o app respondeu e **volta para a versão anterior** se algo falhar.
 - Detalhes em [`deploy.yml`](.github/workflows/deploy.yml) (produção), [`deploy-dev.yml`](.github/workflows/deploy-dev.yml) (dev) e [`ci.yml`](.github/workflows/ci.yml).
