@@ -33,24 +33,34 @@ const aliasesField = z
   });
 
 const name = z.string({ error: 'Informe o nome.' });
+/**
+ * Nome do ícone; vazio (ou ausente) = sem ícone próprio (a subcategoria usa o da categoria). O serviço confere se
+ * é do catálogo quando o ícone muda (um ícone antigo fora do catálogo não trava a edição do resto).
+ */
+const iconField = z.preprocess(
+  (v) => (v === '' || v == null ? null : v),
+  z.string().max(40, { error: 'Escolha um ícone da lista.' }).nullable(),
+);
 /** Toda subcategoria tem uma categoria (D77). */
 const parentField = z.uuid({ error: 'Escolha a categoria.' });
 
 const createInput = z.object({
   kind: z.enum(['EXPENSE', 'INCOME'], { error: 'Escolha se é despesa ou receita.' }),
   name,
+  icon: iconField,
   aliases: aliasesField,
 });
 
 const createSubInput = z.object({
   parentId: parentField,
   name,
+  icon: iconField,
   aliases: aliasesField,
   /** de onde veio: da edição da categoria (o "+") volta para ela; da lista, volta para a lista */
   voltar: z.enum(['categoria', 'lista']).default('lista'),
 });
 
-const updateInput = z.object({ id: z.uuid(), name, aliases: aliasesField });
+const updateInput = z.object({ id: z.uuid(), name, icon: iconField, aliases: aliasesField });
 const updateSubInput = updateInput.extend({ parentId: parentField });
 
 /** Categoria nova abre a própria edição, onde já dá para criar as subcategorias. */
@@ -83,7 +93,7 @@ export async function updateCategoryAction(_p: Prev, fd: FormData): Promise<Acti
   return ok(null);
 }
 
-/** Edição da subcategoria: nome, apelidos e a categoria dela, numa transação só. */
+/** Edição da subcategoria: nome, ícone, apelidos e a categoria dela, numa transação só. */
 export async function updateSubcategoryAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const parsed = updateSubInput.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
