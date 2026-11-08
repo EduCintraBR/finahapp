@@ -1,9 +1,7 @@
 # CD do ambiente de desenvolvimento: todo push na `dev` (merge de PR ou commit direto) roda o CI completo e, se passar,
-# publica em https://dev.finahapp.com (mesma VPS, mas stack, banco e .env próprios em /opt/finah-dev).
-# A produção só muda pelo deploy.yml (push na `main`).
-#
-# Usa os mesmos segredos do deploy de produção (DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY, DEPLOY_KNOWN_HOSTS).
-# Variável do repositório (opcional): DEPLOY_DEV_URL (padrão https://dev.finahapp.com)
+# publica no servidor local (cintraserver, acessível pela tailnet em https://cintraserver.taile04221.ts.net).
+# O deploy roda num runner self-hosted (label `finah-dev`) instalado no próprio servidor: stack, banco e .env em /opt/finah-dev.
+# A produção (VPS) só muda pelo deploy.yml (push na `main`).
 name: Deploy dev
 
 on:
@@ -26,52 +24,36 @@ jobs:
   deploy:
     name: Publicar em dev
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, finah-dev]
     timeout-minutes: 25
     environment:
       name: development
-      url: ${{ vars.DEPLOY_DEV_URL || 'https://dev.finahapp.com' }}
+      url: https://cintraserver.taile04221.ts.net
     env:
       APP_DIR: /opt/finah-dev
       COMPOSE: docker compose -p finah-dev
-      HEALTH_URL: ${{ vars.DEPLOY_DEV_URL || 'https://dev.finahapp.com' }}/api/health
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: SSH
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-        run: |
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-          printf 'Host vps\n  HostName %s\n  User %s\n  IdentityFile ~/.ssh/deploy_key\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n  ServerAliveInterval 30\n' \
-            "$DEPLOY_HOST" "$DEPLOY_USER" > ~/.ssh/config
-          chmod 600 ~/.ssh/config
-
       - name: Guarda a imagem atual (para voltar atrás)
-        run: ssh vps "docker image inspect finah-dev:local >/dev/null 2>&1 && docker tag finah-dev:local finah-dev:previous || echo 'sem imagem anterior'"
+        run: docker image inspect finah-dev:local >/dev/null 2>&1 && docker tag finah-dev:local finah-dev:previous || echo 'sem imagem anterior'
 
-      - name: Envia o código
-        # O .env, os backups e a config do rclone são só da VPS.
+      - name: Copia o código
+        # O .env e os backups são só do servidor.
         run: |
-          rsync -az --delete \
+          rsync -a --delete \
             --include '.env.example' --exclude '.git/' --exclude '.github/' --exclude 'node_modules/' \
             --exclude '.next/' --exclude '.env' --exclude '.env.*' \
             --exclude '/backups/' --exclude '/docker/backup/rclone/' \
-            ./ vps:$APP_DIR/
+            ./ "$APP_DIR/"
 
       - name: Build e restart (as migrações rodam antes do app)
-        run: ssh vps "cd $APP_DIR && $COMPOSE up -d --build --remove-orphans"
+        run: cd "$APP_DIR" && $COMPOSE up -d --build --remove-orphans
 
       - name: Espera o app responder
         run: |
           for i in $(seq 1 40); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$HEALTH_URL" || true)
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:3001/api/health || true)
             echo "tentativa $i: HTTP $code"
             [ "$code" = "200" ] && exit 0
             sleep 5
@@ -81,16 +63,17 @@ jobs:
 
       - name: Conferência final (login no ar, containers saudáveis)
         run: |
-          # o dev tem senha extra no nginx (só /api/health é aberto): confere o login de dentro da VPS
-          ssh vps "curl -fsS --max-time 15 http://127.0.0.1:3001/login | grep -q Finah"
-          ssh vps "cd $APP_DIR && $COMPOSE ps --format '{{.Name}} {{.Status}}'"
+          curl -fsS --max-time 15 http://127.0.0.1:3001/login | grep -q Finah
+          cd "$APP_DIR" && $COMPOSE ps --format '{{.Name}} {{.Status}}'
 
       - name: Volta para a versão anterior se algo falhou
         if: failure()
         run: |
           echo "::error::Deploy em dev falhou: voltando para a imagem anterior."
-          ssh vps "cd $APP_DIR && $COMPOSE logs --tail=60 app migrate || true"
-          ssh vps "docker image inspect finah-dev:previous >/dev/null 2>&1 \
-            && docker tag finah-dev:previous finah-dev:local \
-            && cd $APP_DIR && $COMPOSE up -d --no-build \
-            || echo 'sem imagem anterior para restaurar'"
+          cd "$APP_DIR" && $COMPOSE logs --tail=60 app migrate || true
+          if docker image inspect finah-dev:previous >/dev/null 2>&1; then
+            docker tag finah-dev:previous finah-dev:local
+            cd "$APP_DIR" && $COMPOSE up -d --no-build
+          else
+            echo 'sem imagem anterior para restaurar'
+          fi
