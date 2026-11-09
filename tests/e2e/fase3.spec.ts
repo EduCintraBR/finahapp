@@ -75,6 +75,32 @@ test('fatura da 1ª parcela: pagar libera o limite', async () => {
   await expect(available(page)).toContainText(brl('4.933,34'));
 });
 
+test('fatura paga: a linha do pagamento cabe na tela e o Desfazer devolve a fatura para em aberto', async () => {
+  // esta página (browser.newPage) não herda o celular da configuração: fixa os 375px aqui
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto(planUrl);
+  await page.getByRole('link', { name: /^1\/3/ }).click();
+  const desfazer = page.getByRole('button', { name: 'Desfazer', exact: true });
+  await expect(desfazer).toBeVisible();
+  // regressão: o botão de texto ocupava 100% da linha e saía da tela (375px)
+  const box = (await desfazer.boundingBox())!;
+  expect(box.x + box.width).toBeLessThanOrEqual(375);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+  await expect(page.getByText(/por Eduardo/)).toBeVisible();
+
+  await desfazer.click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Desfazer pagamento' }).click();
+  await expect(page.getByRole('button', { name: 'Desfazer', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Pagar fatura' })).toBeVisible();
+
+  // refaz o pagamento: os próximos testes seguem com a fatura paga
+  await page.getByRole('button', { name: 'Pagar fatura' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirmar pagamento' }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByTestId('invoice-paid')).toContainText(brl('33,34'));
+});
+
 test('antecipar a última parcela, paga avulsa com desconto', async () => {
   await page.goto(planUrl);
   await page.getByText('Antecipar parcelas').click();

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Undo2 } from 'lucide-react';
 import { auth } from '@/auth';
 import { DetailColumns } from '@/components/layout/detail-columns';
 import { InvoiceStateBadge } from '@/components/cards/card-summary';
@@ -125,11 +126,13 @@ export default async function InvoicePage({ params }: PageProps<'/cartoes/fatura
                           {PAYMENT_METHOD_LABEL[p.paymentMethod]} · por {p.createdByName}
                         </div>
                       </div>
-                      <Amount cents={p.amountCents} className="font-medium" />
+                      <Amount cents={p.amountCents} className="shrink-0 font-medium" />
+                      {/* botão só de ícone: o de texto ocupava 100% da linha e saía da tela (nome acessível: Desfazer) */}
                       <ActionButton
                         action={removePaymentAction}
                         fields={{ id: p.id }}
                         label="Desfazer"
+                        icon={<Undo2 aria-hidden />}
                         confirm={{
                           title: 'Desfazer este pagamento?',
                           description:
