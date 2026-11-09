@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { e2eEnv } from './env';
 import { login } from './login';
-import { categoryOffered, moreAction, pickCategory } from './forms';
+import { categoryOffered, moreAction, openPicker, picker, pickCategory } from './forms';
 
 const row = (page: Page, name: string) =>
   page.getByTestId('category-row').filter({ has: page.getByText(name, { exact: true }) });
@@ -16,6 +16,9 @@ const edit = async (page: Page, name: string) => {
   await row(page, name).getByRole('link').click();
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
 };
+
+/** O botão do campo Ícone (o painel que ele abre também se chama "Ícone": getByLabel acharia os dois). */
+const iconField = (page: Page) => page.getByRole('button', { name: 'Ícone', exact: true });
 
 const noHorizontalScroll = async (page: Page) =>
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
@@ -37,6 +40,11 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   // criar: nasce sem subcategoria e abre a própria edição
   await page.getByRole('link', { name: 'Nova', exact: true }).click();
   await page.getByLabel('Nome').fill('Pets');
+  // ícone: sem escolher é a etiqueta; o painel tem a grade do catálogo
+  await expect(iconField(page)).toContainText('Etiqueta (padrão)');
+  await iconField(page).click();
+  await page.getByRole('button', { name: 'Pet', exact: true }).click();
+  await expect(iconField(page)).toContainText('Pet');
   await page.getByLabel('Apelidos (opcional)').fill('Ração, Petshop');
   await page.getByRole('button', { name: 'Criar categoria' }).click();
   await expect(page.getByRole('heading', { name: 'Pets', exact: true })).toBeVisible();
@@ -73,8 +81,15 @@ test('criar, usar, editar apelidos, arquivar e restaurar uma categoria', async (
   await edit(page, 'Pets');
   await page.getByLabel('Nome').fill('Pets e bichos');
   await page.getByLabel('Apelidos').fill('racao, petshop, veterinario');
+  // trocar o ícone pela busca
+  await expect(iconField(page)).toContainText('Pet');
+  await iconField(page).click();
+  await page.getByLabel('Buscar ícone').fill('cachorro');
+  await page.getByRole('button', { name: 'Cachorro', exact: true }).click();
   await page.getByRole('button', { name: 'Salvar' }).click();
   await expect(page.getByText('Salvo.')).toBeVisible();
+  await page.reload();
+  await expect(iconField(page)).toContainText('Cachorro');
   await page.goto('/categorias');
   await expect(row(page, 'Pets e bichos')).toContainText('veterinario');
 
@@ -123,6 +138,8 @@ test('subcategoria: + na edição da categoria, aba própria, escolher em 2 pass
   await expect(page.getByRole('heading', { name: 'Nova subcategoria' })).toBeVisible();
   await expect(page.getByLabel('Categoria').locator('option:checked')).toHaveText('Mercado');
   await page.getByLabel('Nome').fill('Hortifruti');
+  // sem ícone próprio, a subcategoria usa o da categoria
+  await expect(iconField(page)).toContainText('Igual à categoria');
   await page.getByRole('button', { name: 'Criar subcategoria' }).click();
   await expect(page.getByRole('heading', { name: 'Mercado', exact: true })).toBeVisible();
   const subs = page.getByRole('region', { name: 'Subcategorias', exact: true });
@@ -189,4 +206,48 @@ test('subcategoria: + na edição da categoria, aba própria, escolher em 2 pass
   await page.getByRole('button', { name: 'Remover', exact: true }).click();
   await expect(page.getByText('Nenhuma subcategoria. Toque em + para criar.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Subcategorias arquivadas' })).toContainText('Hortifruti');
+});
+
+test('criar pelo + do seletor no meio de um lançamento: volta para a escolha com a nova, sem perder o digitado', async ({
+  page,
+}) => {
+  const novo = page.getByRole('dialog', { name: 'Nova categoria' });
+  await page.goto('/lancamentos/novo');
+  await page.getByLabel('Valor').fill('4590');
+  await page.getByLabel('Descrição').fill('Vermífugo');
+  await openPicker(page);
+  await picker(page).getByRole('button', { name: 'Nova categoria' }).click();
+
+  // nome repetido: o erro aparece ali mesmo, sem fechar nada
+  await novo.getByLabel('Nome da categoria').fill('mercado');
+  await novo.getByRole('button', { name: 'Criar categoria' }).click();
+  await expect(novo.getByRole('alert')).toContainText('Já existe uma categoria chamada "Mercado"');
+
+  // subcategoria: volta para a grade da categoria dela, já com a nova
+  await novo.getByLabel('Nome da categoria').fill('Farmácia pet');
+  await novo.getByLabel('Dentro de').selectOption({ label: 'Saúde' });
+  await novo.getByRole('button', { name: 'Criar subcategoria' }).click();
+  await expect(novo).toBeHidden();
+  await picker(page).getByRole('button', { name: 'Farmácia pet', exact: true }).click();
+  await expect(picker(page)).toBeHidden();
+  await expect(page.getByLabel('Categoria', { exact: true })).toContainText('Saúde › Farmácia pet');
+  await expect(page.getByLabel('Valor')).toHaveValue('45,90');
+  await expect(page.getByLabel('Descrição')).toHaveValue('Vermífugo');
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page.getByRole('link', { name: /Vermífugo/ })).toContainText('Farmácia pet');
+
+  // categoria nova, com ícone: aparece na grade principal
+  await page.goto('/lancamentos/novo');
+  await openPicker(page);
+  await picker(page).getByRole('button', { name: 'Nova categoria' }).click();
+  await novo.getByLabel('Nome da categoria').fill('Doações');
+  await novo.getByRole('button', { name: 'Ícone', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Ícone' })
+    .getByRole('button', { name: 'Coração', exact: true })
+    .click();
+  await novo.getByRole('button', { name: 'Criar categoria' }).click();
+  await picker(page).getByRole('button', { name: 'Doações', exact: true }).click();
+  await expect(picker(page)).toBeHidden();
+  await expect(page.getByLabel('Categoria', { exact: true })).toContainText('Doações');
 });

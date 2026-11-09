@@ -104,6 +104,7 @@ export function OnboardingForm({
             id="ob-cat"
             name="categoryId"
             options={categories.filter((c) => c.kind === 'EXPENSE')}
+            kind="EXPENSE"
             value={categoryId}
             onChange={setCategoryId}
           />

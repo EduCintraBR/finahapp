@@ -46,7 +46,7 @@ export default async function EditCategoryPage({ params, searchParams }: PagePro
   const isProtected = isProtectedCategory(c.kind, c.name);
   const parents = all
     .filter((x) => x.parentId === null && !x.archived)
-    .map((x) => ({ id: x.id, name: x.name, kind: x.kind }));
+    .map((x) => ({ id: x.id, name: x.name, kind: x.kind, icon: x.icon }));
   const children = all.filter((x) => x.parentId === c.id);
   const activeChildren = children.filter((x) => !x.archived);
   const archivedChildren = children.filter((x) => x.archived);

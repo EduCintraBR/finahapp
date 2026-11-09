@@ -155,6 +155,7 @@ function ChangeForm({
             id="change-category"
             name="categoryId"
             options={options}
+            kind="EXPENSE"
             value={categoryId}
             onChange={setCategoryId}
           />

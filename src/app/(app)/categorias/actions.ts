@@ -2,7 +2,10 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
+import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { categories } from '@/db/schema';
+import type { CategoryOption } from '@/db/queries/lookups';
 import { parseAliases } from '@/domain/categories';
 import { type ActionResult, fail, ok } from '@/lib/action-result';
 import {
@@ -33,24 +36,34 @@ const aliasesField = z
   });
 
 const name = z.string({ error: 'Informe o nome.' });
+/**
+ * Nome do ícone; vazio (ou ausente) = sem ícone próprio (a subcategoria usa o da categoria). O serviço confere se
+ * é do catálogo quando o ícone muda (um ícone antigo fora do catálogo não trava a edição do resto).
+ */
+const iconField = z.preprocess(
+  (v) => (v === '' || v == null ? null : v),
+  z.string().max(40, { error: 'Escolha um ícone da lista.' }).nullable(),
+);
 /** Toda subcategoria tem uma categoria (D77). */
 const parentField = z.uuid({ error: 'Escolha a categoria.' });
 
 const createInput = z.object({
   kind: z.enum(['EXPENSE', 'INCOME'], { error: 'Escolha se é despesa ou receita.' }),
   name,
+  icon: iconField,
   aliases: aliasesField,
 });
 
 const createSubInput = z.object({
   parentId: parentField,
   name,
+  icon: iconField,
   aliases: aliasesField,
   /** de onde veio: da edição da categoria (o "+") volta para ela; da lista, volta para a lista */
   voltar: z.enum(['categoria', 'lista']).default('lista'),
 });
 
-const updateInput = z.object({ id: z.uuid(), name, aliases: aliasesField });
+const updateInput = z.object({ id: z.uuid(), name, icon: iconField, aliases: aliasesField });
 const updateSubInput = updateInput.extend({ parentId: parentField });
 
 /** Categoria nova abre a própria edição, onde já dá para criar as subcategorias. */
@@ -83,7 +96,7 @@ export async function updateCategoryAction(_p: Prev, fd: FormData): Promise<Acti
   return ok(null);
 }
 
-/** Edição da subcategoria: nome, apelidos e a categoria dela, numa transação só. */
+/** Edição da subcategoria: nome, ícone, apelidos e a categoria dela, numa transação só. */
 export async function updateSubcategoryAction(_p: Prev, fd: FormData): Promise<ActionResult<null>> {
   const parsed = updateSubInput.safeParse(Object.fromEntries(fd));
   if (!parsed.success) return fail(firstIssue(parsed.error));
@@ -108,6 +121,47 @@ export async function moveCategoryAction(_p: Prev, fd: FormData): Promise<Action
   if (!r.ok) return r;
   refresh();
   return ok(null);
+}
+
+const quickInput = z.object({
+  kind: z.enum(['EXPENSE', 'INCOME'], { error: 'Escolha se é despesa ou receita.' }),
+  name,
+  /** vazio = categoria nova; com id, nasce como subcategoria dela */
+  parentId: optionalId,
+  icon: iconField,
+});
+
+/**
+ * Criação rápida pelo seletor de categoria (dentro de um formulário de lançamento): não redireciona, devolve a
+ * categoria criada para o seletor mostrá-la na hora, sem perder o que já foi digitado no formulário.
+ */
+export async function quickCreateCategoryAction(input: {
+  kind: string;
+  name: string;
+  parentId: string;
+  icon: string;
+}): Promise<ActionResult<CategoryOption>> {
+  const parsed = quickInput.safeParse(input);
+  if (!parsed.success) return fail(firstIssue(parsed.error));
+  const { kind, name: catName, parentId, icon } = parsed.data;
+  const r = await runAction(async () => {
+    const ctx = await getServiceCtx();
+    const { id } = await createCategory(ctx, { kind, name: catName, aliases: [], parentId, icon });
+    const [row] = await ctx.db
+      .select({
+        id: categories.id,
+        name: categories.name,
+        kind: categories.kind,
+        icon: categories.icon,
+        parentId: categories.parentId,
+      })
+      .from(categories)
+      .where(eq(categories.id, id));
+    return row!;
+  });
+  if (!r.ok) return r;
+  refresh();
+  return r;
 }
 
 const idOnly = z.object({ id: z.uuid() });

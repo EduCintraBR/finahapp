@@ -1,5 +1,5 @@
 # Atualizações de segurança e de versão (o CI roda em cada PR do Dependabot; nada entra sem passar).
-# Os PRs vão para a `dev`: cada merge publica no dev (dev.finahapp.com) e só chega à produção no PR dev → main.
+# Os PRs vão para a `dev`: cada merge publica no dev (servidor local) e só chega à produção no PR dev → main.
 version: 2
 updates:
   - package-ecosystem: npm
