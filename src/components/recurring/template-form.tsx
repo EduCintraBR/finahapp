@@ -139,6 +139,7 @@ export function TemplateForm({
             id="t-category"
             name="categoryId"
             options={options}
+            kind={direction}
             value={categoryId}
             onChange={setCategoryId}
           />

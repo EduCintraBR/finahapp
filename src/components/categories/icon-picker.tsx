@@ -35,12 +35,15 @@ export function IconPicker({
   name,
   defaultValue,
   inherited,
+  onChange,
 }: {
   id: string;
   name: string;
   defaultValue: string | null;
   /** só na subcategoria: o ícone da categoria (null se ela também não tem) */
   inherited?: { icon: string | null } | undefined;
+  /** avisa a escolha (vazio = sem ícone próprio), para quem não envia o campo num <form> */
+  onChange?: (icon: string) => void;
 }) {
   const [value, setValue] = useState(defaultValue ?? '');
   const [open, setOpen] = useState(false);
@@ -57,6 +60,7 @@ export function IconPicker({
 
   const choose = (icon: string) => {
     setValue(icon);
+    onChange?.(icon);
     setOpen(false);
     setQuery('');
   };

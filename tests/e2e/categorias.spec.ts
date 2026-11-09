@@ -5,7 +5,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { e2eEnv } from './env';
 import { login } from './login';
-import { categoryOffered, moreAction, pickCategory } from './forms';
+import { categoryOffered, moreAction, openPicker, picker, pickCategory } from './forms';
 
 const row = (page: Page, name: string) =>
   page.getByTestId('category-row').filter({ has: page.getByText(name, { exact: true }) });
@@ -206,4 +206,48 @@ test('subcategoria: + na edição da categoria, aba própria, escolher em 2 pass
   await page.getByRole('button', { name: 'Remover', exact: true }).click();
   await expect(page.getByText('Nenhuma subcategoria. Toque em + para criar.')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Subcategorias arquivadas' })).toContainText('Hortifruti');
+});
+
+test('criar pelo + do seletor no meio de um lançamento: volta para a escolha com a nova, sem perder o digitado', async ({
+  page,
+}) => {
+  const novo = page.getByRole('dialog', { name: 'Nova categoria' });
+  await page.goto('/lancamentos/novo');
+  await page.getByLabel('Valor').fill('4590');
+  await page.getByLabel('Descrição').fill('Vermífugo');
+  await openPicker(page);
+  await picker(page).getByRole('button', { name: 'Nova categoria' }).click();
+
+  // nome repetido: o erro aparece ali mesmo, sem fechar nada
+  await novo.getByLabel('Nome da categoria').fill('mercado');
+  await novo.getByRole('button', { name: 'Criar categoria' }).click();
+  await expect(novo.getByRole('alert')).toContainText('Já existe uma categoria chamada "Mercado"');
+
+  // subcategoria: volta para a grade da categoria dela, já com a nova
+  await novo.getByLabel('Nome da categoria').fill('Farmácia pet');
+  await novo.getByLabel('Dentro de').selectOption({ label: 'Saúde' });
+  await novo.getByRole('button', { name: 'Criar subcategoria' }).click();
+  await expect(novo).toBeHidden();
+  await picker(page).getByRole('button', { name: 'Farmácia pet', exact: true }).click();
+  await expect(picker(page)).toBeHidden();
+  await expect(page.getByLabel('Categoria', { exact: true })).toContainText('Saúde › Farmácia pet');
+  await expect(page.getByLabel('Valor')).toHaveValue('45,90');
+  await expect(page.getByLabel('Descrição')).toHaveValue('Vermífugo');
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page.getByRole('link', { name: /Vermífugo/ })).toContainText('Farmácia pet');
+
+  // categoria nova, com ícone: aparece na grade principal
+  await page.goto('/lancamentos/novo');
+  await openPicker(page);
+  await picker(page).getByRole('button', { name: 'Nova categoria' }).click();
+  await novo.getByLabel('Nome da categoria').fill('Doações');
+  await novo.getByRole('button', { name: 'Ícone', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Ícone' })
+    .getByRole('button', { name: 'Coração', exact: true })
+    .click();
+  await novo.getByRole('button', { name: 'Criar categoria' }).click();
+  await picker(page).getByRole('button', { name: 'Doações', exact: true }).click();
+  await expect(picker(page)).toBeHidden();
+  await expect(page.getByLabel('Categoria', { exact: true })).toContainText('Doações');
 });
