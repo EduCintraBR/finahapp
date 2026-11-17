@@ -134,16 +134,20 @@ export async function createEntry(
 }
 
 /**
- * D69: pode voltar a "a pagar" o que foi pago pela baixa (tem vencimento) e a despesa lançada no app já paga
- * (vence então na data em que foi lançada). Vale para a edição ("Já paguei" desmarcado) e para "Marcar como a pagar".
+ * D69/D93: pode voltar a "a pagar"/"a receber" o que foi pago pela baixa (tem vencimento) e a despesa ou receita
+ * lançada no app já paga (vence então na data em que foi lançada). Fora: empréstimo e aporte (receita interna ligada a
+ * um pagamento). Vale para a edição ("Já paguei"/"Recebi" desmarcado) e para "Marcar como a pagar/a receber".
  */
 const isReopenable = (row: TxRow) =>
   row.status === 'POSTED' &&
   (row.dueDate !== null ||
-    (row.kind === 'EXPENSE' && row.loanId === null && (row.source === 'MANUAL' || row.source === 'BOT')));
+    ((row.kind === 'EXPENSE' || row.kind === 'INCOME') &&
+      row.loanId === null &&
+      row.fundingForTransactionId === null &&
+      (row.source === 'MANUAL' || row.source === 'BOT')));
 
 const REOPEN_ERROR =
-  'Só dá para voltar a "a pagar" uma despesa lançada no app ou uma conta que estava pendente.';
+  'Só dá para voltar a "a pagar" ou "a receber" uma despesa ou receita lançada no app, ou uma conta que estava pendente.';
 const REOPEN_WALLET_ERROR =
   'Conta paga com o cartão de benefícios: exclua o gasto no histórico do cartão e lance de novo.';
 

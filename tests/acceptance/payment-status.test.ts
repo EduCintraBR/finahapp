@@ -234,15 +234,54 @@ describe('lançar despesa: a pagar ou já paga', () => {
     expect((await row(id)).status).toBe('POSTED'); // nada mudou
   });
 
-  it('não dá para marcar como a pagar uma receita nem uma conta importada', async () => {
-    const { id: inc } = await createEntry(
+  it('receita paga volta a "a receber" (D93): pelo menu e pela edição, e o valor sai do saldo', async () => {
+    const { id: a } = await createEntry(
       ctx,
-      expense({ kind: 'INCOME', categoryId: salario, amount: 5_000 }),
+      expense({ kind: 'INCOME', categoryId: salario, amount: 5_000, description: 'Freela A' }),
     );
-    await expect(revertPayment(ctx, inc, (await row(inc)).version)).rejects.toThrow('despesa lançada no app');
+    expect(await balance()).toBe(55_000);
+    await revertPayment(ctx, a, (await row(a)).version);
+    expect(await row(a)).toMatchObject({ status: 'PENDING', due: '2026-10-17', posted: null });
+    expect(await balance()).toBe(50_000);
+
+    const { id: b } = await createEntry(
+      ctx,
+      expense({ kind: 'INCOME', categoryId: salario, amount: 7_000, description: 'Freela B' }),
+    );
+    await updateEntry(ctx, b, (await row(b)).version, {
+      ...expense({
+        kind: 'INCOME',
+        categoryId: salario,
+        amount: 7_000,
+        description: 'Freela B',
+        date: '2026-10-28',
+      }),
+      paid: false,
+    });
+    expect(await row(b)).toMatchObject({ status: 'PENDING', due: '2026-10-28', posted: null });
+    expect(await balance('2026-11-30')).toBe(50_000); // só entra na baixa, nem no dia
+    expect((await cashSummary(db, '2026-10-01', TODAY))!.incomePendingCents).toBe(12_000); // A receber
+  });
+
+  it('não volta a pendente: o aporte e a conta importada', async () => {
+    const msg = 'Só dá para voltar a "a pagar"';
     const { id: imp } = await createEntry(ctx, expense({ amount: 1_000 }), 'MANUAL');
     await q(`update transactions set source = 'IMPORT' where id = $1`, [imp]);
-    await expect(revertPayment(ctx, imp, (await row(imp)).version)).rejects.toThrow('despesa lançada no app');
+    await expect(revertPayment(ctx, imp, (await row(imp)).version)).rejects.toThrow(msg);
+
+    // aporte: receita interna ligada ao pagamento que ela cobriu
+    const bill = await createEntry(ctx, expense({ paid: false, amount: 80_000 }));
+    await confirmPayment(ctx, bill.id, (await row(bill.id)).version, {
+      amount: 80_000,
+      date: TODAY,
+      fundingAmount: 31_000, // saldo: R$ 500 − R$ 10 da conta importada = R$ 490; faltam R$ 310
+      fundingNote: 'Reserva da poupança',
+    });
+    const [aporte] = await q<{ id: string }>(
+      `select id from transactions where funding_for_transaction_id is not null`,
+    );
+    await expect(revertPayment(ctx, aporte!.id, (await row(aporte!.id)).version)).rejects.toThrow(msg);
+    expect((await row(aporte!.id)).status).toBe('POSTED');
   });
 });
 
