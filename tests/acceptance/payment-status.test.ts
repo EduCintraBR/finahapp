@@ -1,6 +1,6 @@
 /**
  * Situação do pagamento e aporte (D69), Postgres real (PGlite):
- *  - despesa lançada no app pode ficar "a pagar" (vencida se a data passou) até a baixa; receita é sempre recebida;
+ *  - despesa e receita lançadas no app podem ficar "a pagar"/"a receber" (atrasadas se a data passou) até a baixa (D93);
  *  - sem saldo na conta, pagar exige um aporte com observação (entra no saldo, fora das receitas);
  *  - conta paga com a carteira do cartão de benefícios sai dela, não da conta.
  */
@@ -16,7 +16,7 @@ import { createBenefitCard, deleteBenefitSpend } from '@/server/benefits';
 import { createCardPurchase } from '@/server/card-purchases';
 import { createCard } from '@/server/cards';
 import { runAction, UserError, type ServiceCtx } from '@/server/context';
-import { confirmPayment, createEntry, removeEntry, revertPayment } from '@/server/entries';
+import { confirmPayment, createEntry, removeEntry, revertPayment, updateEntry } from '@/server/entries';
 import { payInvoice } from '@/server/invoice-ops';
 import { createLoan, payLoanInstallments } from '@/server/loans';
 import { createTemplate, generateOccurrences } from '@/server/recurring';
@@ -121,13 +121,50 @@ describe('lançar despesa: a pagar ou já paga', () => {
     expect(await balance()).toBe(50_000 - 90_000);
   });
 
-  it('receita é sempre recebida, mesmo com paid=false', async () => {
+  it('receita com "Recebi": entra no saldo na hora, na data informada', async () => {
+    const { id } = await createEntry(
+      ctx,
+      expense({ kind: 'INCOME', categoryId: salario, description: 'Freela', paid: true, amount: 10_000 }),
+    );
+    expect(await row(id)).toMatchObject({ status: 'POSTED', due: null, posted: '2026-10-17' });
+    expect(await balance()).toBe(60_000);
+  });
+
+  it('receita sem "Recebi" (D93): nasce a receber, atrasada se a data passou, e só entra no saldo na baixa', async () => {
     const { id } = await createEntry(
       ctx,
       expense({ kind: 'INCOME', categoryId: salario, description: 'Freela', paid: false, amount: 10_000 }),
     );
-    expect((await row(id)).status).toBe('POSTED');
-    expect(await balance()).toBe(60_000);
+    expect(await row(id)).toMatchObject({ status: 'PENDING', due: '2026-10-17', posted: null });
+    expect(await balance()).toBe(50_000); // não entrou sozinha, mesmo com a data já vencida
+
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.incomeReceivedCents).toBe(0);
+    expect(s.incomePendingCents).toBe(10_000); // aparece em "A receber" (atrasada, D72)
+    const d = await summaryDetail(db, 'a-receber', '2026-10-01', TODAY);
+    expect(d.entries.map((e) => e.description)).toEqual(['Freela']);
+
+    await confirmPayment(ctx, id, (await row(id)).version, { amount: 10_000, date: TODAY });
+    expect(await row(id)).toMatchObject({ status: 'POSTED', posted: TODAY });
+    expect(await balance()).toBe(60_000); // entrou na baixa
+    expect((await cashSummary(db, '2026-10-01', TODAY))!.incomePendingCents).toBe(0);
+  });
+
+  it('receita sem "Recebi" e com data futura: não vira agendada, fica a receber até a baixa', async () => {
+    const { id } = await createEntry(
+      ctx,
+      expense({
+        kind: 'INCOME',
+        categoryId: salario,
+        description: 'Salário',
+        paid: false,
+        amount: 400_000,
+        date: '2026-10-30',
+      }),
+    );
+    expect(await row(id)).toMatchObject({ status: 'PENDING', due: '2026-10-30', posted: null });
+    expect(await balance('2026-10-30')).toBe(50_000); // nem no dia: só entra quando der baixa
+    expect(await balance('2026-11-15')).toBe(50_000);
   });
 
   it('marcar como a pagar uma despesa que nasceu paga: volta a pendente no dia em que foi lançada', async () => {
@@ -144,15 +181,107 @@ describe('lançar despesa: a pagar ou já paga', () => {
     expect(await balance()).toBe(50_000);
   });
 
-  it('não dá para marcar como a pagar uma receita nem uma conta importada', async () => {
-    const { id: inc } = await createEntry(
+  it('editar com "Já paguei" desmarcado: volta a pendente na mesma edição, vencendo na data escolhida', async () => {
+    const { id } = await createEntry(
       ctx,
-      expense({ kind: 'INCOME', categoryId: salario, amount: 5_000 }),
+      expense({ paid: true, amount: 41_525, description: 'Cemig Outubro' }),
     );
-    await expect(revertPayment(ctx, inc, (await row(inc)).version)).rejects.toThrow('despesa lançada no app');
+    expect(await balance()).toBe(50_000 - 41_525);
+    await updateEntry(ctx, id, (await row(id)).version, {
+      ...expense({ amount: 41_525, description: 'Cemig Outubro', date: '2026-10-24' }),
+      paid: false,
+    });
+    expect(await row(id)).toMatchObject({
+      status: 'PENDING',
+      due: '2026-10-24',
+      posted: null,
+      amount: '41525',
+    });
+    expect(await balance()).toBe(50_000); // saiu do saldo de novo
+    const logs = await q<{ action: string }>(
+      `select action from audit_log where entity = 'transactions' and entity_id = $1 order by id`,
+      [id],
+    );
+    expect(logs.map((l) => l.action)).toEqual(['CREATE', 'REVERT_PAYMENT']);
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.outPendingCents).toBe(41_525); // aparece em "A pagar"
+  });
+
+  it('editar sem a chave (ou com paid=true) não muda a situação; o valor editado vale ao desmarcar', async () => {
+    const { id } = await createEntry(ctx, expense({ paid: true, amount: 20_000 }));
+    await updateEntry(ctx, id, (await row(id)).version, expense({ amount: 21_000 }));
+    expect(await row(id)).toMatchObject({ status: 'POSTED', posted: '2026-10-17', amount: '21000' });
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 21_000 }), paid: true });
+    expect((await row(id)).status).toBe('POSTED');
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 22_500 }), paid: false });
+    expect(await row(id)).toMatchObject({ status: 'PENDING', amount: '22500' });
+  });
+
+  it('desmarcar "Já paguei" de uma conta paga com desconto volta o valor previsto', async () => {
+    const id = (await createEntry(ctx, expense({ paid: false, amount: 30_000 }))).id;
+    await confirmPayment(ctx, id, (await row(id)).version, { amount: 28_000, date: TODAY });
+    expect(await row(id)).toMatchObject({ status: 'POSTED', amount: '28000' });
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 28_000 }), paid: false });
+    expect(await row(id)).toMatchObject({ status: 'PENDING', amount: '30000', due: '2026-10-17' });
+  });
+
+  it('não desmarca o que não pode voltar a "a pagar": conta importada e paga com o cartão de benefícios', async () => {
+    const { id } = await createEntry(ctx, expense({ paid: true }));
+    await q(`update transactions set source = 'IMPORT' where id = $1`, [id]);
+    await expect(
+      updateEntry(ctx, id, (await row(id)).version, { ...expense(), paid: false }),
+    ).rejects.toThrow('Só dá para voltar a "a pagar"');
+    expect((await row(id)).status).toBe('POSTED'); // nada mudou
+  });
+
+  it('receita paga volta a "a receber" (D93): pelo menu e pela edição, e o valor sai do saldo', async () => {
+    const { id: a } = await createEntry(
+      ctx,
+      expense({ kind: 'INCOME', categoryId: salario, amount: 5_000, description: 'Freela A' }),
+    );
+    expect(await balance()).toBe(55_000);
+    await revertPayment(ctx, a, (await row(a)).version);
+    expect(await row(a)).toMatchObject({ status: 'PENDING', due: '2026-10-17', posted: null });
+    expect(await balance()).toBe(50_000);
+
+    const { id: b } = await createEntry(
+      ctx,
+      expense({ kind: 'INCOME', categoryId: salario, amount: 7_000, description: 'Freela B' }),
+    );
+    await updateEntry(ctx, b, (await row(b)).version, {
+      ...expense({
+        kind: 'INCOME',
+        categoryId: salario,
+        amount: 7_000,
+        description: 'Freela B',
+        date: '2026-10-28',
+      }),
+      paid: false,
+    });
+    expect(await row(b)).toMatchObject({ status: 'PENDING', due: '2026-10-28', posted: null });
+    expect(await balance('2026-11-30')).toBe(50_000); // só entra na baixa, nem no dia
+    expect((await cashSummary(db, '2026-10-01', TODAY))!.incomePendingCents).toBe(12_000); // A receber
+  });
+
+  it('não volta a pendente: o aporte e a conta importada', async () => {
+    const msg = 'Só dá para voltar a "a pagar"';
     const { id: imp } = await createEntry(ctx, expense({ amount: 1_000 }), 'MANUAL');
     await q(`update transactions set source = 'IMPORT' where id = $1`, [imp]);
-    await expect(revertPayment(ctx, imp, (await row(imp)).version)).rejects.toThrow('despesa lançada no app');
+    await expect(revertPayment(ctx, imp, (await row(imp)).version)).rejects.toThrow(msg);
+
+    // aporte: receita interna ligada ao pagamento que ela cobriu
+    const bill = await createEntry(ctx, expense({ paid: false, amount: 80_000 }));
+    await confirmPayment(ctx, bill.id, (await row(bill.id)).version, {
+      amount: 80_000,
+      date: TODAY,
+      fundingAmount: 31_000, // saldo: R$ 500 − R$ 10 da conta importada = R$ 490; faltam R$ 310
+      fundingNote: 'Reserva da poupança',
+    });
+    const [aporte] = await q<{ id: string }>(
+      `select id from transactions where funding_for_transaction_id is not null`,
+    );
+    await expect(revertPayment(ctx, aporte!.id, (await row(aporte!.id)).version)).rejects.toThrow(msg);
+    expect((await row(aporte!.id)).status).toBe('POSTED');
   });
 });
 

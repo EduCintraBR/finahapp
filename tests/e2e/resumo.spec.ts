@@ -39,6 +39,7 @@ test('cada card da Home abre o detalhe do mês com o mesmo total', async () => {
     await pickCategory(page, kind === 'Receita' ? 'Salário CLT' : 'Mercado');
     await page.locator('#date').fill(date);
     if (desc === 'Despesa paga resumo') await page.getByLabel('Já paguei').check();
+    if (desc === 'Receita paga resumo') await page.getByLabel('Recebi').check();
     await page.getByRole('button', { name: 'Lançar' }).click();
     await expect(page).toHaveURL(/\/lancamentos/);
   }

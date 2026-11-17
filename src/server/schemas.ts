@@ -58,14 +58,14 @@ const fundingFields = {
   fundingNote: z.preprocess(blankToUndefined, z.string().trim().max(300).optional()).optional(),
 };
 
-/** "true"/"false" do formulário (a chave Já paguei); ausente = undefined (cada serviço tem seu padrão). */
+/** "true"/"false" do formulário (a chave Já paguei / Recebi); ausente = undefined (cada serviço tem seu padrão). */
 const paidFlag = z.preprocess(
   (v) => (v === 'true' || v === true ? true : v === 'false' || v === false ? false : undefined),
   z.boolean().optional(),
 );
 
 export const entryInput = z.object({
-  /** despesa: já foi paga? (padrão do serviço: sim; o formulário envia a chave) — receita é sempre recebida */
+  /** já foi paga/recebida? (padrão do serviço: sim; o formulário envia a chave; sem ela, bot e importação seguem pagos) */
   paid: paidFlag,
   ...fundingFields,
   kind: z.enum(['INCOME', 'EXPENSE'], { error: 'Escolha receita ou despesa.' }),

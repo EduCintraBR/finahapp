@@ -93,9 +93,9 @@ export async function createEntry(
     await checkCategory(tx, input.categoryId, input.kind);
     await checkUser(tx, input.beneficiaryUserId);
 
-    // D69: despesa lançada no app pode ficar "a pagar" (vence na data informada, vencida se já passou) até a baixa.
-    // Receita é sempre recebida; bot e importação não informam a chave e seguem já pagos.
-    const paid = input.kind === 'INCOME' ? true : (input.paid ?? true);
+    // D69/D93: lançamento do app pode ficar "a pagar"/"a receber" (vence na data informada, atrasado se já passou) até a
+    // baixa ("Já paguei"/"Recebi"). Bot e importação não informam a chave e seguem já pagos.
+    const paid = input.paid ?? true;
     // quem marca "já paguei" no formulário está tirando dinheiro da conta agora: sem saldo, explica o aporte
     const funding =
       input.kind === 'EXPENSE' && input.paid === true
@@ -134,8 +134,28 @@ export async function createEntry(
 }
 
 /**
+ * D69/D93: pode voltar a "a pagar"/"a receber" o que foi pago pela baixa (tem vencimento) e a despesa ou receita
+ * lançada no app já paga (vence então na data em que foi lançada). Fora: empréstimo e aporte (receita interna ligada a
+ * um pagamento). Vale para a edição ("Já paguei"/"Recebi" desmarcado) e para "Marcar como a pagar/a receber".
+ */
+const isReopenable = (row: TxRow) =>
+  row.status === 'POSTED' &&
+  (row.dueDate !== null ||
+    ((row.kind === 'EXPENSE' || row.kind === 'INCOME') &&
+      row.loanId === null &&
+      row.fundingForTransactionId === null &&
+      (row.source === 'MANUAL' || row.source === 'BOT')));
+
+const REOPEN_ERROR =
+  'Só dá para voltar a "a pagar" ou "a receber" uma despesa ou receita lançada no app, ou uma conta que estava pendente.';
+const REOPEN_WALLET_ERROR =
+  'Conta paga com o cartão de benefícios: exclua o gasto no histórico do cartão e lance de novo.';
+
+/**
  * Edita um lançamento. Pago: a data move transaction_date e posted_date.
  * Pendente (ocorrência de fixo): a data é o vencimento e o valor é a estimativa.
+ * Com `paid = false` num lançamento pago (chave "Já paguei" desmarcada na edição), ele também volta a "a pagar", na
+ * mesma transação: a data escolhida passa a ser o vencimento e, se o valor não mudou, volta o valor previsto.
  */
 export async function updateEntry(ctx: ServiceCtx, id: string, version: number, input: EntryInput) {
   return ctx.db.transaction(async (tx) => {
@@ -153,18 +173,30 @@ export async function updateEntry(ctx: ServiceCtx, id: string, version: number, 
     await checkUser(tx, input.beneficiaryUserId);
 
     const pending = row.status === 'PENDING';
+    const reopen = input.paid === false && row.status === 'POSTED';
+    if (reopen) {
+      if (row.anticipatesTransactionId !== null || !isReopenable(row)) throw new UserError(REOPEN_ERROR);
+      if (row.benefitWalletId !== null) throw new UserError(REOPEN_WALLET_ERROR);
+    }
     const [updated] = await tx
       .update(transactions)
       .set({
         kind: input.kind,
         description: input.description,
         notes: input.notes,
-        amountCents: input.amount,
+        amountCents:
+          reopen && input.amount === row.amountCents
+            ? (row.estimatedAmountCents ?? row.amountCents)
+            : input.amount,
         paymentMethod: input.paymentMethod,
         categoryId: input.categoryId,
         beneficiaryUserId: input.beneficiaryUserId,
         transactionDate: input.date,
-        ...(pending ? { dueDate: input.date } : { postedDate: input.date }),
+        ...(reopen
+          ? { status: 'PENDING' as const, dueDate: input.date, postedDate: null, estimatedAmountCents: null }
+          : pending
+            ? { dueDate: input.date }
+            : { postedDate: input.date }),
         version: sql`${transactions.version} + 1`,
       })
       .where(eq(transactions.id, id))
@@ -173,7 +205,7 @@ export async function updateEntry(ctx: ServiceCtx, id: string, version: number, 
       userId: ctx.userId,
       entity: 'transactions',
       entityId: id,
-      action: 'UPDATE',
+      action: reopen ? 'REVERT_PAYMENT' : 'UPDATE',
       before: snapshot(row),
       after: snapshot(updated!),
     });
@@ -411,20 +443,8 @@ export async function revertPayment(ctx: ServiceCtx, id: string, version: number
       return;
     }
     // D69: despesa lançada no app já paga também pode voltar a "a pagar" (vence na data em que foi lançada)
-    const reopenable =
-      row.status === 'POSTED' &&
-      (row.dueDate !== null ||
-        (row.kind === 'EXPENSE' && row.loanId === null && (row.source === 'MANUAL' || row.source === 'BOT')));
-    if (!reopenable) {
-      throw new UserError(
-        'Só dá para voltar a "a pagar" uma despesa lançada no app ou uma conta que estava pendente.',
-      );
-    }
-    if (row.benefitWalletId !== null) {
-      throw new UserError(
-        'Conta paga com o cartão de benefícios: exclua o gasto no histórico do cartão e lance de novo.',
-      );
-    }
+    if (!isReopenable(row)) throw new UserError(REOPEN_ERROR);
+    if (row.benefitWalletId !== null) throw new UserError(REOPEN_WALLET_ERROR);
     const [updated] = await tx
       .update(transactions)
       .set({

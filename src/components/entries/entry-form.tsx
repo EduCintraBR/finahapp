@@ -30,6 +30,8 @@ export type EntryFormDefaults = {
   beneficiaryUserId: string | null;
   notes: string | null;
   pending: boolean;
+  /** pago e pode voltar a "a pagar"/"a receber": a edição mostra a chave "Já paguei"/"Recebi" ligada (D69, D93) */
+  reopenable?: boolean;
   /** gasto no cartão de benefícios (D78): a carteira dele; o formulário abre no modo Benefício */
   walletId?: string;
 };
@@ -120,8 +122,11 @@ export function EntryForm({
   // crediário: o campo grande é o valor da compra; o total com juros vem à parte (vazio = sem juros)
   const [totalText, setTotalText] = useState('');
   const [date, setDate] = useState(defaults?.date ?? today);
-  // despesa nova nasce "a pagar" (D69); com a chave ligada, já saiu da conta
+  // despesa/receita nova nasce "a pagar"/"a receber" (D69, D93); com a chave ligada, já mexeu na conta
   const [paid, setPaid] = useState(false);
+  // edição de um lançamento pago: desmarcar "Já paguei"/"Recebi" e salvar o devolve para "a pagar"/"a receber"
+  const [keepPaid, setKeepPaid] = useState(true);
+  const reopening = !!defaults?.reopenable && !keepPaid;
   const [notesOpen, setNotesOpen] = useState(!!defaults?.notes);
   const [categoryMissing, setCategoryMissing] = useState(false);
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
@@ -154,7 +159,9 @@ export function EntryForm({
   const interest = store
     ? interestPreview(amountText, totalText, Number(installments), date, card?.nextDueDate)
     : null;
-  const expenseMode = mode === 'EXPENSE' && !defaults;
+  const income = mode === 'INCOME';
+  // despesa ou receita nova pelo app: escolhe se já foi paga/recebida (a edição não mexe nisso)
+  const paidChoice = (mode === 'EXPENSE' || income) && !defaults;
   // enviado por onSubmit (e não por <form action>) para o React não limpar o formulário quando o servidor
   // devolve "faltam R$ X, informe o aporte"
   const act = isCard ? cardAction : isBenefit ? benefitAction : entryAction;
@@ -171,7 +178,7 @@ export function EntryForm({
     startTransition(() => act(fd));
   };
   const fundingShort =
-    !isCard && !isBenefit && (mode === 'INCOME' ? false : paid) && state && !state.ok
+    !isCard && !isBenefit && !income && paid && state && !state.ok
       ? state.details?.fundingShortCents
       : undefined;
 
@@ -370,8 +377,10 @@ export function EntryForm({
       <div className="grid grid-cols-2 gap-3">
         <Field
           label={
-            defaults?.pending || (expenseMode && !paid)
-              ? 'Vencimento'
+            defaults?.pending || reopening || (paidChoice && !paid)
+              ? income
+                ? 'Previsão'
+                : 'Vencimento'
               : isCard
                 ? 'Data da compra'
                 : isBenefit
@@ -380,7 +389,7 @@ export function EntryForm({
           }
           htmlFor="date"
           hint={
-            !isCard && !defaults?.pending && (mode === 'INCOME' || paid) && date > today
+            !isCard && !defaults?.pending && paid && date > today
               ? `Data futura: fica agendado e só entra no saldo em ${formatDateBR(date)}.`
               : undefined
           }
@@ -399,7 +408,33 @@ export function EntryForm({
         )}
       </div>
 
-      {expenseMode && (
+      {defaults?.reopenable && (
+        <div>
+          {reopening && <input type="hidden" name="paid" value="false" />}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={keepPaid}
+              onChange={(e) => setKeepPaid(e.target.checked)}
+              className="mt-0.5 size-4 accent-primary"
+            />
+            <span>
+              <span className="font-medium">{income ? 'Recebi' : 'Já paguei'}</span>
+              <span className="block text-xs text-muted-foreground">
+                {income
+                  ? keepPaid
+                    ? 'Desmarque para voltar a “a receber”: sai do saldo da conta até você dar baixa em “Recebi”.'
+                    : 'Ao salvar, volta a ficar a receber, previsto para a data escolhida, e só entra no saldo na baixa em “Recebi”.'
+                  : keepPaid
+                    ? 'Desmarque para voltar a “a pagar”: sai do pago e o valor volta para o saldo da conta.'
+                    : 'Ao salvar, volta a ficar a pagar, vencendo na data escolhida, e só sai do saldo na baixa em “Paguei”.'}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
+      {paidChoice && (
         <div>
           <input type="hidden" name="paid" value="false" />
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
@@ -412,11 +447,15 @@ export function EntryForm({
               className="mt-0.5 size-4 accent-primary"
             />
             <span>
-              <span className="font-medium">Já paguei</span>
+              <span className="font-medium">{income ? 'Recebi' : 'Já paguei'}</span>
               <span className="block text-xs text-muted-foreground">
-                {paid
-                  ? 'Sai do saldo da conta agora, na data escolhida.'
-                  : 'Fica a pagar no dia do vencimento até a baixa em “Paguei”.'}
+                {income
+                  ? paid
+                    ? 'Entra no saldo da conta agora, na data escolhida.'
+                    : 'Fica a receber, e só entra no saldo quando você der baixa em “Recebi”. Passou da data sem baixa, fica atrasada.'
+                  : paid
+                    ? 'Sai do saldo da conta agora, na data escolhida.'
+                    : 'Fica a pagar, e só sai do saldo quando você der baixa em “Paguei”. Passou do vencimento sem baixa, fica atrasada.'}
               </span>
             </span>
           </label>

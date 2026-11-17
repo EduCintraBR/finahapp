@@ -55,7 +55,7 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Cemig vencida/ });
   await expect(row).toContainText('Pendente');
-  if (opening !== today()) await expect(row).toContainText('Venceu');
+  if (opening !== today()) await expect(row).toContainText('Atrasada desde');
   expect(await balance()).toBe(before); // continua tudo na conta
 
   // aparece em "Pendentes" na Home, pronta para a baixa
@@ -66,12 +66,44 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
 test('o formulário explica a chave: desligada vira vencimento, ligada sai do saldo', async () => {
   await page.goto('/lancamentos/novo');
   await expect(page.getByLabel('Vencimento', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Fica a pagar no dia do vencimento/)).toBeVisible();
+  await expect(page.getByText(/Fica a pagar, e só sai do saldo/)).toBeVisible();
   await page.getByLabel('Já paguei').check();
   await expect(page.getByText('Sai do saldo da conta agora')).toBeVisible();
   await expect(page.getByLabel('Data', { exact: true })).toBeVisible();
+  await page.getByLabel('Já paguei').uncheck();
   await page.getByRole('radio', { name: 'Receita' }).click();
-  await expect(page.getByLabel('Já paguei')).toHaveCount(0); // receita é sempre recebida
+  // receita tem a chave "Recebi" (D93), desligada por padrão, no lugar do "Já paguei"
+  await expect(page.getByLabel('Já paguei')).toHaveCount(0);
+  await expect(page.getByLabel('Previsão', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Fica a receber, e só entra no saldo/)).toBeVisible();
+  await page.getByLabel('Recebi').check();
+  await expect(page.getByText('Entra no saldo da conta agora')).toBeVisible();
+  await expect(page.getByLabel('Data', { exact: true })).toBeVisible();
+});
+
+test('receita sem "Recebi" fica a receber e atrasada, e só entra no saldo na baixa em "Recebi" (D93)', async () => {
+  const before = await balance();
+  const opening = monthStart(today());
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('25000');
+  await page.getByLabel('Descrição').fill('Freela a receber');
+  await pickCategory(page, 'Salário CLT');
+  await page.locator('#date').fill(opening);
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page).toHaveURL(/\/lancamentos/);
+
+  const row = page.getByRole('link', { name: /Freela a receber/ });
+  await expect(row).toContainText('Pendente');
+  if (opening !== today()) await expect(row).toContainText('Atrasada desde');
+  expect(await balance()).toBe(before); // não entrou sozinha, mesmo com a data já vencida
+
+  await row.click();
+  await page.getByRole('button', { name: 'Confirmar recebimento' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await balance()).toBe(before + 25_000); // entrou na baixa
 });
 
 test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
@@ -85,6 +117,54 @@ test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
   await page.getByRole('alertdialog').getByRole('button', { name: 'Marcar como a pagar' }).click();
   await expect(page.getByText('Pendente').first()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Marcar como a pagar' })).toHaveCount(0);
+});
+
+test('despesa paga: na edição, desmarcar "Já paguei" e salvar a devolve para "a pagar"', async () => {
+  await newExpense('Cemig Outubro', 5_000, { paid: true, date: today() });
+  await expect(page).toHaveURL(/\/lancamentos/);
+  const before = await balance();
+  await page.goto('/lancamentos');
+  await page.getByRole('link', { name: /Cemig Outubro/ }).click();
+
+  await page.getByRole('button', { name: 'Editar' }).click();
+  const form = page.getByRole('dialog', { name: 'Editar lançamento' });
+  const jaPaguei = form.getByLabel('Já paguei');
+  await expect(jaPaguei).toBeChecked();
+  await jaPaguei.uncheck();
+  await expect(form.getByLabel('Vencimento', { exact: true })).toBeVisible();
+  await expect(form.getByText(/Ao salvar, volta a ficar a pagar/)).toBeVisible();
+  await form.getByRole('button', { name: 'Salvar alterações' }).click();
+
+  await expect(page).toHaveURL(/\/lancamentos/);
+  await expect(page.getByRole('link', { name: /Cemig Outubro/ })).toContainText('Pendente');
+  expect(await balance()).toBe(before + 5_000); // o valor voltou para o saldo
+});
+
+test('receita recebida: na edição, desmarcar "Recebi" e salvar a devolve para "a receber" (D93)', async () => {
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('8000');
+  await page.getByLabel('Descrição').fill('Venda recebida');
+  await pickCategory(page, 'Salário CLT');
+  await page.getByLabel('Recebi').check();
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page).toHaveURL(/\/lancamentos/);
+  const before = await balance();
+
+  await page.goto('/lancamentos');
+  await page.getByRole('link', { name: /Venda recebida/ }).click();
+  await page.getByRole('button', { name: 'Editar' }).click();
+  const form = page.getByRole('dialog', { name: 'Editar lançamento' });
+  const recebi = form.getByLabel('Recebi');
+  await expect(recebi).toBeChecked();
+  await recebi.uncheck();
+  await expect(form.getByLabel('Previsão', { exact: true })).toBeVisible();
+  await expect(form.getByText(/Ao salvar, volta a ficar a receber/)).toBeVisible();
+  await form.getByRole('button', { name: 'Salvar alterações' }).click();
+
+  await expect(page).toHaveURL(/\/lancamentos/);
+  await expect(page.getByRole('link', { name: /Venda recebida/ })).toContainText('Pendente');
+  expect(await balance()).toBe(before - 8_000); // saiu do saldo até a baixa
 });
 
 test('dar baixa sem saldo pede o aporte, com observação; o aporte entra no saldo e fica fora de "Entrou"', async () => {

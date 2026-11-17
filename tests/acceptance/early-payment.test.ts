@@ -282,13 +282,27 @@ describe('desfazer o pagamento antecipado', () => {
     expect((await row(parentId)).status).toBe('ANTICIPATED');
   });
 
+  it('o pagamento antecipado não volta a pendente pela edição: pede para estornar', async () => {
+    const { paymentId } = await shopeePaidEarly();
+    await expect(
+      updateEntry(
+        ctx,
+        paymentId,
+        (await row(paymentId)).version,
+        expense({ amount: 21_500, date: TODAY, paid: false }),
+      ),
+    ).rejects.toThrow('Só dá para voltar a "a pagar"');
+    expect((await row(paymentId)).status).toBe('POSTED'); // nada mudou
+  });
+
   it('editar o pagamento mexe no valor/desconto e mantém o vínculo', async () => {
     const { paymentId, parentId } = await shopeePaidEarly();
     await updateEntry(
       ctx,
       paymentId,
       (await row(paymentId)).version,
-      expense({ amount: 21_500, date: TODAY }),
+      // a edição não manda a chave "Já paguei" (paid=false aqui reabriria o lançamento, o que o pagamento não permite)
+      expense({ amount: 21_500, date: TODAY, paid: undefined }),
     );
     expect(await row(paymentId)).toMatchObject({
       amount: '21500',

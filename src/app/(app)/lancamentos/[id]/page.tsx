@@ -95,12 +95,12 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
     pending && !income && entry.loanId === null
       ? payableWallets(await listBenefitCards(db, hoje, monthStart(hoje)))
       : [];
-  // despesa lançada no app que nasceu paga pode voltar a "a pagar" (D69)
+  // despesa ou receita lançada no app que nasceu paga pode voltar a "a pagar"/"a receber" (D69, D93); aporte não
   const canReopen =
     entry.status === 'POSTED' &&
     !entry.dueDate &&
-    entry.kind === 'EXPENSE' &&
     entry.loanId === null &&
+    entry.fundingForId === null &&
     entry.benefitWalletId === null &&
     !isPayment &&
     (entry.source === 'MANUAL' || entry.source === 'BOT') &&
@@ -146,12 +146,13 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                   <ActionButton
                     action={revertPaymentAction}
                     fields={fields}
-                    label="Marcar como a pagar"
+                    label={income ? 'Marcar como a receber' : 'Marcar como a pagar'}
                     confirm={{
-                      title: 'Marcar como a pagar?',
-                      description:
-                        'O lançamento volta a ficar pendente, vencendo na data em que foi lançado, e sai do saldo até você dar baixa em "Paguei".',
-                      confirmLabel: 'Marcar como a pagar',
+                      title: income ? 'Marcar como a receber?' : 'Marcar como a pagar?',
+                      description: income
+                        ? 'O lançamento volta a ficar pendente, previsto para a data em que foi lançado, e sai do saldo até você dar baixa em "Recebi".'
+                        : 'O lançamento volta a ficar pendente, vencendo na data em que foi lançado, e sai do saldo até você dar baixa em "Paguei".',
+                      confirmLabel: income ? 'Marcar como a receber' : 'Marcar como a pagar',
                     }}
                   />
                 )}
@@ -368,6 +369,11 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 beneficiaryUserId: entry.beneficiaryId,
                 notes: entry.notes,
                 pending,
+                reopenable:
+                  editable &&
+                  !isPayment &&
+                  !walletSpend &&
+                  (canReopen || (entry.status === 'POSTED' && !!entry.dueDate)),
                 ...(plainWalletSpend && entry.benefitWalletId ? { walletId: entry.benefitWalletId } : {}),
               }}
             />
