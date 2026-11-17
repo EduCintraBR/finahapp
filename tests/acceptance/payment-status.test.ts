@@ -16,7 +16,7 @@ import { createBenefitCard, deleteBenefitSpend } from '@/server/benefits';
 import { createCardPurchase } from '@/server/card-purchases';
 import { createCard } from '@/server/cards';
 import { runAction, UserError, type ServiceCtx } from '@/server/context';
-import { confirmPayment, createEntry, removeEntry, revertPayment } from '@/server/entries';
+import { confirmPayment, createEntry, removeEntry, revertPayment, updateEntry } from '@/server/entries';
 import { payInvoice } from '@/server/invoice-ops';
 import { createLoan, payLoanInstallments } from '@/server/loans';
 import { createTemplate, generateOccurrences } from '@/server/recurring';
@@ -179,6 +179,59 @@ describe('lançar despesa: a pagar ou já paga', () => {
       amount: '20000',
     });
     expect(await balance()).toBe(50_000);
+  });
+
+  it('editar com "Já paguei" desmarcado: volta a pendente na mesma edição, vencendo na data escolhida', async () => {
+    const { id } = await createEntry(
+      ctx,
+      expense({ paid: true, amount: 41_525, description: 'Cemig Outubro' }),
+    );
+    expect(await balance()).toBe(50_000 - 41_525);
+    await updateEntry(ctx, id, (await row(id)).version, {
+      ...expense({ amount: 41_525, description: 'Cemig Outubro', date: '2026-10-24' }),
+      paid: false,
+    });
+    expect(await row(id)).toMatchObject({
+      status: 'PENDING',
+      due: '2026-10-24',
+      posted: null,
+      amount: '41525',
+    });
+    expect(await balance()).toBe(50_000); // saiu do saldo de novo
+    const logs = await q<{ action: string }>(
+      `select action from audit_log where entity = 'transactions' and entity_id = $1 order by id`,
+      [id],
+    );
+    expect(logs.map((l) => l.action)).toEqual(['CREATE', 'REVERT_PAYMENT']);
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.outPendingCents).toBe(41_525); // aparece em "A pagar"
+  });
+
+  it('editar sem a chave (ou com paid=true) não muda a situação; o valor editado vale ao desmarcar', async () => {
+    const { id } = await createEntry(ctx, expense({ paid: true, amount: 20_000 }));
+    await updateEntry(ctx, id, (await row(id)).version, expense({ amount: 21_000 }));
+    expect(await row(id)).toMatchObject({ status: 'POSTED', posted: '2026-10-17', amount: '21000' });
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 21_000 }), paid: true });
+    expect((await row(id)).status).toBe('POSTED');
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 22_500 }), paid: false });
+    expect(await row(id)).toMatchObject({ status: 'PENDING', amount: '22500' });
+  });
+
+  it('desmarcar "Já paguei" de uma conta paga com desconto volta o valor previsto', async () => {
+    const id = (await createEntry(ctx, expense({ paid: false, amount: 30_000 }))).id;
+    await confirmPayment(ctx, id, (await row(id)).version, { amount: 28_000, date: TODAY });
+    expect(await row(id)).toMatchObject({ status: 'POSTED', amount: '28000' });
+    await updateEntry(ctx, id, (await row(id)).version, { ...expense({ amount: 28_000 }), paid: false });
+    expect(await row(id)).toMatchObject({ status: 'PENDING', amount: '30000', due: '2026-10-17' });
+  });
+
+  it('não desmarca o que não pode voltar a "a pagar": conta importada e paga com o cartão de benefícios', async () => {
+    const { id } = await createEntry(ctx, expense({ paid: true }));
+    await q(`update transactions set source = 'IMPORT' where id = $1`, [id]);
+    await expect(
+      updateEntry(ctx, id, (await row(id)).version, { ...expense(), paid: false }),
+    ).rejects.toThrow('Só dá para voltar a "a pagar"');
+    expect((await row(id)).status).toBe('POSTED'); // nada mudou
   });
 
   it('não dá para marcar como a pagar uma receita nem uma conta importada', async () => {

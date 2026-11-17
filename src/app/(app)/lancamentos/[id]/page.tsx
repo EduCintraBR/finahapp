@@ -368,6 +368,11 @@ export default async function EntryPage({ params, searchParams }: PageProps<'/la
                 beneficiaryUserId: entry.beneficiaryId,
                 notes: entry.notes,
                 pending,
+                reopenable:
+                  editable &&
+                  !isPayment &&
+                  !walletSpend &&
+                  (canReopen || (entry.status === 'POSTED' && !!entry.dueDate)),
                 ...(plainWalletSpend && entry.benefitWalletId ? { walletId: entry.benefitWalletId } : {}),
               }}
             />
