@@ -45,6 +45,7 @@ test('paga hoje, com desconto, uma conta que vence no mês que vem', async () =>
   await page.getByLabel('Valor').fill('100000');
   await page.getByLabel('Descrição').fill('Receita para antecipar');
   await pickCategory(page, 'Salário CLT');
+  await page.getByLabel('Recebi').check();
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page).toHaveURL(/\/lancamentos/);
 

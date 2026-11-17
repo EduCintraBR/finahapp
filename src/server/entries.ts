@@ -93,9 +93,9 @@ export async function createEntry(
     await checkCategory(tx, input.categoryId, input.kind);
     await checkUser(tx, input.beneficiaryUserId);
 
-    // D69: despesa lançada no app pode ficar "a pagar" (vence na data informada, vencida se já passou) até a baixa.
-    // Receita é sempre recebida; bot e importação não informam a chave e seguem já pagos.
-    const paid = input.kind === 'INCOME' ? true : (input.paid ?? true);
+    // D69/D93: lançamento do app pode ficar "a pagar"/"a receber" (vence na data informada, atrasado se já passou) até a
+    // baixa ("Já paguei"/"Recebi"). Bot e importação não informam a chave e seguem já pagos.
+    const paid = input.paid ?? true;
     // quem marca "já paguei" no formulário está tirando dinheiro da conta agora: sem saldo, explica o aporte
     const funding =
       input.kind === 'EXPENSE' && input.paid === true

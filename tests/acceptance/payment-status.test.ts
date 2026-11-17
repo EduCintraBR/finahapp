@@ -1,6 +1,6 @@
 /**
  * Situação do pagamento e aporte (D69), Postgres real (PGlite):
- *  - despesa lançada no app pode ficar "a pagar" (vencida se a data passou) até a baixa; receita é sempre recebida;
+ *  - despesa e receita lançadas no app podem ficar "a pagar"/"a receber" (atrasadas se a data passou) até a baixa (D93);
  *  - sem saldo na conta, pagar exige um aporte com observação (entra no saldo, fora das receitas);
  *  - conta paga com a carteira do cartão de benefícios sai dela, não da conta.
  */
@@ -121,13 +121,50 @@ describe('lançar despesa: a pagar ou já paga', () => {
     expect(await balance()).toBe(50_000 - 90_000);
   });
 
-  it('receita é sempre recebida, mesmo com paid=false', async () => {
+  it('receita com "Recebi": entra no saldo na hora, na data informada', async () => {
+    const { id } = await createEntry(
+      ctx,
+      expense({ kind: 'INCOME', categoryId: salario, description: 'Freela', paid: true, amount: 10_000 }),
+    );
+    expect(await row(id)).toMatchObject({ status: 'POSTED', due: null, posted: '2026-10-17' });
+    expect(await balance()).toBe(60_000);
+  });
+
+  it('receita sem "Recebi" (D93): nasce a receber, atrasada se a data passou, e só entra no saldo na baixa', async () => {
     const { id } = await createEntry(
       ctx,
       expense({ kind: 'INCOME', categoryId: salario, description: 'Freela', paid: false, amount: 10_000 }),
     );
-    expect((await row(id)).status).toBe('POSTED');
-    expect(await balance()).toBe(60_000);
+    expect(await row(id)).toMatchObject({ status: 'PENDING', due: '2026-10-17', posted: null });
+    expect(await balance()).toBe(50_000); // não entrou sozinha, mesmo com a data já vencida
+
+    const s = (await cashSummary(db, '2026-10-01', TODAY))!;
+    expect(s.incomeReceivedCents).toBe(0);
+    expect(s.incomePendingCents).toBe(10_000); // aparece em "A receber" (atrasada, D72)
+    const d = await summaryDetail(db, 'a-receber', '2026-10-01', TODAY);
+    expect(d.entries.map((e) => e.description)).toEqual(['Freela']);
+
+    await confirmPayment(ctx, id, (await row(id)).version, { amount: 10_000, date: TODAY });
+    expect(await row(id)).toMatchObject({ status: 'POSTED', posted: TODAY });
+    expect(await balance()).toBe(60_000); // entrou na baixa
+    expect((await cashSummary(db, '2026-10-01', TODAY))!.incomePendingCents).toBe(0);
+  });
+
+  it('receita sem "Recebi" e com data futura: não vira agendada, fica a receber até a baixa', async () => {
+    const { id } = await createEntry(
+      ctx,
+      expense({
+        kind: 'INCOME',
+        categoryId: salario,
+        description: 'Salário',
+        paid: false,
+        amount: 400_000,
+        date: '2026-10-30',
+      }),
+    );
+    expect(await row(id)).toMatchObject({ status: 'PENDING', due: '2026-10-30', posted: null });
+    expect(await balance('2026-10-30')).toBe(50_000); // nem no dia: só entra quando der baixa
+    expect(await balance('2026-11-15')).toBe(50_000);
   });
 
   it('marcar como a pagar uma despesa que nasceu paga: volta a pendente no dia em que foi lançada', async () => {
