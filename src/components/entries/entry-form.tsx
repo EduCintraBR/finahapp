@@ -30,6 +30,8 @@ export type EntryFormDefaults = {
   beneficiaryUserId: string | null;
   notes: string | null;
   pending: boolean;
+  /** pago e pode voltar a "a pagar"/"a receber": a edição mostra a chave "Já paguei"/"Recebi" ligada (D69, D93) */
+  reopenable?: boolean;
   /** gasto no cartão de benefícios (D78): a carteira dele; o formulário abre no modo Benefício */
   walletId?: string;
 };
@@ -122,6 +124,9 @@ export function EntryForm({
   const [date, setDate] = useState(defaults?.date ?? today);
   // despesa/receita nova nasce "a pagar"/"a receber" (D69, D93); com a chave ligada, já mexeu na conta
   const [paid, setPaid] = useState(false);
+  // edição de um lançamento pago: desmarcar "Já paguei"/"Recebi" e salvar o devolve para "a pagar"/"a receber"
+  const [keepPaid, setKeepPaid] = useState(true);
+  const reopening = !!defaults?.reopenable && !keepPaid;
   const [notesOpen, setNotesOpen] = useState(!!defaults?.notes);
   const [categoryMissing, setCategoryMissing] = useState(false);
   const categoryKind = mode === 'INCOME' ? 'INCOME' : 'EXPENSE';
@@ -372,7 +377,7 @@ export function EntryForm({
       <div className="grid grid-cols-2 gap-3">
         <Field
           label={
-            defaults?.pending || (paidChoice && !paid)
+            defaults?.pending || reopening || (paidChoice && !paid)
               ? income
                 ? 'Previsão'
                 : 'Vencimento'
@@ -402,6 +407,32 @@ export function EntryForm({
           <BeneficiaryField users={users} defaultValue={defaults?.beneficiaryUserId ?? ''} />
         )}
       </div>
+
+      {defaults?.reopenable && (
+        <div>
+          {reopening && <input type="hidden" name="paid" value="false" />}
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
+            <input
+              type="checkbox"
+              checked={keepPaid}
+              onChange={(e) => setKeepPaid(e.target.checked)}
+              className="mt-0.5 size-4 accent-primary"
+            />
+            <span>
+              <span className="font-medium">{income ? 'Recebi' : 'Já paguei'}</span>
+              <span className="block text-xs text-muted-foreground">
+                {income
+                  ? keepPaid
+                    ? 'Desmarque para voltar a “a receber”: sai do saldo da conta até você dar baixa em “Recebi”.'
+                    : 'Ao salvar, volta a ficar a receber, previsto para a data escolhida, e só entra no saldo na baixa em “Recebi”.'
+                  : keepPaid
+                    ? 'Desmarque para voltar a “a pagar”: sai do pago e o valor volta para o saldo da conta.'
+                    : 'Ao salvar, volta a ficar a pagar, vencendo na data escolhida, e só sai do saldo na baixa em “Paguei”.'}
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
 
       {paidChoice && (
         <div>

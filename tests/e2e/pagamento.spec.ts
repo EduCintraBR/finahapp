@@ -119,6 +119,54 @@ test('despesa que nasceu paga pode voltar a "a pagar"', async () => {
   await expect(page.getByRole('button', { name: 'Marcar como a pagar' })).toHaveCount(0);
 });
 
+test('despesa paga: na edição, desmarcar "Já paguei" e salvar a devolve para "a pagar"', async () => {
+  await newExpense('Cemig Outubro', 5_000, { paid: true, date: today() });
+  await expect(page).toHaveURL(/\/lancamentos/);
+  const before = await balance();
+  await page.goto('/lancamentos');
+  await page.getByRole('link', { name: /Cemig Outubro/ }).click();
+
+  await page.getByRole('button', { name: 'Editar' }).click();
+  const form = page.getByRole('dialog', { name: 'Editar lançamento' });
+  const jaPaguei = form.getByLabel('Já paguei');
+  await expect(jaPaguei).toBeChecked();
+  await jaPaguei.uncheck();
+  await expect(form.getByLabel('Vencimento', { exact: true })).toBeVisible();
+  await expect(form.getByText(/Ao salvar, volta a ficar a pagar/)).toBeVisible();
+  await form.getByRole('button', { name: 'Salvar alterações' }).click();
+
+  await expect(page).toHaveURL(/\/lancamentos/);
+  await expect(page.getByRole('link', { name: /Cemig Outubro/ })).toContainText('Pendente');
+  expect(await balance()).toBe(before + 5_000); // o valor voltou para o saldo
+});
+
+test('receita recebida: na edição, desmarcar "Recebi" e salvar a devolve para "a receber" (D93)', async () => {
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('8000');
+  await page.getByLabel('Descrição').fill('Venda recebida');
+  await pickCategory(page, 'Salário CLT');
+  await page.getByLabel('Recebi').check();
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page).toHaveURL(/\/lancamentos/);
+  const before = await balance();
+
+  await page.goto('/lancamentos');
+  await page.getByRole('link', { name: /Venda recebida/ }).click();
+  await page.getByRole('button', { name: 'Editar' }).click();
+  const form = page.getByRole('dialog', { name: 'Editar lançamento' });
+  const recebi = form.getByLabel('Recebi');
+  await expect(recebi).toBeChecked();
+  await recebi.uncheck();
+  await expect(form.getByLabel('Previsão', { exact: true })).toBeVisible();
+  await expect(form.getByText(/Ao salvar, volta a ficar a receber/)).toBeVisible();
+  await form.getByRole('button', { name: 'Salvar alterações' }).click();
+
+  await expect(page).toHaveURL(/\/lancamentos/);
+  await expect(page.getByRole('link', { name: /Venda recebida/ })).toContainText('Pendente');
+  expect(await balance()).toBe(before - 8_000); // saiu do saldo até a baixa
+});
+
 test('dar baixa sem saldo pede o aporte, com observação; o aporte entra no saldo e fica fora de "Entrou"', async () => {
   const bal = await balance();
   const entrouBefore = await (async () => {
