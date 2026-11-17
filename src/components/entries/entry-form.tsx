@@ -120,7 +120,7 @@ export function EntryForm({
   // crediário: o campo grande é o valor da compra; o total com juros vem à parte (vazio = sem juros)
   const [totalText, setTotalText] = useState('');
   const [date, setDate] = useState(defaults?.date ?? today);
-  // despesa nova nasce "a pagar" (D69); com a chave ligada, já saiu da conta
+  // despesa/receita nova nasce "a pagar"/"a receber" (D69, D93); com a chave ligada, já mexeu na conta
   const [paid, setPaid] = useState(false);
   const [notesOpen, setNotesOpen] = useState(!!defaults?.notes);
   const [categoryMissing, setCategoryMissing] = useState(false);
@@ -154,7 +154,9 @@ export function EntryForm({
   const interest = store
     ? interestPreview(amountText, totalText, Number(installments), date, card?.nextDueDate)
     : null;
-  const expenseMode = mode === 'EXPENSE' && !defaults;
+  const income = mode === 'INCOME';
+  // despesa ou receita nova pelo app: escolhe se já foi paga/recebida (a edição não mexe nisso)
+  const paidChoice = (mode === 'EXPENSE' || income) && !defaults;
   // enviado por onSubmit (e não por <form action>) para o React não limpar o formulário quando o servidor
   // devolve "faltam R$ X, informe o aporte"
   const act = isCard ? cardAction : isBenefit ? benefitAction : entryAction;
@@ -171,7 +173,7 @@ export function EntryForm({
     startTransition(() => act(fd));
   };
   const fundingShort =
-    !isCard && !isBenefit && (mode === 'INCOME' ? false : paid) && state && !state.ok
+    !isCard && !isBenefit && !income && paid && state && !state.ok
       ? state.details?.fundingShortCents
       : undefined;
 
@@ -370,8 +372,10 @@ export function EntryForm({
       <div className="grid grid-cols-2 gap-3">
         <Field
           label={
-            defaults?.pending || (expenseMode && !paid)
-              ? 'Vencimento'
+            defaults?.pending || (paidChoice && !paid)
+              ? income
+                ? 'Previsão'
+                : 'Vencimento'
               : isCard
                 ? 'Data da compra'
                 : isBenefit
@@ -380,7 +384,7 @@ export function EntryForm({
           }
           htmlFor="date"
           hint={
-            !isCard && !defaults?.pending && (mode === 'INCOME' || paid) && date > today
+            !isCard && !defaults?.pending && paid && date > today
               ? `Data futura: fica agendado e só entra no saldo em ${formatDateBR(date)}.`
               : undefined
           }
@@ -399,7 +403,7 @@ export function EntryForm({
         )}
       </div>
 
-      {expenseMode && (
+      {paidChoice && (
         <div>
           <input type="hidden" name="paid" value="false" />
           <label className="flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 text-sm">
@@ -412,11 +416,15 @@ export function EntryForm({
               className="mt-0.5 size-4 accent-primary"
             />
             <span>
-              <span className="font-medium">Já paguei</span>
+              <span className="font-medium">{income ? 'Recebi' : 'Já paguei'}</span>
               <span className="block text-xs text-muted-foreground">
-                {paid
-                  ? 'Sai do saldo da conta agora, na data escolhida.'
-                  : 'Fica a pagar no dia do vencimento até a baixa em “Paguei”.'}
+                {income
+                  ? paid
+                    ? 'Entra no saldo da conta agora, na data escolhida.'
+                    : 'Fica a receber, e só entra no saldo quando você der baixa em “Recebi”. Passou da data sem baixa, fica atrasada.'
+                  : paid
+                    ? 'Sai do saldo da conta agora, na data escolhida.'
+                    : 'Fica a pagar, e só sai do saldo quando você der baixa em “Paguei”. Passou do vencimento sem baixa, fica atrasada.'}
               </span>
             </span>
           </label>

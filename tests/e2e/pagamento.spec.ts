@@ -55,7 +55,7 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
   await expect(page).toHaveURL(/\/lancamentos/);
   const row = page.getByRole('link', { name: /Cemig vencida/ });
   await expect(row).toContainText('Pendente');
-  if (opening !== today()) await expect(row).toContainText('Venceu');
+  if (opening !== today()) await expect(row).toContainText('Atrasada desde');
   expect(await balance()).toBe(before); // continua tudo na conta
 
   // aparece em "Pendentes" na Home, pronta para a baixa
@@ -66,12 +66,44 @@ test('despesa lançada sem "Já paguei" fica a pagar (vencida se a data passou) 
 test('o formulário explica a chave: desligada vira vencimento, ligada sai do saldo', async () => {
   await page.goto('/lancamentos/novo');
   await expect(page.getByLabel('Vencimento', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Fica a pagar no dia do vencimento/)).toBeVisible();
+  await expect(page.getByText(/Fica a pagar, e só sai do saldo/)).toBeVisible();
   await page.getByLabel('Já paguei').check();
   await expect(page.getByText('Sai do saldo da conta agora')).toBeVisible();
   await expect(page.getByLabel('Data', { exact: true })).toBeVisible();
+  await page.getByLabel('Já paguei').uncheck();
   await page.getByRole('radio', { name: 'Receita' }).click();
-  await expect(page.getByLabel('Já paguei')).toHaveCount(0); // receita é sempre recebida
+  // receita tem a chave "Recebi" (D93), desligada por padrão, no lugar do "Já paguei"
+  await expect(page.getByLabel('Já paguei')).toHaveCount(0);
+  await expect(page.getByLabel('Previsão', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Fica a receber, e só entra no saldo/)).toBeVisible();
+  await page.getByLabel('Recebi').check();
+  await expect(page.getByText('Entra no saldo da conta agora')).toBeVisible();
+  await expect(page.getByLabel('Data', { exact: true })).toBeVisible();
+});
+
+test('receita sem "Recebi" fica a receber e atrasada, e só entra no saldo na baixa em "Recebi" (D93)', async () => {
+  const before = await balance();
+  const opening = monthStart(today());
+  await page.goto('/lancamentos/novo');
+  await page.getByRole('radio', { name: 'Receita' }).click();
+  await page.getByLabel('Valor').fill('25000');
+  await page.getByLabel('Descrição').fill('Freela a receber');
+  await pickCategory(page, 'Salário CLT');
+  await page.locator('#date').fill(opening);
+  await page.getByRole('button', { name: 'Lançar' }).click();
+  await expect(page).toHaveURL(/\/lancamentos/);
+
+  const row = page.getByRole('link', { name: /Freela a receber/ });
+  await expect(row).toContainText('Pendente');
+  if (opening !== today()) await expect(row).toContainText('Atrasada desde');
+  expect(await balance()).toBe(before); // não entrou sozinha, mesmo com a data já vencida
+
+  await row.click();
+  await page.getByRole('button', { name: 'Confirmar recebimento' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: 'Confirmar' }).click();
+  await expect(dialog).toBeHidden();
+  expect(await balance()).toBe(before + 25_000); // entrou na baixa
 });
 
 test('despesa que nasceu paga pode voltar a "a pagar"', async () => {

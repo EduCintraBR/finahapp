@@ -23,7 +23,7 @@ export function HighlightBadge({ dueDate, today }: { dueDate: ISODate | null; to
   );
 }
 
-/** Vencimento em texto, colorido só quando pede atenção ("Venceu" vale para conta e para receita). */
+/** Vencimento em texto, colorido só quando pede atenção ("Atrasada" vale para conta e para receita). */
 export function DueText({ dueDate, today }: { dueDate: ISODate; today: ISODate }) {
   const h = dueHighlight(dueDate, today);
   const day = formatDateBR(dueDate).slice(0, 5);
@@ -38,7 +38,7 @@ export function DueText({ dueDate, today }: { dueDate: ISODate; today: ISODate }
             : 'text-muted-foreground',
       )}
     >
-      {h === 'OVERDUE' ? `Venceu ${day}` : h === 'TODAY' ? 'Vence hoje' : `Vence ${day}`}
+      {h === 'OVERDUE' ? `Atrasada desde ${day}` : h === 'TODAY' ? 'Vence hoje' : `Vence ${day}`}
     </span>
   );
 }

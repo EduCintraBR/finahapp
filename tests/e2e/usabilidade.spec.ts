@@ -162,6 +162,7 @@ test('receita com data futura fica agendada: não entra no saldo atual, mostra o
   await page.getByLabel('Descrição').fill('Freela agendado');
   await pickCategory(page, 'Salário CLT');
   await page.locator('#date').fill(future);
+  await page.getByLabel('Recebi').check();
   await expect(page.getByText(/Data futura: fica agendado e só entra no saldo em/)).toBeVisible();
   await page.getByRole('button', { name: 'Lançar' }).click();
 
@@ -176,6 +177,7 @@ test('receita com data futura fica agendada: não entra no saldo atual, mostra o
   await page.getByLabel('Valor').fill('10000');
   await page.getByLabel('Descrição').fill('Receita de hoje');
   await pickCategory(page, 'Salário CLT');
+  await page.getByLabel('Recebi').check();
   await expect(page.getByText(/Data futura/)).toHaveCount(0);
   await page.getByRole('button', { name: 'Lançar' }).click();
   await expect(page.getByRole('link', { name: /Receita de hoje/ })).not.toContainText('Agendado');
