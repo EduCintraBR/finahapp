@@ -267,19 +267,24 @@ async function invoicesRemaining(
   return centsFromDb(r?.v);
 }
 
-/** Pendentes da conta por direção (due_date na janela; ver dueWindow). */
+/**
+ * Pendentes da conta por direção (due_date na janela; ver dueWindow). `withoutLoans`: sem as parcelas de
+ * empréstimo, que a projeção soma à parte (loanInstallmentsDue).
+ */
 async function pendingAccount(
   db: AnyDB,
   kind: 'INCOME' | 'EXPENSE',
   from: ISODate | null,
   to: ISODate,
   overdueBefore: ISODate | null = null,
+  withoutLoans = false,
 ): Promise<Cents> {
   const [r] = await rows<{ v: string | null }>(
     db,
     sql`select sum(t.amount_cents) as v from transactions t
         where t.kind = ${kind} and t.status = 'PENDING' and t.deleted_at is null and t.bank_account_id is not null
           and not (t.kind = 'INCOME' and (t.loan_id is not null or t.funding_for_transaction_id is not null))
+          ${withoutLoans ? sql`and t.loan_installment_number is null` : sql``}
           and ${dueWindow(sql`t.due_date`, from, to, overdueBefore)}`,
   );
   return centsFromDb(r?.v);
@@ -484,9 +489,19 @@ export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate)
   }
   const results: MonthProjection[] = [];
   for (const m of months) {
-    const [invoicesDueCents, loansDueCents, scheduledInCents, scheduledOutCents] = await Promise.all([
+    const [
+      invoicesDueCents,
+      loansDueCents,
+      pendingInCents,
+      pendingOutCents,
+      scheduledInCents,
+      scheduledOutCents,
+    ] = await Promise.all([
       invoicesRemaining(db, m, monthEnd(m)),
       loanInstallmentsDue(db, m, monthEnd(m)),
+      // D94: avulsos a receber/a pagar do mês (os atrasados já entram no previsto do mês atual)
+      pendingAccount(db, 'INCOME', m, monthEnd(m)),
+      pendingAccount(db, 'EXPENSE', m, monthEnd(m), null, true),
       scheduledAccount(db, ['INCOME'], m, monthEnd(m), today),
       scheduledAccount(db, OUT_KINDS, m, monthEnd(m), today),
     ]);
@@ -497,6 +512,8 @@ export async function projection(db: AnyDB, today: ISODate, untilMonth: ISODate)
         templates,
         invoicesDueCents,
         loansDueCents,
+        pendingInCents,
+        pendingOutCents,
         scheduledInCents,
         scheduledOutCents,
       }),
