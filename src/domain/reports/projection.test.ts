@@ -45,6 +45,7 @@ describe('projectMonth (D41)', () => {
       variableCents: 25_000,
       invoicesCents: 150_000,
       loansCents: 0,
+      pendingOutCents: 0,
       scheduledOutCents: 0,
       subscriptionsCents: 5_590, // cobrança de 15/11 cai na fatura que vence em 16/12
       resultCents: 800_000 - (200_000 + 25_000 + 150_000 + 5_590),
@@ -75,6 +76,21 @@ describe('projectMonth (D41)', () => {
     expect(p.incomeCents).toBe(500_000);
     expect(p.scheduledOutCents).toBe(120_000);
     expect(p.resultCents).toBe(380_000);
+  });
+
+  it('D94: receitas e contas avulsas pendentes do mês entram no resultado (antes só no A receber/A pagar)', () => {
+    const p = projectMonth({
+      month: '2026-12-01',
+      today: '2026-11-25',
+      templates: [tpl({ direction: 'INCOME', amountCents: 800_000 })],
+      invoicesDueCents: 0,
+      pendingInCents: 150_000, // um freela a receber em dezembro
+      pendingOutCents: 45_090, // IPVA lançado à mão para dezembro
+    });
+    expect(p.incomeCents).toBe(950_000);
+    expect(p.templateIncomeCents).toBe(800_000);
+    expect(p.pendingOutCents).toBe(45_090);
+    expect(p.resultCents).toBe(950_000 - 45_090);
   });
 
   it('projectedItems: a lista por trás dos totais (fixo, recorrente, receita), com o dia ajustado ao mês', () => {

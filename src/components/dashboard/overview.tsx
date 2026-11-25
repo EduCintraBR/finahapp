@@ -125,8 +125,13 @@ export function BalanceHero({
             main < 0 && 'text-expense',
           )}
         />
+        {/* D94: abre o previsto dia a dia (como chegamos nesse número, menor saldo, cartão) */}
         {isCurrentMonth ? (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm" data-testid="end-of-month">
+          <Link
+            href={`/resumo/previsto${suffix}`}
+            className="group -mx-1.5 flex w-fit flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md px-1.5 py-0.5 text-sm transition-colors outline-none hover:bg-muted/50 focus-visible:ring-[3px] focus-visible:ring-ring/50"
+            data-testid="end-of-month"
+          >
             <Trend className={cn('size-4', delta >= 0 ? 'text-income' : 'text-expense')} aria-hidden />
             <span className="text-muted-foreground">{END_LABEL[summary.endOfMonthKind]}:</span>
             <span className="font-semibold tabular-nums">{formatBRL(summary.endOfMonthCents)}</span>
@@ -141,11 +146,20 @@ export function BalanceHero({
                 {formatBRL(Math.abs(delta))}
               </span>
             )}
-          </div>
+            <ChevronRight
+              className="size-3.5 opacity-60 transition-transform group-hover:translate-x-0.5"
+              aria-hidden
+            />
+          </Link>
         ) : (
-          <div className="text-xs text-muted-foreground">
+          <Link
+            href={`/resumo/previsto${suffix}`}
+            className="group flex w-fit items-center gap-1 text-xs text-muted-foreground hover:underline"
+            data-testid="end-of-month"
+          >
             {END_LABEL[summary.endOfMonthKind]} · saldo de hoje: {formatBRL(balanceCents)}
-          </div>
+            <ChevronRight className="size-3 opacity-60" aria-hidden />
+          </Link>
         )}
       </CardContent>
 
