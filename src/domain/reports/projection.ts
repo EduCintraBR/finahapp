@@ -3,7 +3,7 @@
  *   resultado = receitas previstas − (fixos + estimativas de recorrentes + faturas que vencem no mês
  *               + assinaturas no cartão cuja fatura vence no mês)
  */
-import { addMonths, compareDates, dateInMonth, monthStart, type ISODate } from '../dates';
+import { addMonths, compareDates, dateInMonth, monthEnd, monthStart, type ISODate } from '../dates';
 import { resolveInvoice, type InvoiceRule, type InvoiceWindow } from '../card/invoices';
 import type { Cents } from '../money';
 import { isActiveInMonth, type TemplateWindow } from '../recurring/occurrences';
@@ -18,15 +18,17 @@ export type ProjectionTemplate = TemplateWindow & {
 
 export type MonthProjection = {
   month: ISODate;
-  /** receitas previstas dos templates + lançamentos agendados do mês */
+  /** receitas previstas dos templates + receitas a receber avulsas + lançamentos agendados do mês */
   incomeCents: Cents;
-  /** só as receitas previstas dos templates (sem os agendados) */
+  /** só as receitas previstas dos templates (sem as avulsas e os agendados) */
   templateIncomeCents: Cents;
   fixedCents: Cents;
   variableCents: Cents;
   invoicesCents: Cents;
   /** parcelas de empréstimo pendentes que vencem no mês */
   loansCents: Cents;
+  /** contas a pagar avulsas (pendentes que não são fixo nem empréstimo) que vencem no mês (D94) */
+  pendingOutCents: Cents;
   /** saídas já registradas com data neste mês (agendadas) */
   scheduledOutCents: Cents;
   subscriptionsCents: Cents;
@@ -48,6 +50,21 @@ export function subscriptionChargeDates(t: ProjectionTemplate, month: ISODate, t
     }
   }
   return out;
+}
+
+/**
+ * D94: dia em que a cobrança de uma assinatura sai da conta: o vencimento da fatura em que ela cai, dentro do mês
+ * da projeção (`month`). A fatura é a do mês de referência `month` (subscriptionChargeDates); se a data real dela
+ * foi editada para fora do mês, fica no 1º/último dia do mês, para o dia a dia fechar com o total do mês.
+ */
+export function subscriptionCashDate(t: ProjectionTemplate, chargeDate: ISODate, month: ISODate): ISODate {
+  if (!t.card) return chargeDate;
+  const due = resolveInvoice(chargeDate, t.card.invoices, t.card.rule).dueDate;
+  const from = monthStart(month);
+  const to = monthEnd(month);
+  if (compareDates(due, from) < 0) return from;
+  if (compareDates(due, to) > 0) return to;
+  return due;
 }
 
 /** D39: assinaturas ainda não cobradas (data > hoje) cuja fatura vence no mês. */
@@ -100,6 +117,12 @@ export function projectMonth(input: {
   invoicesDueCents: Cents;
   /** parcelas de empréstimo ainda pendentes que vencem no mês (D66) */
   loansDueCents?: Cents;
+  /**
+   * D94: receitas a receber e contas a pagar avulsas (pendentes, sem fixo nem empréstimo) que vencem no mês. Antes
+   * ficavam no A receber/A pagar do mês, mas fora do saldo estimado.
+   */
+  pendingInCents?: Cents;
+  pendingOutCents?: Cents;
   /** lançamentos já registrados com data neste mês (futuro), que a projeção não deve ignorar (D67) */
   scheduledInCents?: Cents;
   scheduledOutCents?: Cents;
@@ -117,7 +140,8 @@ export function projectMonth(input: {
   }
   const loansCents = input.loansDueCents ?? 0;
   const scheduledOutCents = input.scheduledOutCents ?? 0;
-  const incomeCents = templateIncomeCents + (input.scheduledInCents ?? 0);
+  const pendingOutCents = input.pendingOutCents ?? 0;
+  const incomeCents = templateIncomeCents + (input.pendingInCents ?? 0) + (input.scheduledInCents ?? 0);
   const resultCents =
     incomeCents -
     (fixedCents +
@@ -125,6 +149,7 @@ export function projectMonth(input: {
       input.invoicesDueCents +
       subscriptionsCents +
       loansCents +
+      pendingOutCents +
       scheduledOutCents);
   return {
     month,
@@ -134,6 +159,7 @@ export function projectMonth(input: {
     variableCents,
     invoicesCents: input.invoicesDueCents,
     loansCents,
+    pendingOutCents,
     scheduledOutCents,
     subscriptionsCents,
     resultCents,

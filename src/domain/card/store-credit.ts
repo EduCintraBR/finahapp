@@ -15,7 +15,14 @@ import {
   type ISODate,
 } from '../dates';
 import { assertCents, type Cents } from '../money';
-import { cardRule, resolveInvoice, windowFor, type CardTerms, type InvoiceWindow } from './invoices';
+import {
+  cardRule,
+  invoiceSequence,
+  resolveInvoice,
+  windowFor,
+  type CardTerms,
+  type InvoiceWindow,
+} from './invoices';
 
 export type StoreCreditTerms = { firstDueDays: number; closeBeforeDays: number };
 
@@ -159,6 +166,24 @@ export function placePurchase(
     invoices.map((i) => ({ ...i, settled: i.totalCents <= i.paidCents })),
     card.dueDay,
     { firstDueDays: card.firstDueDays, closeBeforeDays: card.closeBeforeDays },
+  );
+}
+
+/**
+ * Vencimentos das faturas em que cairiam as `count` parcelas de uma compra feita em `date`, sem gravar nada: a mesma
+ * alocação de invoicesForPurchase (invariante 5; no crediário, o ciclo novo vence no dia da 1ª fatura). Usado na
+ * simulação do previsto (D94).
+ */
+export function purchaseDueDates(
+  card: CardTerms,
+  date: ISODate,
+  invoices: readonly (InvoiceWindow & { totalCents: Cents; paidCents: Cents })[],
+  count: number,
+): ISODate[] {
+  const placed = placePurchase(card, date, invoices);
+  const terms = placed.newCycle ? { ...card, dueDay: placed.anchorDay } : card;
+  return invoiceSequence(placed.window.referenceMonth, count, invoices, cardRule(terms)).map(
+    (w) => w.dueDate,
   );
 }
 

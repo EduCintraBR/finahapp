@@ -199,6 +199,21 @@ Pedido do usuário (05/11/2026): guardar no app também as informações da casa
 
 ---
 
+## Previsto dia a dia (D94)
+
+Pedido do usuário (25/11/2026): ao tocar no "Previsto no fim do mês", ver o cálculo completo e o saldo de cada dia até o fim do mês (e dos meses seguintes), para planejar em que dias haverá dinheiro e se dá para continuar gastando no cartão.
+
+- [x] Regras puras (`src/domain/reports/cash-forecast.ts`): dias encadeados, atrasados hoje, menor saldo, 1º dia negativo, folga do cartão, simulação; property tests (fechamento = abertura + Σ movimentos; Σ partes = variação; gastar a folga nunca deixa negativo e 1 centavo a mais deixa; Σ parcelas = total)
+- [x] `purchaseDueDates`: vencimentos das parcelas de uma compra feita hoje, sem gravar fatura
+- [x] Correção: avulsos a pagar/receber de meses futuros entram no saldo estimado
+- [x] `/resumo/previsto`: composição do número, gráfico, alertas, "Posso gastar no cartão?" com simulação, dia a dia e mês a mês; link na Início e na Projeção
+- [x] Teste de aceitação: o fim de cada mês = Início = Projeção; dias passados = saldo real; nada gravado
+- [x] e2e em 375px
+
+**Pronto quando:** o fim de cada mês do dia a dia é exatamente o número da Início, da Projeção e do bot, os dias que já passaram mostram o saldo real, e a simulação não grava nada.
+
+---
+
 ## Depois da v1 (backlog)
 
 - Migração para o NAS (Tailscale, bot em polling)

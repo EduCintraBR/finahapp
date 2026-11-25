@@ -62,8 +62,9 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
           </CardTitle>
           <CardDescription>
             Estimativa: parte do saldo previsto para o fim deste mês e soma o resultado de cada mês. Entram
-            receitas e contas fixas cadastradas, a estimativa dos recorrentes, o que falta pagar das faturas
-            já agendadas e as assinaturas no cartão. Compras futuras no cartão ainda não feitas não entram.
+            receitas e contas fixas cadastradas, a estimativa dos recorrentes, contas e receitas avulsas já
+            lançadas, o que falta pagar das faturas já agendadas e as assinaturas no cartão. Compras futuras
+            no cartão ainda não feitas não entram.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -88,6 +89,7 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
             r.invoicesCents +
             r.subscriptionsCents +
             r.loansCents +
+            r.pendingOutCents +
             r.scheduledOutCents;
           return (
             <li key={r.month}>
@@ -111,18 +113,24 @@ export default async function ProjectionPage({ searchParams }: PageProps<'/relat
                     )}
                     {r.invoicesCents > 0 && <Row label="· Faturas" cents={r.invoicesCents} sub />}
                     {r.loansCents > 0 && <Row label="· Empréstimos" cents={r.loansCents} sub />}
+                    {r.pendingOutCents > 0 && (
+                      <Row label="· Contas a pagar avulsas" cents={r.pendingOutCents} sub />
+                    )}
                     {r.scheduledOutCents > 0 && <Row label="· Agendados" cents={r.scheduledOutCents} sub />}
                     {r.subscriptionsCents > 0 && (
                       <Row label="· Assinaturas" cents={r.subscriptionsCents} sub />
                     )}
                   </dl>
-                  <div className="flex justify-between border-t pt-2 text-xs">
-                    <span className="text-muted-foreground">Saldo estimado no fim do mês</span>
+                  <Link
+                    href={`/resumo/previsto?mes=${toMonthParam(r.month)}`}
+                    className="flex items-center justify-between gap-2 border-t pt-2 text-xs hover:underline"
+                  >
+                    <span className="text-muted-foreground">Saldo estimado no fim do mês · dia a dia</span>
                     <Amount
                       cents={r.estimatedBalanceCents}
                       className={r.estimatedBalanceCents < 0 ? 'font-medium text-expense' : 'font-medium'}
                     />
-                  </div>
+                  </Link>
                 </CardContent>
               </Card>
             </li>
