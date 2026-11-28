@@ -1,5 +1,5 @@
 # CD do ambiente de desenvolvimento: todo push na `dev` (merge de PR ou commit direto) roda o CI completo e, se passar,
-# publica no servidor local (cintraserver, acessível pela tailnet em https://cintraserver.taile04221.ts.net).
+# publica no servidor de dev (VPS própria, separada da produção, acessível só pela tailnet em https://finah-dev.taile04221.ts.net).
 # O deploy roda num runner self-hosted (label `finah-dev`) instalado no próprio servidor: stack, banco e .env em /opt/finah-dev.
 # A produção (VPS) só muda pelo deploy.yml (push na `main`).
 name: Deploy dev
@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 25
     environment:
       name: development
-      url: https://cintraserver.taile04221.ts.net
+      url: https://finah-dev.taile04221.ts.net
     env:
       APP_DIR: /opt/finah-dev
       COMPOSE: docker compose -p finah-dev

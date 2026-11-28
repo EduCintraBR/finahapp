@@ -109,13 +109,13 @@ Em produção usamos **nginx no host** com Let's Encrypt (Certbot), e não o Cad
 - nginx: `/etc/nginx/sites-available/finah` faz proxy de `finahapp.com` e `www.finahapp.com` para `127.0.0.1:3000` (`client_max_body_size 2m`). O HTTPS e o redirecionamento 80→443 vêm do `certbot --nginx`, e a renovação é automática (`certbot.timer`).
 - Firewall (ufw): só 22, 80 e 443.
 
-### Ambiente de dev (servidor local, via Tailscale)
+### Ambiente de dev (VPS de dev, via Tailscale)
 
-O dev **não roda mais na VPS**: roda no servidor local (`cintraserver`), isolado da produção, e é acessado pela tailnet em **https://cintraserver.taile04221.ts.net** (só quem está no Tailscale chega lá). O domínio `dev.finahapp.com` não é mais usado: o DNS dele ainda aponta para a VPS, que não tem mais containers nem vhost para ele (por isso dá erro de TLS), então pode ser removido no provedor do domínio.
+O dev **não roda na VPS de produção**: roda numa **VPS própria de dev** (`finah-dev` na tailnet), isolada da produção, e é acessado só pela tailnet em **https://finah-dev.taile04221.ts.net** (quem não está no Tailscale não chega lá; não há porta do app aberta na internet). O HTTPS vem do próprio Tailscale (`tailscale serve --bg --https=443 http://127.0.0.1:3001`, que volta sozinho após reiniciar). Até 28/11/2026 o dev rodava no servidor local `cintraserver` (D91), que foi desligado. O domínio `dev.finahapp.com` não é mais usado: o DNS dele ainda aponta para a VPS, que não tem mais containers nem vhost para ele (por isso dá erro de TLS), então pode ser removido no provedor do domínio.
 
-No servidor local: código em `/opt/finah-dev`, projeto Compose `finah-dev` (`docker compose -p finah-dev ...`), **Postgres e volume próprios** (banco `finah_dev`), app em `127.0.0.1:3001`, imagem `finah-dev:local` e `.env` próprio (segredos diferentes, `BOT_MODE=off`, sem chave da Anthropic e sem backup no Drive).
+Na VPS de dev: código em `/opt/finah-dev` (dono: usuário `github-runner`), projeto Compose `finah-dev` (`docker compose -p finah-dev ...`), **Postgres e volume próprios** (banco `finah_dev`), app em `127.0.0.1:3001`, imagem `finah-dev:local` e `.env` próprio (segredos diferentes, `BOT_MODE=off`, sem chave da Anthropic e sem backup no Drive).
 
-- **Deploy**: todo push na `dev` roda o CI e publica aqui (`deploy-dev.yml`) por um **runner self-hosted** (label `finah-dev`) instalado no próprio servidor, com o mesmo desenho do deploy de produção (volta para a imagem anterior se falhar), só que sem o backup prévio: é um ambiente descartável.
+- **Deploy**: todo push na `dev` roda o CI e publica aqui (`deploy-dev.yml`) por um **runner self-hosted** (`finah-dev-vps`, label `finah-dev`) instalado na própria VPS como serviço do systemd e rodando com o usuário sem privilégio `github-runner` (grupo `docker`), com o mesmo desenho do deploy de produção (volta para a imagem anterior se falhar), só que sem o backup prévio: é um ambiente descartável.
 
 - **Dados**: só **dados fictícios** (seed com usuários e senhas de teste, diferentes da produção). Nunca copie o banco de produção para cá: o dev existe para testar, não para guardar dados reais. Para zerar: `docker compose -p finah-dev down -v`, `up -d` e rode o seed (`docker compose -p finah-dev run --rm app node dist/seed.mjs`). O login também pede 2FA: cada um cadastra um autenticador de dev no 1º login.
 - **Bot**: desligado no dev. Um bot do Telegram só aponta para um webhook, e ele está na produção.
