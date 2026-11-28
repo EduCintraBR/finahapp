@@ -4,6 +4,8 @@
 
 /* Tema: o atributo data-theme ("light" | "dark") fica no <html>; o padrão é escuro (ver theme-script.tsx). */
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+/* Menu lateral escondido: o atributo data-sidebar="collapsed" fica no <html> (ver src/lib/sidebar.ts). */
+@custom-variant sidebar-collapsed (&:where([data-sidebar='collapsed'] *));
 
 @theme inline {
   --radius-sm: calc(var(--radius) * 0.6);

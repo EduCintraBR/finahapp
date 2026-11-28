@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { headers } from 'next/headers';
 import { ServiceWorkerRegister } from '@/components/pwa/service-worker-register';
+import { SIDEBAR_INIT_SCRIPT } from '@/lib/sidebar';
 import { THEME_COLOR, THEME_INIT_SCRIPT } from '@/lib/theme';
 import './globals.css';
 
@@ -34,8 +35,11 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
   return (
     <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
       <head>
-        {/* antes da primeira pintura: aplica o tema escolhido neste aparelho (evita piscar) */}
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+        {/* antes da primeira pintura: aplica o tema e o menu lateral escolhidos neste aparelho (evita piscar) */}
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: `${THEME_INIT_SCRIPT};${SIDEBAR_INIT_SCRIPT}` }}
+        />
       </head>
       <body className="min-h-dvh">
         {children}
