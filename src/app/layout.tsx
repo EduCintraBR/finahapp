@@ -36,7 +36,10 @@ export default async function RootLayout({ children }: LayoutProps<'/'>) {
     <html lang="pt-BR" data-theme="dark" suppressHydrationWarning>
       <head>
         {/* antes da primeira pintura: aplica o tema e o menu lateral escolhidos neste aparelho (evita piscar) */}
-        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: `${THEME_INIT_SCRIPT};${SIDEBAR_INIT_SCRIPT}` }} />
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{ __html: `${THEME_INIT_SCRIPT};${SIDEBAR_INIT_SCRIPT}` }}
+        />
       </head>
       <body className="min-h-dvh">
         {children}
