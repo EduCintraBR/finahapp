@@ -14,7 +14,10 @@ import { NewEntrySheet } from './new-entry-sheet';
 const ALL = SIDEBAR_GROUPS.flatMap((g) => g.items);
 const CASA_ALL = CASA_SIDEBAR_GROUPS.flatMap((g) => g.items);
 
-/** Sidebar do desktop (≥ md): a troca de área (D81) e as seções da área, agrupadas. */
+/**
+ * Sidebar do desktop e do iPad (≥ md): a troca de área (D81) e as seções da área, agrupadas. Pode ser escondida
+ * pelo botão do cabeçalho (`SidebarToggle`, D96).
+ */
 export function Sidebar() {
   const pathname = usePathname();
   const params = useSearchParams();
@@ -23,7 +26,10 @@ export function Sidebar() {
   const current = activeItem(pathname, casa ? CASA_ALL : ALL);
 
   return (
-    <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex print:hidden">
+    <aside
+      id="app-sidebar"
+      className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col overflow-y-auto border-r bg-sidebar text-sidebar-foreground md:flex print:hidden md:sidebar-collapsed:hidden"
+    >
       <div className="flex h-16 items-center px-5">
         <Logo />
       </div>

@@ -8,6 +8,7 @@ import { MonthSelector } from './month-selector';
 import { ThemeQuickToggle } from '@/components/theme/theme-controls';
 import { NAV_ITEMS } from './nav-items';
 import { Sidebar } from './sidebar';
+import { SidebarToggle } from './sidebar-toggle';
 
 export function AppShell({
   user,
@@ -27,8 +28,11 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b bg-background/95 pt-safe backdrop-blur print:hidden">
           <div className="mx-auto flex h-14 max-w-5xl items-center justify-between gap-2 px-4">
-            {/* celular: o logo abre a troca de área (Finanças ou Casa, D81); no desktop ela fica na sidebar */}
-            <div className="md:hidden">
+            {/* ≥ md: esconde/mostra o menu lateral (D96) */}
+            <SidebarToggle className="-ml-2" />
+            {/* celular: o logo abre a troca de área (Finanças ou Casa, D81); no desktop ela fica na sidebar, e com a
+                sidebar escondida volta para o cabeçalho */}
+            <div className="md:hidden md:sidebar-collapsed:block">
               <AreaMenu />
             </div>
             {/* o meio do cabeçalho existe mesmo nas telas sem seletor de mês: tema e perfil ficam sempre à direita */}
